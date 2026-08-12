@@ -9,7 +9,7 @@ from app.schemas.schemas import (
     FacturaOut, CargaResumen, CorreccionFactura, ResolucionDuplicado,
     GenerarPartidaRequest, PartidaOut, LineaPartidaOut,
 )
-from app.services.zip_processing_service import procesar_zip
+from app.services.zip_processing_service import procesar_archivos_mixtos
 from app.services import documentos_service, partida_doble_service, historial_service
 from app.services.auditoria_service import registrar as auditoria_registrar
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/empresas/{empresa_id}/documentos", tags=["documentos
 @router.post("/cargar", response_model=CargaResumen, status_code=201)
 async def cargar_documentos(
     empresa_id: str,
-    zip_file: UploadFile = File(..., alias="zip"),
+    documentos: list[UploadFile] = File(..., description="Uno o varios .zip, y/o .xml/.pdf sueltos"),
     excel_file: UploadFile | None = File(default=None, alias="excel"),
     mapeo_cufe: str | None = Form(default=None),
     mapeo_numero_factura: str | None = Form(default=None),
@@ -32,16 +32,24 @@ async def cargar_documentos(
     usuario: str = Depends(usuario_actual),
 ):
     """
-    Flujo manual completo (sección 3): el usuario sube el ZIP de XML/PDF
-    de la DIAN y, opcionalmente, el Excel correspondiente con el mapeo
-    de sus columnas. El sistema relaciona ambos y deja para revisión lo
-    que no pudo relacionarse con suficiente seguridad.
+    Flujo manual completo (sección 3): el usuario sube uno o varios ZIP
+    de la DIAN, y/o archivos XML/PDF sueltos sin comprimir (la DIAN a
+    veces entrega la descarga partida en varios ZIP, o el usuario los
+    tiene sueltos porque los bajó del correo uno por uno). Opcionalmente
+    también el Excel de la DIAN con el mapeo de sus columnas.
     """
-    zip_contenido = await zip_file.read()
+    if not documentos:
+        raise HTTPException(status_code=422, detail="Debes subir al menos un archivo .zip, .xml o .pdf.")
+
+    archivos_leidos = []
+    for f in documentos:
+        contenido = await f.read()
+        archivos_leidos.append((f.filename or "archivo_sin_nombre", contenido))
+
     try:
-        documentos_zip = procesar_zip(zip_contenido)
+        documentos_zip = procesar_archivos_mixtos(archivos_leidos)
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"No se pudo leer el ZIP: {e}")
+        raise HTTPException(status_code=422, detail=f"No se pudieron leer los archivos: {e}")
 
     excel_contenido = None
     mapeo = None
@@ -62,7 +70,7 @@ async def cargar_documentos(
     carga = CargaDocumentosDian(
         empresa_id=empresa_id,
         archivo_excel_nombre=excel_file.filename if excel_file else None,
-        archivo_zip_nombre=zip_file.filename,
+        archivo_zip_nombre=", ".join(nombre for nombre, _ in archivos_leidos)[:300],
         usuario=usuario,
     )
     db.add(carga)

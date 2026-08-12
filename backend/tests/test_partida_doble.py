@@ -14,7 +14,7 @@ def _cargar_una_factura(client, empresa_id, numero="FEP001", cufe="cufe-partida-
                          nit="900321321", subtotal="100000", total="119000"):
     zip_contenido = _zip_bytes({f"{numero}.xml": _xml(numero, cufe, nit, subtotal=subtotal, total=total)})
     r = client.post(f"/empresas/{empresa_id}/documentos/cargar",
-                     files={"zip": ("d.zip", zip_contenido, "application/zip")})
+                     files=[("documentos", ("d.zip", zip_contenido, "application/zip"))])
     assert r.status_code == 201, r.text
     facturas = client.get(f"/empresas/{empresa_id}/documentos", params={"nit_emisor": nit}).json()
     return facturas[0]

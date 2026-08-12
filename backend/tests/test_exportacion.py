@@ -5,7 +5,7 @@ def _preparar_factura_lista(client, empresa_id, numero, cufe, nit, cuenta_gasto=
                              subtotal="80000", total="80000"):
     zip_contenido = _zip_bytes({f"{numero}.xml": _xml(numero, cufe, nit, subtotal=subtotal, total=total)})
     client.post(f"/empresas/{empresa_id}/documentos/cargar",
-                files={"zip": ("d.zip", zip_contenido, "application/zip")})
+                files=[("documentos", ("d.zip", zip_contenido, "application/zip"))])
     factura = client.get(f"/empresas/{empresa_id}/documentos", params={"nit_emisor": nit}).json()[0]
 
     client.post(f"/empresas/{empresa_id}/cuentas", json={"codigo": cuenta_gasto, "nombre": "Honorarios"})
@@ -78,7 +78,7 @@ def test_world_office_exige_tercero_y_siigo_no(client, empresa_a):
 def test_no_permite_exportar_factura_sin_partida_generada(client, empresa_a):
     zip_contenido = _zip_bytes({"FEX003.xml": _xml("FEX003", "cufe-exp-3", "900733733")})
     client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
-                files={"zip": ("d.zip", zip_contenido, "application/zip")})
+                files=[("documentos", ("d.zip", zip_contenido, "application/zip"))])
     factura = client.get(f"/empresas/{empresa_a['id']}/documentos", params={"nit_emisor": "900733733"}).json()[0]
 
     r = client.post(f"/empresas/{empresa_a['id']}/plantillas", json={

@@ -57,7 +57,7 @@ def test_carga_solo_zip_sin_excel_crea_facturas_pendientes_revision(client, empr
     zip_contenido = _zip_bytes({"FE001.xml": _xml("FE001", "cufe-aaa", "900111111")})
     r = client.post(
         f"/empresas/{empresa_a['id']}/documentos/cargar",
-        files={"zip": ("docs.zip", zip_contenido, "application/zip")},
+        files=[("documentos", ("docs.zip", zip_contenido, "application/zip"))],
     )
     assert r.status_code == 201, r.text
     body = r.json()
@@ -80,11 +80,11 @@ def test_relacion_excel_zip_por_cufe(client, empresa_a):
 
     r = client.post(
         f"/empresas/{empresa_a['id']}/documentos/cargar",
-        files={
-            "zip": ("docs.zip", zip_contenido, "application/zip"),
-            "excel": ("dian.xlsx", excel_contenido,
-                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        },
+        files=[
+            ("documentos", ("docs.zip", zip_contenido, "application/zip")),
+            ("excel", ("dian.xlsx", excel_contenido,
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+        ],
         data={"mapeo_cufe": "CUFE_DIAN", "mapeo_valor_total": "Total"},
     )
     assert r.status_code == 201, r.text
@@ -105,11 +105,11 @@ def test_relacion_por_numero_y_nit_cuando_no_hay_cufe_en_excel(client, empresa_a
 
     r = client.post(
         f"/empresas/{empresa_a['id']}/documentos/cargar",
-        files={
-            "zip": ("docs.zip", zip_contenido, "application/zip"),
-            "excel": ("dian.xlsx", excel_contenido,
-                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        },
+        files=[
+            ("documentos", ("docs.zip", zip_contenido, "application/zip")),
+            ("excel", ("dian.xlsx", excel_contenido,
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+        ],
         data={"mapeo_numero_factura": "Numero", "mapeo_nit_emisor": "Nit"},
     )
     assert r.status_code == 201, r.text
@@ -127,11 +127,11 @@ def test_fila_excel_sin_documento_zip_queda_para_revision(client, empresa_a):
 
     r = client.post(
         f"/empresas/{empresa_a['id']}/documentos/cargar",
-        files={
-            "zip": ("docs.zip", zip_contenido, "application/zip"),
-            "excel": ("dian.xlsx", excel_contenido,
-                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        },
+        files=[
+            ("documentos", ("docs.zip", zip_contenido, "application/zip")),
+            ("excel", ("dian.xlsx", excel_contenido,
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+        ],
         data={"mapeo_cufe": "CUFE_DIAN"},
     )
     assert r.status_code == 201, r.text
@@ -153,7 +153,7 @@ def test_xml_tiene_prioridad_sobre_pdf_cuando_ambos_existen(client, empresa_a):
     })
     r = client.post(
         f"/empresas/{empresa_a['id']}/documentos/cargar",
-        files={"zip": ("docs.zip", zip_contenido, "application/zip")},
+        files=[("documentos", ("docs.zip", zip_contenido, "application/zip"))],
     )
     assert r.status_code == 201
     facturas = client.get(f"/empresas/{empresa_a['id']}/documentos").json()
@@ -165,14 +165,14 @@ def test_xml_tiene_prioridad_sobre_pdf_cuando_ambos_existen(client, empresa_a):
 def test_deteccion_duplicados_mismo_cufe_en_dos_cargas(client, empresa_a):
     zip1 = _zip_bytes({"FE006.xml": _xml("FE006", "cufe-duplicado", "900666666")})
     r1 = client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
-                      files={"zip": ("docs1.zip", zip1, "application/zip")})
+                      files=[("documentos", ("docs1.zip", zip1, "application/zip"))])
     assert r1.status_code == 201
     assert r1.json()["total_duplicados"] == 0
 
     # se vuelve a cargar el MISMO cufe en una carga distinta
     zip2 = _zip_bytes({"FE006_otra_vez.xml": _xml("FE006", "cufe-duplicado", "900666666")})
     r2 = client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
-                      files={"zip": ("docs2.zip", zip2, "application/zip")})
+                      files=[("documentos", ("docs2.zip", zip2, "application/zip"))])
     assert r2.status_code == 201
     body2 = r2.json()
     assert body2["total_duplicados"] == 1
@@ -186,10 +186,10 @@ def test_deteccion_duplicados_mismo_cufe_en_dos_cargas(client, empresa_a):
 def test_resolver_duplicado_como_falso_positivo(client, empresa_a):
     zip1 = _zip_bytes({"FE007.xml": _xml("FE007", "cufe-resolver", "900777777")})
     client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
-                files={"zip": ("d1.zip", zip1, "application/zip")})
+                files=[("documentos", ("d1.zip", zip1, "application/zip"))])
     zip2 = _zip_bytes({"FE007b.xml": _xml("FE007", "cufe-resolver", "900777777")})
     client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
-                files={"zip": ("d2.zip", zip2, "application/zip")})
+                files=[("documentos", ("d2.zip", zip2, "application/zip"))])
 
     dup = client.get(f"/empresas/{empresa_a['id']}/documentos", params={"estado": "duplicada"}).json()[0]
     r = client.patch(f"/empresas/{empresa_a['id']}/documentos/{dup['id']}/resolver-duplicado",
@@ -202,7 +202,7 @@ def test_resolver_duplicado_como_falso_positivo(client, empresa_a):
 def test_correccion_manual_no_pierde_dato_original(client, empresa_a):
     zip1 = _zip_bytes({"FE008.xml": _xml("FE008", "cufe-correccion", "900888888")})
     client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
-                files={"zip": ("d1.zip", zip1, "application/zip")})
+                files=[("documentos", ("d1.zip", zip1, "application/zip"))])
     factura = client.get(f"/empresas/{empresa_a['id']}/documentos").json()[0]
 
     r = client.patch(f"/empresas/{empresa_a['id']}/documentos/{factura['id']}/corregir",
@@ -219,7 +219,7 @@ def test_correccion_manual_no_pierde_dato_original(client, empresa_a):
 def test_documentos_no_se_filtran_entre_empresas(client, empresa_a, empresa_b):
     zip1 = _zip_bytes({"FE009.xml": _xml("FE009", "cufe-aislamiento", "900999999")})
     client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
-                files={"zip": ("d1.zip", zip1, "application/zip")})
+                files=[("documentos", ("d1.zip", zip1, "application/zip"))])
     facturas_b = client.get(f"/empresas/{empresa_b['id']}/documentos").json()
     assert len(facturas_b) == 0
 
@@ -230,7 +230,7 @@ def test_xml_invalido_se_reporta_como_error_pero_no_rompe_la_carga(client, empre
         "malo.xml": b"<esto no es xml valido <<<",
     })
     r = client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
-                     files={"zip": ("docs.zip", zip_contenido, "application/zip")})
+                     files=[("documentos", ("docs.zip", zip_contenido, "application/zip"))])
     assert r.status_code == 201
     body = r.json()
     assert body["total_archivos_zip"] == 2
