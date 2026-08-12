@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Asistente Contable DIAN</title>
+<style>
+  :root{
+    --ink:#0f172a; --ink-soft:#334155; --paper:#f5f6f8; --paper-2:#ffffff;
+    --line:#dbe0e6; --accent:#0d7d6e; --accent-dark:#095c50; --accent-soft:#e3f3f0;
+    --warn:#b45309; --warn-soft:#fef3e2; --err:#b91c1c; --err-soft:#fdecec;
+    --mono: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--paper); color:var(--ink); font-size:14px;}
+  header{background:var(--ink); color:#fff; padding:16px 24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;}
+  header h1{margin:0; font-size:17px;}
+  header .sub{font-size:11px; color:#94a3b8; font-family:var(--mono);}
+  nav{background:#16233b; display:flex; gap:2px; padding:0 24px; overflow-x:auto;}
+  nav button{background:transparent; border:none; color:#cbd5e1; padding:12px 16px; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; white-space:nowrap;}
+  nav button.active{color:#fff; border-bottom-color:var(--accent); font-weight:600;}
+  main{max-width:1200px; margin:0 auto; padding:20px;}
+  .card{background:var(--paper-2); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:16px;}
+  .card h2{margin:0 0 12px; font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); border-bottom:2px solid var(--accent); padding-bottom:6px; display:inline-block;}
+  label{display:block; font-size:11px; font-weight:600; color:var(--ink-soft); margin-bottom:3px; text-transform:uppercase;}
+  input, select, textarea{width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:6px; font-size:13px; background:#fff;}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px;}
+  .row > div{flex:1; min-width:150px;}
+  button.btn{background:var(--accent); color:#fff; border:none; padding:8px 14px; border-radius:6px; font-size:12.5px; font-weight:600; cursor:pointer;}
+  button.btn:hover{background:var(--accent-dark);}
+  button.btn.ghost{background:transparent; color:var(--accent); border:1px solid var(--accent);}
+  button.btn.danger{background:transparent; color:var(--err); border:1px solid var(--err);}
+  button.btn:disabled{opacity:.4; cursor:not-allowed;}
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  th{background:#eef1f4; text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); white-space:nowrap;}
+  td{padding:6px 9px; border-bottom:1px solid #eef0f2;}
+  tr:hover td{background:#fafbfc;}
+  .pill{display:inline-block; padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:700;}
+  .pill.ok{background:var(--accent-soft); color:var(--accent-dark);}
+  .pill.warn{background:var(--warn-soft); color:var(--warn);}
+  .pill.err{background:var(--err-soft); color:var(--err);}
+  .mono{font-family:var(--mono);}
+  .muted{color:#8b95a1; font-size:12px;}
+  .hidden{display:none !important;}
+  .empresa-activa{background:var(--accent-soft); border:1px solid var(--accent); border-radius:8px; padding:8px 12px; font-size:12.5px; margin-bottom:14px;}
+  details{border:1px solid var(--line); border-radius:8px; margin-bottom:6px; background:#fff;}
+  summary{padding:8px 12px; cursor:pointer; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;}
+  .detail-body{padding:0 12px 12px; font-size:12.5px;}
+  .col-check{width:26px;}
+  .toast{position:fixed; bottom:16px; right:16px; background:var(--ink); color:#fff; padding:10px 16px; border-radius:8px; font-size:13px; max-width:400px; z-index:99;}
+  .toast.err{background:var(--err);}
+  .flex-between{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Asistente Contable DIAN</h1>
+    <div class="sub">Etapas 1-5 · multiempresa · historial explicable · partida doble · exportación Siigo/World Office</div>
+  </div>
+  <div class="row" style="margin:0; align-items:center;">
+    <div style="min-width:220px;"><label style="color:#cbd5e1;">API</label><input id="apiBase" value="http://127.0.0.1:8000"></div>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="empresas" class="active">Empresas</button>
+  <button data-tab="cargar">Cargar documentos</button>
+  <button data-tab="facturas">Facturas</button>
+  <button data-tab="plantillas">Plantillas / Exportar</button>
+  <button data-tab="auditoria">Auditoría</button>
+</nav>
+
+<main>
+  <div class="empresa-activa" id="empresaActivaBanner">Selecciona o crea una empresa para empezar.</div>
+
+  <!-- EMPRESAS -->
+  <section id="tab-empresas">
+    <div class="card">
+      <h2>Crear empresa</h2>
+      <div class="row">
+        <div><label>NIT</label><input id="nuevaNit" placeholder="900123456"></div>
+        <div><label>Nombre</label><input id="nuevaNombre" placeholder="Comercializadora XYZ SAS"></div>
+        <div><label>Sistema contable</label>
+          <select id="nuevoSistema"><option value="siigo_pyme">Siigo Pyme</option><option value="world_office">World Office</option></select>
+        </div>
+        <div><label>Responsable IVA</label><div style="padding-top:7px;"><input type="checkbox" id="nuevoIva" checked style="width:auto;"></div></div>
+        <div><label>Régimen Simple</label><div style="padding-top:7px;"><input type="checkbox" id="nuevoSimple" style="width:auto;"></div></div>
+        <div><button class="btn" onclick="crearEmpresa()">Crear</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Empresas</h2>
+      <table><thead><tr><th>Nombre</th><th>NIT</th><th>Sistema</th><th>IVA</th><th>RST</th><th></th></tr></thead>
+        <tbody id="tablaEmpresas"></tbody></table>
+    </div>
+
+    <div class="card" id="cuentasBaseCard">
+      <h2>Cuentas base de la empresa activa</h2>
+      <p class="muted">Sin estas cuentas, la partida doble no se puede generar (nunca se inventa una cuenta).</p>
+      <div class="row">
+        <div><label>Proveedores</label><input id="cbProveedores" placeholder="220501"></div>
+        <div><label>Caja</label><input id="cbCaja" placeholder="110505"></div>
+        <div><label>Banco</label><input id="cbBanco" placeholder="111005"></div>
+        <div><label>IVA descontable</label><input id="cbIva" placeholder="240802"></div>
+      </div>
+      <div class="row">
+        <div><label>Retefuente</label><input id="cbRetefuente" placeholder="236540"></div>
+        <div><label>ReteICA</label><input id="cbReteica" placeholder="236801"></div>
+        <div><label>ReteIVA</label><input id="cbReteiva" placeholder="236705"></div>
+        <div><label>INC</label><input id="cbInc" placeholder="240815"></div>
+        <div><button class="btn" onclick="guardarCuentasBase()">Guardar cuentas base</button></div>
+      </div>
+      <div id="cuentasBaseActuales" class="muted"></div>
+    </div>
+  </section>
+
+  <!-- CARGAR DOCUMENTOS -->
+  <section id="tab-cargar" class="hidden">
+    <div class="card">
+      <h2>Cargar Excel DIAN + ZIP de XML/PDF</h2>
+      <div class="row">
+        <div><label>ZIP (obligatorio)</label><input type="file" id="zipInput" accept=".zip"></div>
+        <div><label>Excel DIAN (opcional)</label><input type="file" id="excelInput" accept=".xlsx,.xls,.csv"></div>
+      </div>
+      <p class="muted">Si cargas Excel, indica qué columna corresponde a cada campo (deja vacío lo que no aplique):</p>
+      <div class="row">
+        <div><label>Columna CUFE</label><input id="mapCufe" placeholder="CUFE"></div>
+        <div><label>Columna Número factura</label><input id="mapNumero" placeholder="Numero"></div>
+        <div><label>Columna NIT emisor</label><input id="mapNit" placeholder="Nit"></div>
+        <div><label>Columna Nombre emisor</label><input id="mapNombre" placeholder="Nombre"></div>
+        <div><label>Columna Fecha</label><input id="mapFecha" placeholder="Fecha"></div>
+        <div><label>Columna Valor total</label><input id="mapTotal" placeholder="Valor Total"></div>
+      </div>
+      <button class="btn" onclick="cargarDocumentos()">Cargar y relacionar</button>
+      <div id="resultadoCarga" style="margin-top:12px;"></div>
+    </div>
+  </section>
+
+  <!-- FACTURAS -->
+  <section id="tab-facturas" class="hidden">
+    <div class="card">
+      <div class="flex-between">
+        <h2>Facturas</h2>
+        <div class="row" style="margin:0;">
+          <div><select id="filtroEstado" onchange="cargarFacturas()">
+            <option value="">Todos los estados</option>
+            <option value="pendiente_revision">Pendiente de revisión</option>
+            <option value="extraida">Extraída</option>
+            <option value="clasificada">Clasificada</option>
+            <option value="lista_para_contabilizar">Lista para contabilizar</option>
+            <option value="contabilizada">Contabilizada</option>
+            <option value="exportada">Exportada</option>
+            <option value="duplicada">Duplicada</option>
+          </select></div>
+          <div><button class="btn ghost" onclick="cargarFacturas()">Actualizar</button></div>
+        </div>
+      </div>
+      <div id="listaFacturas"></div>
+    </div>
+  </section>
+
+  <!-- PLANTILLAS / EXPORTAR -->
+  <section id="tab-plantillas" class="hidden">
+    <div class="card">
+      <h2>Nueva plantilla de exportación</h2>
+      <div class="row">
+        <div><label>Nombre</label><input id="plNombre" placeholder="Siigo estándar"></div>
+        <div><label>Sistema contable</label>
+          <select id="plSistema"><option value="siigo_pyme">Siigo Pyme</option><option value="world_office">World Office</option></select>
+        </div>
+        <div><label>Delimitador</label>
+          <select id="plDelim"><option value="|">Pipe ( | )</option><option value=";">;</option><option value=",">,</option></select>
+        </div>
+        <div><label>Extensión</label><input id="plExt" value="txt"></div>
+      </div>
+      <p class="muted">Columnas (una por línea, formato <code>Etiqueta=origen</code>. Orígenes válidos: fecha, cuenta, nombre_cuenta, nit, tercero, numero_factura, cufe, concepto, debito, credito, fijo:VALOR)</p>
+      <textarea id="plColumnas" rows="6">Fecha=fecha
+Cuenta=cuenta
+Nit=nit
+Tercero=tercero
+Debito=debito
+Credito=credito</textarea>
+      <div style="margin-top:8px;"><button class="btn" onclick="crearPlantilla()">Crear plantilla</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Plantillas de la empresa</h2>
+      <table><thead><tr><th>Nombre</th><th>Sistema</th><th>Columnas</th></tr></thead><tbody id="tablaPlantillas"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>Generar exportación</h2>
+      <p class="muted">Selecciona una plantilla y las facturas "lista_para_contabilizar" o "contabilizada" a incluir (marca los checkboxes en la pestaña Facturas primero, o pega los IDs abajo separados por coma).</p>
+      <div class="row">
+        <div><label>Plantilla</label><select id="expPlantilla"></select></div>
+        <div style="flex:2;"><label>IDs de factura (coma)</label><input id="expFacturaIds"></div>
+        <div><button class="btn ghost" onclick="validarExportacion()">Validar</button></div>
+        <div><button class="btn" onclick="generarExportacion()">Generar y descargar</button></div>
+      </div>
+      <div id="resultadoExportacion"></div>
+    </div>
+
+    <div class="card">
+      <h2>Historial de exportaciones</h2>
+      <table><thead><tr><th>Fecha</th><th>Sistema</th><th>Registros</th><th>Estado</th><th>Archivo</th></tr></thead>
+        <tbody id="tablaExportaciones"></tbody></table>
+    </div>
+  </section>
+
+  <!-- AUDITORIA -->
+  <section id="tab-auditoria" class="hidden">
+    <div class="card">
+      <h2>Auditoría de la empresa activa</h2>
+      <table><thead><tr><th>Fecha</th><th>Entidad</th><th>Acción</th><th>Usuario</th><th>Detalle</th></tr></thead>
+        <tbody id="tablaAuditoria"></tbody></table>
+    </div>
+  </section>
+</main>
+
+<script>
+let empresas = [];
+let empresaActivaId = null;
+let facturaSeleccionParaExportar = new Set();
+
+function api(){ return document.getElementById('apiBase').value.replace(/\/$/, ''); }
+function toast(msg, esError){
+  const t = document.createElement('div');
+  t.className = 'toast' + (esError ? ' err' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 4500);
+}
+async function req(path, options){
+  options = options || {};
+  options.headers = Object.assign({'X-User': 'contador@app.local'}, options.headers || {});
+  const resp = await fetch(api() + path, options);
+  if(!resp.ok){
+    let detalle;
+    try{ detalle = await resp.json(); }catch(e){ detalle = {detail: resp.statusText}; }
+    const msg = typeof detalle.detail === 'object' ? JSON.stringify(detalle.detail) : (detalle.detail || 'Error');
+    throw new Error(msg);
+  }
+  const ct = resp.headers.get('content-type') || '';
+  if(ct.includes('application/json')) return resp.json();
+  return resp;
+}
+
+// ---------- navegación ----------
+document.getElementById('tabs').addEventListener('click', e=>{
+  if(e.target.tagName !== 'BUTTON') return;
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.remove('active'));
+  e.target.classList.add('active');
+  document.querySelectorAll('main > section').forEach(s=>s.classList.add('hidden'));
+  document.getElementById('tab-' + e.target.dataset.tab).classList.remove('hidden');
+  if(e.target.dataset.tab === 'facturas') cargarFacturas();
+  if(e.target.dataset.tab === 'plantillas') { cargarPlantillas(); cargarExportaciones(); }
+  if(e.target.dataset.tab === 'auditoria') cargarAuditoria();
+});
+
+// ---------- empresas ----------
+async function crearEmpresa(){
+  const nit = document.getElementById('nuevaNit').value.trim();
+  const nombre = document.getElementById('nuevaNombre').value.trim();
+  if(!nit || !nombre){ toast('NIT y nombre son obligatorios', true); return; }
+  try{
+    await req('/empresas', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      nit, nombre, sistema_contable: document.getElementById('nuevoSistema').value,
+      responsable_iva: document.getElementById('nuevoIva').checked,
+      regimen_simple: document.getElementById('nuevoSimple').checked,
+    })});
+    document.getElementById('nuevaNit').value=''; document.getElementById('nuevaNombre').value='';
+    toast('Empresa creada');
+    await cargarEmpresas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarEmpresas(){
+  try{
+    empresas = await req('/empresas');
+    const tbody = document.getElementById('tablaEmpresas');
+    tbody.innerHTML = empresas.map(emp => `
+      <tr>
+        <td>${emp.nombre}</td><td class="mono">${emp.nit}</td>
+        <td>${emp.sistema_contable}</td>
+        <td>${emp.responsable_iva ? 'Sí' : 'No'}</td>
+        <td>${emp.regimen_simple ? 'Sí' : 'No'}</td>
+        <td><button class="btn ghost" onclick="seleccionarEmpresa('${emp.id}')">${emp.id===empresaActivaId?'✓ Activa':'Usar'}</button></td>
+      </tr>`).join('') || '<tr><td colspan="6" class="muted">Aún no hay empresas.</td></tr>';
+  }catch(e){ toast(e.message, true); }
+}
+
+async function seleccionarEmpresa(id){
+  empresaActivaId = id;
+  const emp = empresas.find(e=>e.id===id);
+  document.getElementById('empresaActivaBanner').textContent = `Empresa activa: ${emp.nombre} (NIT ${emp.nit}) — ${emp.sistema_contable}${emp.regimen_simple?' · Régimen Simple':''}`;
+  await cargarEmpresas();
+  await cargarCuentasBase();
+}
+
+async function guardarCuentasBase(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const payload = {};
+  const campos = {cbProveedores:'cuenta_proveedores', cbCaja:'cuenta_caja', cbBanco:'cuenta_banco',
+    cbIva:'cuenta_iva_descontable', cbRetefuente:'cuenta_retefuente', cbReteica:'cuenta_reteica',
+    cbReteiva:'cuenta_reteiva', cbInc:'cuenta_inc'};
+  for(const [id, campo] of Object.entries(campos)){
+    const v = document.getElementById(id).value.trim();
+    if(v) payload[campo] = v;
+  }
+  try{
+    await req(`/empresas/${empresaActivaId}/cuentas-base`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Cuentas base guardadas');
+    await cargarCuentasBase();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarCuentasBase(){
+  if(!empresaActivaId) return;
+  try{
+    const cb = await req(`/empresas/${empresaActivaId}/cuentas-base`);
+    const div = document.getElementById('cuentasBaseActuales');
+    const filas = Object.entries(cb).filter(([,v])=>v).map(([k,v])=>`${k}: ${v.codigo} (${v.nombre})`);
+    div.textContent = filas.length ? 'Configuradas: ' + filas.join(' · ') : 'Ninguna cuenta base configurada todavía.';
+  }catch(e){ /* silencioso */ }
+}
+
+// ---------- cargar documentos ----------
+async function cargarDocumentos(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const zipFile = document.getElementById('zipInput').files[0];
+  if(!zipFile){ toast('El ZIP es obligatorio', true); return; }
+  const fd = new FormData();
+  fd.append('zip', zipFile);
+  const excelFile = document.getElementById('excelInput').files[0];
+  if(excelFile){
+    fd.append('excel', excelFile);
+    const mapeos = {mapCufe:'mapeo_cufe', mapNumero:'mapeo_numero_factura', mapNit:'mapeo_nit_emisor',
+      mapNombre:'mapeo_nombre_emisor', mapFecha:'mapeo_fecha', mapTotal:'mapeo_valor_total'};
+    for(const [id, campo] of Object.entries(mapeos)){
+      const v = document.getElementById(id).value.trim();
+      if(v) fd.append(campo, v);
+    }
+  }
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/cargar`, {method:'POST', headers:{'X-User':'contador@app.local'}, body: fd});
+    if(!resp.ok){ const d = await resp.json(); throw new Error(JSON.stringify(d.detail)); }
+    const body = await resp.json();
+    document.getElementById('resultadoCarga').innerHTML = `
+      <div class="pill ok">Relacionados: ${body.total_relacionados}</div>
+      <div class="pill warn">Pendientes de revisión: ${body.total_pendientes_revision}</div>
+      <div class="pill err">Duplicados: ${body.total_duplicados}</div>
+      ${body.errores_zip.length ? '<p class="muted">Errores en el ZIP: '+body.errores_zip.map(e=>e.error).join('; ')+'</p>' : ''}
+    `;
+    toast('Carga procesada');
+  }catch(e){ toast(e.message, true); }
+}
+
+// ---------- facturas ----------
+async function cargarFacturas(){
+  if(!empresaActivaId){ document.getElementById('listaFacturas').innerHTML = '<p class="muted">Selecciona una empresa primero.</p>'; return; }
+  const estado = document.getElementById('filtroEstado').value;
+  const qs = estado ? `?estado=${estado}` : '';
+  try{
+    const facturas = await req(`/empresas/${empresaActivaId}/documentos${qs}`);
+    const el = document.getElementById('listaFacturas');
+    if(facturas.length===0){ el.innerHTML = '<p class="muted">No hay facturas con este filtro.</p>'; return; }
+    el.innerHTML = facturas.map(f => `
+      <details>
+        <summary>
+          <span class="col-check"><input type="checkbox" onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
+          <span><strong>${f.nombre_emisor || '(sin nombre)'}</strong> · NIT ${f.nit_emisor||'—'} · Fact. ${f.numero_factura||'—'}</span>
+          <span>
+            <span class="pill ${estadoPill(f.estado)}">${f.estado}</span>
+            <span class="pill ${f.confianza_extraccion>=90?'ok':(f.confianza_extraccion>=60?'warn':'err')}">${f.confianza_extraccion}% confianza</span>
+            <span class="mono">$${(f.total||0).toLocaleString('es-CO')}</span>
+          </span>
+        </summary>
+        <div class="detail-body">
+          <p><strong>Fuente:</strong> ${f.fuente_extraccion} · <strong>Relacionada con Excel:</strong> ${f.relacionada_con_excel?'Sí ('+f.metodo_relacion+')':'No'}
+          ${f.motivo_no_relacionada ? '<br><span class="muted">'+f.motivo_no_relacionada+'</span>' : ''}</p>
+          ${f.es_posible_duplicado ? `<p class="pill err">Posible duplicado</p>
+            <button class="btn ghost" onclick="resolverDuplicado('${f.id}', true)">Confirmar duplicado</button>
+            <button class="btn ghost" onclick="resolverDuplicado('${f.id}', false)">No es duplicado</button>` : ''}
+
+          <div class="row" style="margin-top:10px;">
+            <div><button class="btn ghost" onclick="verSugerencia('${f.id}', '${f.nit_emisor||''}')">Ver sugerencia de cuenta</button></div>
+          </div>
+          <div id="sugerencia-${f.id}"></div>
+
+          <div class="row">
+            <div><label>Cuenta de gasto</label><input id="cuenta-${f.id}" placeholder="513595"></div>
+            <div><label>Contrapartida</label>
+              <select id="contra-${f.id}"><option value="proveedores">Proveedores</option><option value="caja">Caja</option><option value="banco">Banco</option></select>
+            </div>
+            <div><button class="btn" onclick="generarPartida('${f.id}')">Generar partida doble</button></div>
+            <div><button class="btn ghost" onclick="contabilizar('${f.id}')">Contabilizar</button></div>
+          </div>
+          <div id="partida-${f.id}"></div>
+        </div>
+      </details>
+    `).join('');
+  }catch(e){ toast(e.message, true); }
+}
+
+function estadoPill(estado){
+  if(['contabilizada','exportada','lista_para_contabilizar'].includes(estado)) return 'ok';
+  if(['pendiente_revision','pendiente_clasificacion','extraida'].includes(estado)) return 'warn';
+  return 'err';
+}
+function toggleFacturaSel(id, checked){
+  if(checked) facturaSeleccionParaExportar.add(id); else facturaSeleccionParaExportar.delete(id);
+  document.getElementById('expFacturaIds').value = Array.from(facturaSeleccionParaExportar).join(',');
+}
+
+async function verSugerencia(facturaId, nit){
+  if(!nit){ toast('Esta factura no tiene NIT emisor', true); return; }
+  try{
+    const sug = await req(`/empresas/${empresaActivaId}/historial/sugerencia?nit=${encodeURIComponent(nit)}`);
+    const div = document.getElementById('sugerencia-'+facturaId);
+    if(sug.cuenta_sugerida){
+      div.innerHTML = `<p><strong>Sugerido: ${sug.cuenta_sugerida}</strong> — ${sug.motivo}</p>
+        <ul>${sug.opciones.map(o=>`<li>${o.cuenta_codigo} (${o.cuenta_nombre}): ${o.usos} usos — ${o.porcentaje}%</li>`).join('')}</ul>
+        <button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${sug.cuenta_sugerida}'">Usar esta cuenta</button>`;
+    } else {
+      div.innerHTML = `<p class="muted">${sug.motivo}</p>`;
+    }
+  }catch(e){ toast(e.message, true); }
+}
+
+async function generarPartida(facturaId){
+  const cuenta = document.getElementById('cuenta-'+facturaId).value.trim();
+  const contra = document.getElementById('contra-'+facturaId).value;
+  if(!cuenta){ toast('Indica la cuenta de gasto', true); return; }
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/partida/generar`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cuenta_gasto_codigo: cuenta, contrapartida: contra, origen_decision: 'manual'}),
+    });
+    const div = document.getElementById('partida-'+facturaId);
+    if(r.balanceado){
+      div.innerHTML = `<p class="pill ok">✓ Balanceado — Débito ${r.total_debito} / Crédito ${r.total_credito}</p>
+        <table><thead><tr><th>Cuenta</th><th>Nombre</th><th>Débito</th><th>Crédito</th></tr></thead><tbody>
+        ${r.lineas.map(l=>`<tr><td class="mono">${l.cuenta_codigo}</td><td>${l.cuenta_nombre}</td><td>${l.tipo==='debito'?l.valor:''}</td><td>${l.tipo==='credito'?l.valor:''}</td></tr>`).join('')}
+        </tbody></table>`;
+      toast('Partida generada y balanceada');
+      cargarFacturas();
+    } else {
+      div.innerHTML = `<p class="pill err">✕ No se pudo generar</p><ul>${r.errores.map(e=>'<li>'+e+'</li>').join('')}</ul>`;
+    }
+  }catch(e){ toast(e.message, true); }
+}
+
+async function contabilizar(facturaId){
+  try{
+    await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/contabilizar`, {method:'POST'});
+    toast('Factura contabilizada');
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function resolverDuplicado(facturaId, esDuplicado){
+  try{
+    await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/resolver-duplicado`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({es_duplicado: esDuplicado}),
+    });
+    toast('Resuelto');
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+// ---------- plantillas / exportación ----------
+function parsearColumnas(texto){
+  return texto.split('\n').map(l=>l.trim()).filter(Boolean).map(linea=>{
+    const [label, origenRaw] = linea.split('=').map(s=>s.trim());
+    if(origenRaw && origenRaw.startsWith('fijo:')){
+      return {label, source:'fijo', valor_fijo: origenRaw.slice(5)};
+    }
+    return {label, source: origenRaw, valor_fijo: ''};
+  });
+}
+
+async function crearPlantilla(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  try{
+    await req(`/empresas/${empresaActivaId}/plantillas`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      nombre: document.getElementById('plNombre').value.trim(),
+      sistema_contable: document.getElementById('plSistema').value,
+      delimitador: document.getElementById('plDelim').value,
+      extension: document.getElementById('plExt').value.trim() || 'txt',
+      columnas: parsearColumnas(document.getElementById('plColumnas').value),
+    })});
+    toast('Plantilla creada');
+    cargarPlantillas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarPlantillas(){
+  if(!empresaActivaId) return;
+  try{
+    const plantillas = await req(`/empresas/${empresaActivaId}/plantillas`);
+    document.getElementById('tablaPlantillas').innerHTML = plantillas.map(p=>`
+      <tr><td>${p.nombre}</td><td>${p.sistema_contable}</td><td>${p.columnas.map(c=>c.label).join(', ')}</td></tr>
+    `).join('') || '<tr><td colspan="3" class="muted">Sin plantillas todavía.</td></tr>';
+    document.getElementById('expPlantilla').innerHTML = plantillas.map(p=>`<option value="${p.id}">${p.nombre} (${p.sistema_contable})</option>`).join('');
+  }catch(e){ toast(e.message, true); }
+}
+
+async function validarExportacion(){
+  if(!empresaActivaId){ toast('Selecciona una empresa', true); return; }
+  const plantillaId = document.getElementById('expPlantilla').value;
+  const ids = document.getElementById('expFacturaIds').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y al menos una factura', true); return; }
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/exportaciones/validar`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids})});
+    document.getElementById('resultadoExportacion').innerHTML = r.valido
+      ? '<p class="pill ok">✓ Listo para exportar, sin errores</p>'
+      : '<p class="pill err">✕ Hay errores</p><ul>' + r.errores.map(e=>'<li>'+e+'</li>').join('') + '</ul>';
+  }catch(e){ toast(e.message, true); }
+}
+
+async function generarExportacion(){
+  if(!empresaActivaId){ toast('Selecciona una empresa', true); return; }
+  const plantillaId = document.getElementById('expPlantilla').value;
+  const ids = document.getElementById('expFacturaIds').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y al menos una factura', true); return; }
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/exportaciones/generar`, {
+      method:'POST', headers:{'Content-Type':'application/json', 'X-User':'contador@app.local'},
+      body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids}),
+    });
+    if(!resp.ok){ const d = await resp.json(); throw new Error(JSON.stringify(d.detail)); }
+    const blob = await resp.blob();
+    const nombre = (resp.headers.get('Content-Disposition')||'').split('filename=')[1]?.replace(/"/g,'') || 'exportacion.txt';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
+    toast('Archivo generado y descargado');
+    cargarExportaciones();
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarExportaciones(){
+  if(!empresaActivaId) return;
+  try{
+    const exportaciones = await req(`/empresas/${empresaActivaId}/exportaciones`);
+    document.getElementById('tablaExportaciones').innerHTML = exportaciones.map(ex=>`
+      <tr><td>${new Date(ex.creado_en).toLocaleString('es-CO')}</td><td>${ex.sistema_contable}</td>
+      <td>${ex.cantidad_registros}</td><td><span class="pill ${ex.estado==='generada'?'ok':'err'}">${ex.estado}</span></td>
+      <td>${ex.archivo_nombre||'—'}</td></tr>
+    `).join('') || '<tr><td colspan="5" class="muted">Sin exportaciones todavía.</td></tr>';
+  }catch(e){ /* silencioso */ }
+}
+
+// ---------- auditoría ----------
+async function cargarAuditoria(){
+  if(!empresaActivaId){ document.getElementById('tablaAuditoria').innerHTML=''; return; }
+  try{
+    const eventos = await req(`/empresas/${empresaActivaId}/auditoria`);
+    document.getElementById('tablaAuditoria').innerHTML = eventos.map(ev=>`
+      <tr><td>${new Date(ev.creado_en).toLocaleString('es-CO')}</td><td>${ev.entidad}</td><td>${ev.accion}</td>
+      <td>${ev.usuario||'—'}</td><td class="mono" style="max-width:400px; overflow:hidden; text-overflow:ellipsis;">${(ev.detalle||'').slice(0,200)}</td></tr>
+    `).join('') || '<tr><td colspan="5" class="muted">Sin eventos todavía.</td></tr>';
+  }catch(e){ toast(e.message, true); }
+}
+
+// ---------- init ----------
+cargarEmpresas();
+</script>
+</body>
+</html>
