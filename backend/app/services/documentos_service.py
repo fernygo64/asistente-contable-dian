@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Factura, FuenteExtraccion, EstadoFactura
 from app.services.zip_processing_service import DocumentoExtraido
+from app.services.excel_utils import resolver_columna
+from app.services.clasificacion_dian_service import clasificar_desde_excel, es_tipo_descartable
 
 
 def _leer_excel_dian(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
@@ -35,7 +37,10 @@ def _parse_fecha(v) -> Optional[datetime]:
     if not v:
         return None
     try:
-        return pd.to_datetime(v).to_pydatetime()
+        # dayfirst=True: el Excel de la DIAN usa DD-MM-YYYY. Sin esto,
+        # fechas con día ≤ 12 (ej. "03-07-2026") se interpretarían mal
+        # como MM-DD-YYYY (3 de julio quedaría como 7 de marzo).
+        return pd.to_datetime(v, dayfirst=True).to_pydatetime()
     except Exception:
         return None
 
@@ -113,7 +118,9 @@ def _buscar_duplicado(db: Session, empresa_id: str, cufe: str, numero_factura: s
 def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
                                     doc: DocumentoExtraido, relacionada: bool,
                                     metodo: Optional[str], motivo_no_relacionada: Optional[str],
-                                    excel_fila: Optional[dict]) -> Factura:
+                                    excel_fila: Optional[dict],
+                                    naturaleza_override: Optional[str] = None,
+                                    direccion_override: Optional[str] = None) -> Factura:
     c = doc.campos
     cufe = _norm(c.get("cufe"))
     numero = _norm(c.get("numero_factura"))
@@ -127,9 +134,26 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
 
     duplicado = _buscar_duplicado(db, empresa_id, cufe, numero, nit_emisor, fecha_emision, total)
 
+    # La clasificación del Excel de la DIAN ("Tipo de documento", "Grupo")
+    # es más confiable que la inferida del XML — la DIAN ya resolvió la
+    # ambigüedad de NIT/formato al generarlo. Si el usuario mapeó esas
+    # columnas, tiene prioridad sobre lo que dedujimos del XML.
+    naturaleza = naturaleza_override or doc.naturaleza
+    direccion = direccion_override or doc.direccion
+
     estado = EstadoFactura.extraida
     if duplicado:
         estado = EstadoFactura.duplicada
+    elif naturaleza == "nomina":
+        # Esquema XML distinto al de factura; no se extraen conceptos de
+        # nómina automáticamente — siempre requiere revisión manual.
+        # Esta clasificación pesa más que el estado de relación con Excel.
+        estado = EstadoFactura.pendiente_clasificacion
+    elif direccion == "emitida":
+        # Es una venta, no una compra: necesita cuentas de ingreso, no de
+        # gasto — se deja para clasificación explícita en vez de arriesgar
+        # una contabilización automática incorrecta.
+        estado = EstadoFactura.pendiente_clasificacion
     elif doc.confianza < 70 or not relacionada:
         estado = EstadoFactura.pendiente_revision
     elif doc.fuente_extraccion in ("pdf_texto", "pdf_ocr"):
@@ -168,6 +192,8 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
         fuente_extraccion=fuente_map.get(doc.fuente_extraccion, FuenteExtraccion.excel_dian),
         confianza_extraccion=doc.confianza,
         campos_extraidos_json=json.dumps(list(c.keys()), ensure_ascii=False),
+        naturaleza_documento=naturaleza,
+        direccion_documento=direccion,
         relacionada_con_excel=relacionada,
         metodo_relacion=metodo,
         motivo_no_relacionada=motivo_no_relacionada,
@@ -189,36 +215,68 @@ def procesar_carga(db: Session, empresa_id: str, carga_id: str,
     Orquesta la relación completa y crea las Facturas resultantes.
     Devuelve contadores para el resumen de la carga (sección 30).
     """
-    documentos_validos = [d for d in documentos_zip if d.error is None]
+    documentos_descartados = [d for d in documentos_zip if d.descartado_info is not None]
+    documentos_validos = [d for d in documentos_zip if d.error is None and d.descartado_info is None]
     documentos_con_error = [d for d in documentos_zip if d.error is not None]
 
     filas_excel = []
     if excel_bytes and mapeo_excel:
         df = _leer_excel_dian(excel_bytes, excel_nombre or "excel.xlsx")
+        mapeo_resuelto = {}
+        no_encontradas = []
         for c_interno, c_archivo in mapeo_excel.items():
-            if c_archivo and c_archivo not in df.columns:
-                raise ValueError(
-                    f"La columna mapeada '{c_archivo}' (campo '{c_interno}') no existe en el "
-                    f"archivo. Columnas disponibles: {list(df.columns)}"
-                )
+            if not c_archivo:
+                continue
+            columna_real = resolver_columna(c_archivo, list(df.columns))
+            if not columna_real:
+                no_encontradas.append(f"'{c_archivo}' (campo '{c_interno}')")
+            else:
+                mapeo_resuelto[c_interno] = columna_real
+        if no_encontradas:
+            raise ValueError(
+                f"No se encontraron estas columnas en el archivo: {', '.join(no_encontradas)}. "
+                f"Columnas disponibles en tu Excel: {list(df.columns)}"
+            )
         for _, row in df.iterrows():
-            fila = {campo: row.get(col) for campo, col in mapeo_excel.items() if col}
+            fila = {campo: row.get(col) for campo, col in mapeo_resuelto.items()}
             filas_excel.append(fila)
+
+    # Filas del Excel que la propia DIAN marca como no-contables (ej.
+    # "Application response") — se descartan aquí, antes de intentar
+    # relacionarlas o crear cualquier factura con ellas.
+    filas_descartadas_excel = []
+    if any("tipo_documento" in f for f in filas_excel):
+        filas_utiles = []
+        for fila in filas_excel:
+            tipo_doc = fila.get("tipo_documento")
+            if tipo_doc and es_tipo_descartable(str(tipo_doc)):
+                filas_descartadas_excel.append(fila)
+            else:
+                filas_utiles.append(fila)
+        filas_excel = filas_utiles
 
     documentos_usados = set()
     relacionados = 0
     pendientes_revision = 0
+    pendientes_clasificacion = 0
     duplicados = 0
     facturas_creadas = []
 
     # 1) Recorrer filas del Excel y buscar su documento correspondiente
     for fila in filas_excel:
+        naturaleza_ov = direccion_ov = None
+        if fila.get("tipo_documento") or fila.get("grupo"):
+            c = clasificar_desde_excel(str(fila.get("tipo_documento") or ""), str(fila.get("grupo") or ""))
+            naturaleza_ov = c["naturaleza"] or None
+            direccion_ov = c["direccion"] or None
+
         doc, metodo = _buscar_documento_para_fila(fila, documentos_validos)
         if doc:
             documentos_usados.add(doc.clave_agrupacion)
             factura = _crear_factura_desde_documento(
                 db, empresa_id, carga_id, doc, relacionada=True, metodo=metodo,
                 motivo_no_relacionada=None, excel_fila=fila,
+                naturaleza_override=naturaleza_ov, direccion_override=direccion_ov,
             )
             relacionados += 1
         else:
@@ -240,13 +298,15 @@ def procesar_carga(db: Session, empresa_id: str, carga_id: str,
                 db, empresa_id, carga_id, doc_ficticio, relacionada=False, metodo=None,
                 motivo_no_relacionada="No se encontró un XML/PDF en el ZIP que coincida con "
                                        "esta fila del Excel por CUFE, número+NIT, ni NIT+fecha+total.",
-                excel_fila=fila,
+                excel_fila=fila, naturaleza_override=naturaleza_ov, direccion_override=direccion_ov,
             )
         facturas_creadas.append(factura)
         if factura.estado == EstadoFactura.duplicada:
             duplicados += 1
         elif factura.estado == EstadoFactura.pendiente_revision:
             pendientes_revision += 1
+        elif factura.estado == EstadoFactura.pendiente_clasificacion:
+            pendientes_clasificacion += 1
 
     # 2) Documentos del ZIP que no se relacionaron con ninguna fila del Excel
     for doc in documentos_validos:
@@ -265,14 +325,24 @@ def procesar_carga(db: Session, empresa_id: str, carga_id: str,
             duplicados += 1
         elif factura.estado == EstadoFactura.pendiente_revision:
             pendientes_revision += 1
+        elif factura.estado == EstadoFactura.pendiente_clasificacion:
+            pendientes_clasificacion += 1
 
     return {
         "facturas": facturas_creadas,
-        "total_filas_excel": len(filas_excel),
+        "total_filas_excel": len(filas_excel) + len(filas_descartadas_excel),
         "total_archivos_zip_validos": len(documentos_validos),
         "total_archivos_zip_error": len(documentos_con_error),
         "errores_zip": [{"clave": d.clave_agrupacion, "error": d.error} for d in documentos_con_error],
+        "total_descartados": len(documentos_descartados) + len(filas_descartadas_excel),
+        "avisos_descarte": (
+            [{"clave": d.clave_agrupacion, "aviso": d.descartado_info} for d in documentos_descartados]
+            + [{"clave": f.get("cufe") or f.get("numero_factura") or "(sin identificar)",
+                "aviso": f"Fila del Excel de tipo '{f.get('tipo_documento')}' — no es un documento contable, se omitió."}
+               for f in filas_descartadas_excel]
+        ),
         "total_relacionados": relacionados,
         "total_pendientes_revision": pendientes_revision,
+        "total_pendientes_clasificacion": pendientes_clasificacion,
         "total_duplicados": duplicados,
     }

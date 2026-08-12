@@ -38,6 +38,19 @@ def salud():
     return {"status": "ok"}
 
 
+class _NoCacheStaticFiles(StaticFiles):
+    """
+    El frontend es un solo archivo HTML que puede cambiar con cada
+    despliegue. Sin esto, el navegador puede quedarse mostrando una
+    versión vieja en caché (por ejemplo, con la dirección de la API
+    equivocada) hasta que el usuario fuerce una recarga completa.
+    """
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
+
 _frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
 if _frontend_dir.exists():
-    app.mount("/app", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")
+    app.mount("/app", _NoCacheStaticFiles(directory=str(_frontend_dir), html=True), name="frontend")

@@ -86,6 +86,15 @@ class Empresa(Base):
     cuenta_reteiva_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_reteiva"), nullable=True)
     cuenta_inc_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_inc"), nullable=True)
 
+    # Cuentas del lado de VENTA (facturas emitidas por la propia empresa) —
+    # distintas de las del lado de compra: nunca se debe usar cuenta de
+    # gasto/proveedores para una factura que la empresa emitió (sección
+    # reportada por el usuario: "las emitidas son ingresos... van en otras cuentas").
+    cuenta_ingresos_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_ingresos"), nullable=True)
+    cuenta_clientes_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_clientes"), nullable=True)
+    cuenta_iva_generado_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_iva_generado"), nullable=True)
+    cuenta_nomina_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_nomina"), nullable=True)
+
     activa = Column(Boolean, nullable=False, default=True)
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
 
@@ -250,6 +259,8 @@ class CargaDocumentosDian(Base):
     total_archivos_zip = Column(Integer, nullable=False, default=0)
     total_relacionados = Column(Integer, nullable=False, default=0)
     total_pendientes_revision = Column(Integer, nullable=False, default=0)
+    total_pendientes_clasificacion = Column(Integer, nullable=False, default=0)
+    total_descartados = Column(Integer, nullable=False, default=0)
     total_duplicados = Column(Integer, nullable=False, default=0)
     usuario = Column(String(120), nullable=True)
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
@@ -315,6 +326,13 @@ class Factura(Base):
     duplicado_de_id = Column(String(36), ForeignKey("facturas.id"), nullable=True)
 
     estado = Column(SAEnum(EstadoFactura), nullable=False, default=EstadoFactura.pendiente_extraccion)
+
+    # Clasificación del documento (reportado por el usuario: la descarga de
+    # la DIAN mezcla facturas, notas crédito/débito, nómina y acuses de
+    # recibo; una factura puede ser emitida por la propia empresa -venta-
+    # o recibida de un tercero -compra-, y cada caso usa cuentas distintas).
+    naturaleza_documento = Column(String(30), nullable=False, default="factura")  # factura | nota_credito | nota_debito | nomina | documento_equivalente
+    direccion_documento = Column(String(20), nullable=False, default="recibida")  # emitida | recibida | no_aplica
 
     datos_originales_json = Column(Text, nullable=True)   # snapshot de la extracción, nunca se modifica
     datos_corregidos_json = Column(Text, nullable=True)   # correcciones manuales del usuario, sección 6

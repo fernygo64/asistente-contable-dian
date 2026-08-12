@@ -66,6 +66,10 @@ def configurar_cuentas_base(empresa_id: str, payload: EmpresaCuentasBase, db: Se
         "cuenta_reteica": "cuenta_reteica_id",
         "cuenta_reteiva": "cuenta_reteiva_id",
         "cuenta_inc": "cuenta_inc_id",
+        "cuenta_ingresos": "cuenta_ingresos_id",
+        "cuenta_clientes": "cuenta_clientes_id",
+        "cuenta_iva_generado": "cuenta_iva_generado_id",
+        "cuenta_nomina": "cuenta_nomina_id",
     }
     cambios = payload.model_dump(exclude_none=True)
     for campo, codigo in cambios.items():
@@ -98,4 +102,8 @@ def obtener_cuentas_base(empresa_id: str, db: Session = Depends(get_db),
         "cuenta_reteica": resolver(empresa.cuenta_reteica_id),
         "cuenta_reteiva": resolver(empresa.cuenta_reteiva_id),
         "cuenta_inc": resolver(empresa.cuenta_inc_id),
+        "cuenta_ingresos": resolver(empresa.cuenta_ingresos_id),
+        "cuenta_clientes": resolver(empresa.cuenta_clientes_id),
+        "cuenta_iva_generado": resolver(empresa.cuenta_iva_generado_id),
+        "cuenta_nomina": resolver(empresa.cuenta_nomina_id),
     }

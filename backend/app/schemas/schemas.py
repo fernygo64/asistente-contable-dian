@@ -22,6 +22,11 @@ class EmpresaCuentasBase(BaseModel):
     cuenta_reteica: Optional[str] = None
     cuenta_reteiva: Optional[str] = None
     cuenta_inc: Optional[str] = None
+    # Cuentas del lado de venta (facturas EMITIDAS por la propia empresa)
+    cuenta_ingresos: Optional[str] = None
+    cuenta_clientes: Optional[str] = None
+    cuenta_iva_generado: Optional[str] = None
+    cuenta_nomina: Optional[str] = None
 
 
 class EmpresaOut(BaseModel):
@@ -163,6 +168,8 @@ class FacturaOut(BaseModel):
     motivo_no_relacionada: Optional[str] = None
     es_posible_duplicado: bool
     duplicado_de_id: Optional[str] = None
+    naturaleza_documento: str = "factura"
+    direccion_documento: str = "recibida"
     estado: str
     creado_en: datetime
 
@@ -175,8 +182,11 @@ class CargaResumen(BaseModel):
     total_archivos_zip: int
     total_relacionados: int
     total_pendientes_revision: int
+    total_pendientes_clasificacion: int = 0
+    total_descartados: int = 0
     total_duplicados: int
     errores_zip: List[Dict[str, Any]] = []
+    avisos_descarte: List[Dict[str, Any]] = []
     creado_en: datetime
 
 

@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -13,8 +13,28 @@ from app.schemas.schemas import (
 )
 from app.services import export_service
 from app.services.auditoria_service import registrar as auditoria_registrar
+from app.services.plantilla_inferencia_service import detectar_estructura_archivo_plano
 
 router = APIRouter(prefix="/empresas/{empresa_id}", tags=["exportacion"])
+
+
+@router.post("/plantillas/inferir-desde-ejemplo")
+async def inferir_plantilla_desde_ejemplo(empresa_id: str, archivo: UploadFile = File(...),
+                                           empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Sección 20: "el usuario podrá cargar un archivo de ejemplo
+    proporcionado por su Siigo Pyme". Detecta delimitador y columnas
+    reales del archivo plano exportado por el software contable, y
+    sugiere a qué campo interno corresponde cada una — el usuario
+    revisa y ajusta, nunca se asume ciegamente.
+    """
+    contenido = await archivo.read()
+    if not contenido:
+        raise HTTPException(status_code=422, detail="El archivo está vacío.")
+    resultado = detectar_estructura_archivo_plano(contenido)
+    if not resultado["columnas"]:
+        raise HTTPException(status_code=422, detail="No se pudo leer ninguna línea del archivo de ejemplo.")
+    return resultado
 
 
 def _plantilla_a_out(p: PlantillaExportacion) -> PlantillaOut:

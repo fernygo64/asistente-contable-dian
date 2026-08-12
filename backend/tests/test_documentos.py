@@ -54,7 +54,7 @@ def _excel_bytes(df: pd.DataFrame) -> bytes:
 
 
 def test_carga_solo_zip_sin_excel_crea_facturas_pendientes_revision(client, empresa_a):
-    zip_contenido = _zip_bytes({"FE001.xml": _xml("FE001", "cufe-aaa", "900111111")})
+    zip_contenido = _zip_bytes({"FE001.xml": _xml("FE001", "cufe-aaa", "900999888")})
     r = client.post(
         f"/empresas/{empresa_a['id']}/documentos/cargar",
         files=[("documentos", ("docs.zip", zip_contenido, "application/zip"))],

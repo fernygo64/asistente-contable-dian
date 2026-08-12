@@ -1,8 +1,8 @@
-"""esquema completo etapas 1-4: partida doble y exportacion
+"""esquema completo etapas 1-4 partida doble y exportacion
 
 Revision ID: 5e8c6d4846ff
 Revises: 
-Create Date: 2026-08-12 14:14:40.462981
+Create Date: 2026-08-12 20:06:39.049477
 
 """
 from typing import Sequence, Union

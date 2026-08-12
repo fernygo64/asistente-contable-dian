@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.models.models import ImportacionHistorico, OrigenDecision
 from app.services.historial_service import get_or_create_proveedor, get_or_create_cuenta, registrar_decision
 from app.services.auditoria_service import registrar as auditoria_registrar
+from app.services.excel_utils import resolver_columna
 
 
 def _leer_dataframe(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
@@ -29,7 +30,7 @@ def _parse_fecha(v) -> Optional[datetime]:
     if not v or (isinstance(v, float) and pd.isna(v)):
         return None
     try:
-        return pd.to_datetime(v).to_pydatetime()
+        return pd.to_datetime(v, dayfirst=True).to_pydatetime()
     except Exception:
         return None
 
@@ -46,17 +47,28 @@ def _parse_valor(v) -> Optional[float]:
 def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_archivo: str,
                         mapeo: dict, usuario: Optional[str]) -> ImportacionHistorico:
     df = _leer_dataframe(contenido, nombre_archivo)
+    columnas_reales = list(df.columns)
 
-    columna_nit = mapeo.get("nit")
-    columna_cuenta = mapeo.get("cuenta")
-    if not columna_nit or not columna_cuenta:
-        raise ValueError("El mapeo debe incluir al menos las columnas para 'nit' y 'cuenta'.")
-    faltantes = [c for c in (columna_nit, columna_cuenta) if c not in df.columns]
-    if faltantes:
+    mapeo_resuelto = {}
+    no_encontradas = []
+    for campo, valor in mapeo.items():
+        if not valor:
+            continue
+        columna_real = resolver_columna(valor, columnas_reales)
+        if not columna_real:
+            no_encontradas.append(f"'{valor}' (campo '{campo}')")
+        else:
+            mapeo_resuelto[campo] = columna_real
+
+    if no_encontradas:
         raise ValueError(
-            f"Las columnas mapeadas {faltantes} no existen en el archivo. "
-            f"Columnas disponibles: {list(df.columns)}"
+            f"No se encontraron estas columnas en el archivo: {', '.join(no_encontradas)}. "
+            f"Columnas disponibles: {columnas_reales}"
         )
+    if not mapeo_resuelto.get("nit") or not mapeo_resuelto.get("cuenta"):
+        raise ValueError("El mapeo debe incluir al menos las columnas para 'nit' y 'cuenta'.")
+    columna_nit = mapeo_resuelto["nit"]
+    columna_cuenta = mapeo_resuelto["cuenta"]
 
     total = len(df)
     validos = 0
@@ -81,17 +93,17 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
             rechazos.append(f"Fila {i + 2}: falta NIT o cuenta.")
             continue
 
-        nombre_col = mapeo.get("nombre")
+        nombre_col = mapeo_resuelto.get("nombre")
         nombre_proveedor = str(row.get(nombre_col, "")).strip() if nombre_col else None
 
         proveedor = get_or_create_proveedor(db, empresa_id, nit, nombre_proveedor or None)
         cuenta = get_or_create_cuenta(db, empresa_id, cuenta_codigo)
 
-        fecha_col = mapeo.get("fecha")
-        numero_col = mapeo.get("numero_documento")
-        tipo_col = mapeo.get("tipo_documento")
-        desc_col = mapeo.get("descripcion")
-        valor_col = mapeo.get("valor")
+        fecha_col = mapeo_resuelto.get("fecha")
+        numero_col = mapeo_resuelto.get("numero_documento")
+        tipo_col = mapeo_resuelto.get("tipo_documento")
+        desc_col = mapeo_resuelto.get("descripcion")
+        valor_col = mapeo_resuelto.get("valor")
 
         registrar_decision(
             db, empresa_id, proveedor.id, cuenta.id,

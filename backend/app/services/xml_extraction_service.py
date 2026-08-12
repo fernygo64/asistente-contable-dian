@@ -47,6 +47,60 @@ def _amount(parent, local_name: str) -> float:
         return 0.0
 
 
+def _desempaquetar_raiz(root):
+    """Si el XML viene envuelto en un AttachedDocument con el documento real
+    embebido como CDATA, devuelve el documento interno; si no, la raíz tal cual."""
+    tag_raiz = _local(root.tag)
+    if tag_raiz in ("Invoice", "CreditNote", "DebitNote", "ApplicationResponse"):
+        return root, tag_raiz
+    for desc in _find_all(root, "Description"):
+        if not desc.text:
+            continue
+        for candidato in ("Invoice", "CreditNote", "DebitNote"):
+            if f"<{candidato}" in desc.text or f":{candidato}" in desc.text:
+                try:
+                    interno = ET.fromstring(desc.text)
+                    return interno, _local(interno.tag)
+                except ET.ParseError:
+                    continue
+    return root, tag_raiz
+
+
+def clasificar_documento_xml(contenido: bytes) -> dict:
+    """
+    Identifica QUÉ TIPO de documento electrónico es antes de intentar
+    extraer datos de factura de él. Esto evita dos errores graves:
+    1) Tratar un "Application Response" (acuse de recibo del proceso
+       RADIAN — no es una factura, no tiene información contable) como
+       si fuera una factura real.
+    2) Tratar una Nómina Electrónica Individual (esquema XML totalmente
+       distinto al de factura, con datos de empleado/conceptos de
+       nómina) con el parser de facturas, lo que produciría datos
+       basura o incorrectos.
+    Devuelve {"naturaleza": ..., "raiz": nodo_xml_a_usar} donde
+    naturaleza es una de: "factura", "nota_credito", "nota_debito",
+    "acuse_recibo", "nomina", "desconocido".
+    """
+    try:
+        root = ET.fromstring(contenido)
+    except ET.ParseError as e:
+        return {"naturaleza": "invalido", "error": f"XML mal formado: {e}", "raiz": None}
+
+    tag_original = _local(root.tag)
+    if "nomina" in tag_original.lower() or "payroll" in tag_original.lower():
+        return {"naturaleza": "nomina", "error": None, "raiz": root}
+
+    raiz, tag = _desempaquetar_raiz(root)
+    mapa = {
+        "Invoice": "factura",
+        "CreditNote": "nota_credito",
+        "DebitNote": "nota_debito",
+        "ApplicationResponse": "acuse_recibo",
+    }
+    naturaleza = mapa.get(tag, "desconocido")
+    return {"naturaleza": naturaleza, "error": None, "raiz": raiz}
+
+
 def extraer_factura_xml(contenido: bytes) -> dict:
     """
     Devuelve un dict con:
@@ -63,16 +117,7 @@ def extraer_factura_xml(contenido: bytes) -> dict:
     except ET.ParseError as e:
         return {"ok": False, "error": f"XML mal formado: {e}", "campos": {}, "campos_presentes": []}
 
-    invoice_root = root
-    if _local(root.tag) != "Invoice":
-        # Puede venir embebido en un AttachedDocument (CDATA con <Invoice>...)
-        for desc in _find_all(root, "Description"):
-            if desc.text and "<Invoice" in desc.text:
-                try:
-                    invoice_root = ET.fromstring(desc.text)
-                except ET.ParseError:
-                    pass
-                break
+    invoice_root, _tag = _desempaquetar_raiz(root)
 
     numero = _text(invoice_root, "ID")
     cufe_nodes = _find_all(invoice_root, "UUID")
@@ -175,7 +220,10 @@ def extraer_factura_xml(contenido: bytes) -> dict:
                 rf_total += amt
 
     conceptos = []
-    for line in _find_all(invoice_root, "InvoiceLine"):
+    lineas_xml = (_find_all(invoice_root, "InvoiceLine")
+                  + _find_all(invoice_root, "CreditNoteLine")
+                  + _find_all(invoice_root, "DebitNoteLine"))
+    for line in lineas_xml:
         item = None
         for it in _find_all(line, "Item"):
             item = it
@@ -233,7 +281,7 @@ def extraer_factura_xml(contenido: bytes) -> dict:
     campos_presentes = [k for k, v in campos.items() if v not in ("", 0, 0.0, [], {}, None)]
 
     if not numero and not cufe and not conceptos:
-        return {"ok": False, "error": "No se reconoció estructura de factura UBL (Invoice) en el archivo.",
+        return {"ok": False, "error": "No se reconoció estructura UBL de factura/nota crédito/nota débito en el archivo.",
                 "campos": {}, "campos_presentes": []}
 
     return {"ok": True, "error": None, "campos": campos, "campos_presentes": campos_presentes}

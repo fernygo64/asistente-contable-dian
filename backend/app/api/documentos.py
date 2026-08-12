@@ -12,8 +12,27 @@ from app.schemas.schemas import (
 from app.services.zip_processing_service import procesar_archivos_mixtos
 from app.services import documentos_service, partida_doble_service, historial_service
 from app.services.auditoria_service import registrar as auditoria_registrar
+from app.services.excel_utils import leer_columnas_excel
 
 router = APIRouter(prefix="/empresas/{empresa_id}/documentos", tags=["documentos"])
+
+
+@router.post("/excel-columnas")
+async def previsualizar_columnas_excel(empresa_id: str, archivo: UploadFile = File(...),
+                                        empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Lee únicamente los encabezados del Excel/CSV subido, sin procesar
+    filas todavía — para que la interfaz pueda ofrecer las columnas
+    reales como lista desplegable en vez de que el usuario tenga que
+    escribir el nombre exacto a ciegas (fuente típica de errores como
+    'FOLIO' vs 'Folio').
+    """
+    contenido = await archivo.read()
+    try:
+        columnas = leer_columnas_excel(contenido, archivo.filename or "archivo.xlsx")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"No se pudo leer el archivo: {e}")
+    return {"columnas": columnas}
 
 
 @router.post("/cargar", response_model=CargaResumen, status_code=201)
@@ -27,6 +46,8 @@ async def cargar_documentos(
     mapeo_nombre_emisor: str | None = Form(default=None),
     mapeo_fecha: str | None = Form(default=None),
     mapeo_valor_total: str | None = Form(default=None),
+    mapeo_tipo_documento: str | None = Form(default=None, description="Columna 'Tipo de documento' del Excel de la DIAN"),
+    mapeo_grupo: str | None = Form(default=None, description="Columna 'Grupo' (Emitido/Recibido) del Excel de la DIAN"),
     db: Session = Depends(get_db),
     empresa: Empresa = Depends(get_empresa_activa),
     usuario: str = Depends(usuario_actual),
@@ -47,7 +68,7 @@ async def cargar_documentos(
         archivos_leidos.append((f.filename or "archivo_sin_nombre", contenido))
 
     try:
-        documentos_zip = procesar_archivos_mixtos(archivos_leidos)
+        documentos_zip = procesar_archivos_mixtos(archivos_leidos, nit_empresa=empresa.nit)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"No se pudieron leer los archivos: {e}")
 
@@ -59,6 +80,7 @@ async def cargar_documentos(
             "cufe": mapeo_cufe, "numero_factura": mapeo_numero_factura,
             "nit_emisor": mapeo_nit_emisor, "nombre_emisor": mapeo_nombre_emisor,
             "fecha": mapeo_fecha, "valor_total": mapeo_valor_total,
+            "tipo_documento": mapeo_tipo_documento, "grupo": mapeo_grupo,
         }
         if not any(mapeo.values()):
             raise HTTPException(
@@ -89,6 +111,8 @@ async def cargar_documentos(
     carga.total_archivos_zip = resultado["total_archivos_zip_validos"] + resultado["total_archivos_zip_error"]
     carga.total_relacionados = resultado["total_relacionados"]
     carga.total_pendientes_revision = resultado["total_pendientes_revision"]
+    carga.total_pendientes_clasificacion = resultado["total_pendientes_clasificacion"]
+    carga.total_descartados = resultado["total_descartados"]
     carga.total_duplicados = resultado["total_duplicados"]
 
     auditoria_registrar(
@@ -96,6 +120,8 @@ async def cargar_documentos(
         {
             "archivo_excel": carga.archivo_excel_nombre, "archivo_zip": carga.archivo_zip_nombre,
             "relacionados": carga.total_relacionados, "pendientes_revision": carga.total_pendientes_revision,
+            "pendientes_clasificacion": carga.total_pendientes_clasificacion,
+            "descartados": carga.total_descartados,
             "duplicados": carga.total_duplicados, "errores_zip": resultado["errores_zip"],
         },
         usuario,
@@ -109,8 +135,11 @@ async def cargar_documentos(
         total_filas_excel=carga.total_filas_excel, total_archivos_zip=carga.total_archivos_zip,
         total_relacionados=carga.total_relacionados,
         total_pendientes_revision=carga.total_pendientes_revision,
+        total_pendientes_clasificacion=carga.total_pendientes_clasificacion,
+        total_descartados=carga.total_descartados,
         total_duplicados=carga.total_duplicados,
-        errores_zip=resultado["errores_zip"], creado_en=carga.creado_en,
+        errores_zip=resultado["errores_zip"], avisos_descarte=resultado["avisos_descarte"],
+        creado_en=carga.creado_en,
     )
 
 
@@ -118,6 +147,7 @@ async def cargar_documentos(
 def listar_facturas(
     empresa_id: str, estado: str | None = None, nit_emisor: str | None = None,
     numero_factura: str | None = None, confianza_max: float | None = None,
+    naturaleza: str | None = None, direccion: str | None = None,
     db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa),
 ):
     """Filtros de la sección 29."""
@@ -130,6 +160,10 @@ def listar_facturas(
         q = q.filter(Factura.numero_factura == numero_factura)
     if confianza_max is not None:
         q = q.filter(Factura.confianza_extraccion <= confianza_max)
+    if naturaleza:
+        q = q.filter(Factura.naturaleza_documento == naturaleza)
+    if direccion:
+        q = q.filter(Factura.direccion_documento == direccion)
     return q.order_by(Factura.creado_en.desc()).all()
 
 
