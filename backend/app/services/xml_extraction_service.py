@@ -101,6 +101,27 @@ def clasificar_documento_xml(contenido: bytes) -> dict:
     return {"naturaleza": naturaleza, "error": None, "raiz": raiz}
 
 
+def _extraer_nit_party(party) -> str:
+    """
+    El NIT de un Party en UBL colombiano casi siempre está en
+    PartyIdentification/ID, pero algunos proveedores tecnológicos lo
+    ponen (o lo repiten) en PartyTaxScheme/CompanyID en su lugar — se
+    prueban ambas ubicaciones antes de darlo por vacío, para no perder
+    el dato si el XML usa la variante menos común.
+    """
+    party_ids = _find_all(party, "PartyIdentification")
+    if party_ids:
+        id_node = _first_child(party_ids[0], "ID")
+        if id_node is not None and id_node.text and id_node.text.strip():
+            return id_node.text.strip()
+    tax_schemes = _find_all(party, "PartyTaxScheme")
+    if tax_schemes:
+        company_id = _first_child(tax_schemes[0], "CompanyID")
+        if company_id is not None and company_id.text and company_id.text.strip():
+            return company_id.text.strip()
+    return ""
+
+
 def extraer_factura_xml(contenido: bytes) -> dict:
     """
     Devuelve un dict con:
@@ -131,11 +152,7 @@ def extraer_factura_xml(contenido: bytes) -> dict:
         break
     nit_emisor, nombre_emisor, direccion_emisor = "", "", ""
     if supplier is not None:
-        party_ids = _find_all(supplier, "PartyIdentification")
-        if party_ids:
-            id_node = _first_child(party_ids[0], "ID")
-            if id_node is not None and id_node.text:
-                nit_emisor = id_node.text.strip()
+        nit_emisor = _extraer_nit_party(supplier)
         reg_names = _find_all(supplier, "RegistrationName")
         if reg_names and reg_names[0].text:
             nombre_emisor = reg_names[0].text.strip()
@@ -162,11 +179,7 @@ def extraer_factura_xml(contenido: bytes) -> dict:
         break
     nit_receptor, nombre_receptor = "", ""
     if receptor is not None:
-        party_ids = _find_all(receptor, "PartyIdentification")
-        if party_ids:
-            id_node = _first_child(party_ids[0], "ID")
-            if id_node is not None and id_node.text:
-                nit_receptor = id_node.text.strip()
+        nit_receptor = _extraer_nit_party(receptor)
         reg_names = _find_all(receptor, "RegistrationName")
         if reg_names and reg_names[0].text:
             nombre_receptor = reg_names[0].text.strip()

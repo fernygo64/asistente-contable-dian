@@ -6,8 +6,50 @@ from app.core.security import get_empresa_activa, usuario_actual
 from app.models.models import Empresa, OrigenDecision, ImportacionHistorico
 from app.schemas.schemas import SugerenciaCuenta, ImportacionResumen, HistorialManualCreate
 from app.services import historial_service, importacion_service
+from app.services.excel_utils import leer_columnas_excel
+from app.services.mapeo_conocido_service import sugerir_mapeo
 
 router = APIRouter(prefix="/empresas/{empresa_id}/historial", tags=["historial"])
+
+
+@router.post("/sugerir-mapeo")
+async def sugerir_mapeo_historico(empresa_id: str, archivo: UploadFile = File(...),
+                                   db: Session = Depends(get_db),
+                                   empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Propone el mapeo de columnas automáticamente según el sistema
+    contable declarado por la empresa (Siigo Pyme / World Office),
+    verificado contra archivos reales de ambos. Solo sugiere columnas
+    que SÍ existen en el archivo subido — el usuario revisa y ajusta
+    antes de importar, nunca se aplica a ciegas.
+    """
+    contenido = await archivo.read()
+    try:
+        columnas = leer_columnas_excel(contenido, archivo.filename or "archivo.xlsx")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"No se pudo leer el archivo: {e}")
+    sistema = empresa.sistema_contable.value if hasattr(empresa.sistema_contable, "value") else empresa.sistema_contable
+    resultado = sugerir_mapeo(sistema, columnas)
+
+    # Cuentas de control ya configuradas en "Cuentas base" — se sugieren
+    # como candidatas a excluir del aprendizaje (proveedores, IVA,
+    # retenciones no son la cuenta de gasto/ingreso real).
+    from app.models.models import CuentaContable
+    ids_control = [
+        empresa.cuenta_proveedores_id, empresa.cuenta_caja_id, empresa.cuenta_banco_id,
+        empresa.cuenta_iva_descontable_id, empresa.cuenta_retefuente_id,
+        empresa.cuenta_reteica_id, empresa.cuenta_reteiva_id, empresa.cuenta_inc_id,
+    ]
+    codigos_excluir_sugeridos = []
+    for cuenta_id in ids_control:
+        if not cuenta_id:
+            continue
+        cta = db.get(CuentaContable, cuenta_id)
+        if cta:
+            codigos_excluir_sugeridos.append(cta.codigo)
+
+    return {"sistema_contable": sistema, "columnas": columnas,
+            "cuentas_excluir_sugeridas": codigos_excluir_sugeridos, **resultado}
 
 
 @router.post("/importar", response_model=ImportacionResumen, status_code=201)
@@ -18,10 +60,15 @@ async def importar_historico(
     mapeo_cuenta: str = Form(...),
     mapeo_nombre: str | None = Form(default=None),
     mapeo_fecha: str | None = Form(default=None),
+    mapeo_anio: str | None = Form(default=None),
+    mapeo_mes: str | None = Form(default=None),
+    mapeo_dia: str | None = Form(default=None),
     mapeo_numero_documento: str | None = Form(default=None),
     mapeo_tipo_documento: str | None = Form(default=None),
     mapeo_descripcion: str | None = Form(default=None),
     mapeo_valor: str | None = Form(default=None),
+    mapeo_valor_debito: str | None = Form(default=None),
+    mapeo_valor_credito: str | None = Form(default=None),
     cuentas_excluir: str | None = Form(default=None, description="Códigos/prefijos separados por coma a ignorar del aprendizaje (ej. proveedores, bancos, IVA)"),
     db: Session = Depends(get_db),
     empresa: Empresa = Depends(get_empresa_activa),
@@ -29,9 +76,10 @@ async def importar_historico(
 ):
     mapeo = {
         "nit": mapeo_nit, "cuenta": mapeo_cuenta, "nombre": mapeo_nombre,
-        "fecha": mapeo_fecha, "numero_documento": mapeo_numero_documento,
+        "fecha": mapeo_fecha, "anio": mapeo_anio, "mes": mapeo_mes, "dia": mapeo_dia,
+        "numero_documento": mapeo_numero_documento,
         "tipo_documento": mapeo_tipo_documento, "descripcion": mapeo_descripcion,
-        "valor": mapeo_valor,
+        "valor": mapeo_valor, "valor_debito": mapeo_valor_debito, "valor_credito": mapeo_valor_credito,
     }
     lista_excluir = [c.strip() for c in (cuentas_excluir or "").split(",") if c.strip()]
     contenido = await archivo.read()
