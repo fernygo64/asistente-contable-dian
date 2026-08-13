@@ -19,14 +19,12 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Factura, FuenteExtraccion, EstadoFactura
 from app.services.zip_processing_service import DocumentoExtraido
-from app.services.excel_utils import resolver_columna
+from app.services.excel_utils import resolver_columna, leer_dataframe_excel
 from app.services.clasificacion_dian_service import clasificar_desde_excel, es_tipo_descartable
 
 
 def _leer_excel_dian(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
-    if nombre_archivo.lower().endswith(".csv"):
-        return pd.read_csv(io.BytesIO(contenido), dtype=str, keep_default_na=False)
-    return pd.read_excel(io.BytesIO(contenido), dtype=str, keep_default_na=False, na_filter=False)
+    return leer_dataframe_excel(contenido, nombre_archivo)
 
 
 def _norm(v) -> str:

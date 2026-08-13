@@ -18,13 +18,11 @@ from sqlalchemy.orm import Session
 from app.models.models import ImportacionHistorico, OrigenDecision
 from app.services.historial_service import get_or_create_proveedor, get_or_create_cuenta, registrar_decision
 from app.services.auditoria_service import registrar as auditoria_registrar
-from app.services.excel_utils import resolver_columna
+from app.services.excel_utils import resolver_columna, leer_dataframe_excel
 
 
 def _leer_dataframe(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
-    if nombre_archivo.lower().endswith(".csv"):
-        return pd.read_csv(io.BytesIO(contenido), dtype=str, keep_default_na=False)
-    return pd.read_excel(io.BytesIO(contenido), dtype=str, keep_default_na=False, na_filter=False)
+    return leer_dataframe_excel(contenido, nombre_archivo)
 
 
 _PATRON_FECHA_ISO = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}")
