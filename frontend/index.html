@@ -194,8 +194,17 @@
             <option value="emitida">Solo emitidas (ventas)</option>
           </select></div>
           <div><button class="btn ghost" onclick="cargarFacturas()">Actualizar</button></div>
-          <div><button class="btn danger" onclick="eliminarSeleccionadas()">Eliminar seleccionadas</button></div>
         </div>
+      </div>
+      <div class="flex-between" style="background:#fef3e2; border:1px solid var(--warn); border-radius:8px; padding:10px 14px; margin:12px 0;">
+        <div>
+          <label style="display:inline-flex; align-items:center; gap:6px; margin:0; text-transform:none; font-size:13px; color:var(--ink);">
+            <input type="checkbox" id="seleccionarTodasChk" onchange="toggleSeleccionarTodas(this.checked)" style="width:auto;">
+            Seleccionar todas las visibles
+          </label>
+          <span id="contadorSeleccion" class="muted" style="margin-left:10px;">0 seleccionadas</span>
+        </div>
+        <button class="btn danger" onclick="eliminarSeleccionadas()">🗑 Eliminar seleccionadas</button>
       </div>
       <div id="listaFacturas"></div>
     </div>
@@ -521,7 +530,7 @@ async function cargarFacturas(){
     el.innerHTML = facturas.map(f => `
       <details>
         <summary>
-          <span class="col-check"><input type="checkbox" onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
+          <span class="col-check"><input type="checkbox" ${facturaSeleccionParaExportar.has(f.id)?'checked':''} onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
           <span><strong>${f.nombre_emisor || '(sin nombre)'}</strong> · NIT ${f.nit_emisor||'—'} · Fact. ${f.numero_factura||'—'}</span>
           <span>
             <span class="pill ${estadoPill(f.estado)}">${f.estado}</span>
@@ -564,6 +573,7 @@ async function cargarFacturas(){
         </div>
       </details>
     `).join('');
+    actualizarContadorSeleccion();
   }catch(e){ toast(e.message, true); }
 }
 
@@ -585,6 +595,20 @@ function etiquetaNaturaleza(naturaleza){
 function toggleFacturaSel(id, checked){
   if(checked) facturaSeleccionParaExportar.add(id); else facturaSeleccionParaExportar.delete(id);
   document.getElementById('expFacturaIds').value = Array.from(facturaSeleccionParaExportar).join(',');
+  actualizarContadorSeleccion();
+}
+
+function actualizarContadorSeleccion(){
+  const n = facturaSeleccionParaExportar.size;
+  const el = document.getElementById('contadorSeleccion');
+  if(el) el.textContent = n===1 ? '1 seleccionada' : `${n} seleccionadas`;
+}
+
+function toggleSeleccionarTodas(marcarTodas){
+  document.querySelectorAll('#listaFacturas .col-check input[type=checkbox]').forEach(chk=>{
+    chk.checked = marcarTodas;
+    chk.dispatchEvent(new Event('change'));
+  });
 }
 
 async function verSugerencia(facturaId, nit){
@@ -703,9 +727,11 @@ async function detectarColumnasDesdeEjemplo(){
 
 async function crearPlantilla(){
   if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const nombre = document.getElementById('plNombre').value.trim();
+  if(!nombre){ toast('Ponle un nombre a la plantilla antes de crearla', true); return; }
   try{
     await req(`/empresas/${empresaActivaId}/plantillas`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
-      nombre: document.getElementById('plNombre').value.trim(),
+      nombre,
       sistema_contable: document.getElementById('plSistema').value,
       delimitador: document.getElementById('plDelim').value,
       extension: document.getElementById('plExt').value.trim() || 'txt',
@@ -721,10 +747,24 @@ async function cargarPlantillas(){
   try{
     const plantillas = await req(`/empresas/${empresaActivaId}/plantillas`);
     document.getElementById('tablaPlantillas').innerHTML = plantillas.map(p=>`
-      <tr><td>${p.nombre}</td><td>${p.sistema_contable}</td><td>${p.columnas.map(c=>c.label).join(', ')}</td>
-      <td><button class="btn danger" onclick="eliminarPlantilla('${p.id}','${p.nombre.replace(/'/g,"\\'")}')">Eliminar</button></td></tr>
+      <tr><td>${p.nombre || '<span class="pill err">(sin nombre)</span>'}</td><td>${p.sistema_contable}</td><td>${p.columnas.map(c=>c.label).join(', ')}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn ghost" onclick="renombrarPlantilla('${p.id}','${(p.nombre||'').replace(/'/g,"\\'")}')">Renombrar</button>
+        <button class="btn danger" onclick="eliminarPlantilla('${p.id}','${(p.nombre||'').replace(/'/g,"\\'")}')">Eliminar</button>
+      </td></tr>
     `).join('') || '<tr><td colspan="4" class="muted">Sin plantillas todavía.</td></tr>';
-    document.getElementById('expPlantilla').innerHTML = plantillas.map(p=>`<option value="${p.id}">${p.nombre} (${p.sistema_contable})</option>`).join('');
+    document.getElementById('expPlantilla').innerHTML = plantillas.map(p=>`<option value="${p.id}">${p.nombre || '(sin nombre)'} (${p.sistema_contable})</option>`).join('');
+  }catch(e){ toast(e.message, true); }
+}
+
+async function renombrarPlantilla(id, nombreActual){
+  const nuevo = prompt('Nuevo nombre para la plantilla:', nombreActual || '');
+  if(nuevo === null) return;
+  if(!nuevo.trim()){ toast('El nombre no puede quedar vacío', true); return; }
+  try{
+    await req(`/empresas/${empresaActivaId}/plantillas/${id}/renombrar?nombre=${encodeURIComponent(nuevo.trim())}`, {method:'PATCH'});
+    toast('Plantilla renombrada');
+    cargarPlantillas();
   }catch(e){ toast(e.message, true); }
 }
 
