@@ -214,8 +214,9 @@ class ResolucionDuplicado(BaseModel):
 # --------------------------------------------------------------- Partida doble
 class GenerarPartidaRequest(BaseModel):
     cuenta_gasto_codigo: str
-    contrapartida: str = "proveedores"   # "proveedores" | "caja" | "banco"
+    contrapartida: str = "proveedores"   # "proveedores" | "clientes" | "caja" | "banco"
     origen_decision: str = "manual"      # "manual" | "sugerencia_aceptada"
+    centro_costo_codigo: Optional[str] = None
     usuario: Optional[str] = None
 
 
@@ -225,6 +226,7 @@ class LineaPartidaOut(BaseModel):
     tipo: str
     valor: float
     descripcion: str
+    centro_costo_codigo: Optional[str] = None
 
 
 class PartidaOut(BaseModel):

@@ -78,6 +78,39 @@ def listar_plantillas(empresa_id: str, db: Session = Depends(get_db),
     return [_plantilla_a_out(p) for p in plantillas]
 
 
+@router.delete("/plantillas/{plantilla_id}")
+def eliminar_plantilla(empresa_id: str, plantilla_id: str, db: Session = Depends(get_db),
+                        empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
+    """
+    Elimina una plantilla mal configurada. Si ya se usó para generar al
+    menos una exportación real, se rechaza — borrarla dejaría ese
+    registro de auditoría (sección 39) sin poder mostrar qué plantilla
+    se usó. En ese caso, crea una plantilla nueva en vez de modificar
+    la existente.
+    """
+    plantilla = db.query(PlantillaExportacion).filter(
+        PlantillaExportacion.empresa_id == empresa_id, PlantillaExportacion.id == plantilla_id
+    ).first()
+    if not plantilla:
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada en esta empresa.")
+
+    ya_usada = db.query(Exportacion).filter(Exportacion.plantilla_id == plantilla_id).first()
+    if ya_usada:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No se puede eliminar: la plantilla '{plantilla.nombre}' ya se usó para generar "
+                   f"una exportación (queda en el historial de auditoría). Crea una plantilla nueva si "
+                   f"necesitas otra configuración.",
+        )
+
+    nombre = plantilla.nombre
+    db.delete(plantilla)
+    auditoria_registrar(db, empresa_id, "PlantillaExportacion", plantilla_id, "plantilla_eliminada",
+                         {"nombre": nombre}, usuario)
+    db.commit()
+    return {"eliminada": True, "id": plantilla_id}
+
+
 @router.post("/exportaciones/validar")
 def validar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db: Session = Depends(get_db),
                          empresa: Empresa = Depends(get_empresa_activa)):

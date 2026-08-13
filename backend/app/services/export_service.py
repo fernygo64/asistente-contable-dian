@@ -25,6 +25,12 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
         return fijo
     if source == "fecha":
         return factura.fecha_emision.strftime(formato_fecha) if factura.fecha_emision else fijo
+    if source == "anio":
+        return str(factura.fecha_emision.year) if factura.fecha_emision else fijo
+    if source == "mes":
+        return str(factura.fecha_emision.month) if factura.fecha_emision else fijo
+    if source == "dia":
+        return str(factura.fecha_emision.day) if factura.fecha_emision else fijo
     if source == "cuenta":
         codigo = movimiento.cuenta.codigo
         return equivalencias.get(codigo, codigo)
@@ -40,6 +46,14 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
         return factura.cufe or fijo
     if source == "concepto":
         return movimiento.descripcion or f"Factura {factura.numero_factura or ''}"
+    if source == "debito_credito":
+        # Estructura real de Siigo Pyme (Movimiento Contable): una sola
+        # columna con "D" o "C" en vez de dos columnas separadas.
+        return "D" if movimiento.tipo == "debito" else "C"
+    if source == "valor":
+        # El valor del movimiento sin importar si es débito o crédito —
+        # se usa junto con "debito_credito" (columna aparte indica el lado).
+        return f"{float(movimiento.valor):.2f}"
     if source == "debito":
         return f"{float(movimiento.valor):.2f}" if movimiento.tipo == "debito" else ""
     if source == "credito":

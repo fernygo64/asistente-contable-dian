@@ -8,6 +8,7 @@ rechazados y por qué) y NUNCA modifica ni borra importaciones previas.
 """
 import io
 import json
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -26,11 +27,17 @@ def _leer_dataframe(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
     return pd.read_excel(io.BytesIO(contenido), dtype=str, keep_default_na=False, na_filter=False)
 
 
+_PATRON_FECHA_ISO = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}")
+
+
 def _parse_fecha(v) -> Optional[datetime]:
     if not v or (isinstance(v, float) and pd.isna(v)):
         return None
     try:
-        return pd.to_datetime(v, dayfirst=True).to_pydatetime()
+        v_str = str(v)
+        if _PATRON_FECHA_ISO.match(v_str):
+            return pd.to_datetime(v_str, dayfirst=False).to_pydatetime()
+        return pd.to_datetime(v_str, dayfirst=True).to_pydatetime()
     except Exception:
         return None
 

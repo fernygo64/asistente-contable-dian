@@ -379,6 +379,7 @@ class Movimiento(Base):
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
 
     cuenta = relationship("CuentaContable")
+    centro_costo = relationship("CentroCosto")
 
     __table_args__ = (
         Index("ix_movimiento_empresa_factura", "empresa_id", "factura_id"),

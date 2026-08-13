@@ -9,23 +9,37 @@ y reglas de validación — no se copia una lógica genérica disfrazada de
 independientes, como pide la especificación, y agregar un tercero
 (section 22, "Otros sistemas") es una clase nueva, no tocar las
 existentes.
+
+La validación de "columnas obligatorias" se hace por ORIGEN de dato
+(source), no por el texto de la etiqueta — así funciona sin importar
+cómo el usuario haya nombrado sus columnas. Confirmado con archivos
+reales de exportación: Siigo Pyme (Movimiento Contable) usa una sola
+columna "Débito o Crédito" con indicador D/C + una columna de Valor
+(no columnas separadas de débito y crédito), mientras que World Office
+sí usa columnas de Débito y Crédito separadas.
 """
 from abc import ABC, abstractmethod
 
 
 class AccountingExportAdapter(ABC):
     nombre_sistema: str = ""
-    campos_obligatorios: list[str] = []
+    # Cada elemento es un conjunto de sources donde basta con que UNO
+    # de los sub-conjuntos esté completo (para permitir formas
+    # alternativas de representar lo mismo, ej. debito+credito por
+    # separado vs. debito_credito+valor combinado).
+    requisitos_alternativos: list[list[set]] = []
 
     def validar_plantilla(self, columnas: list[dict]) -> list[str]:
         errores = []
-        labels_presentes = {c["label"] for c in columnas}
-        faltantes = [c for c in self.campos_obligatorios if c not in labels_presentes]
-        if faltantes:
-            errores.append(
-                f"La plantilla de {self.nombre_sistema} no tiene las columnas obligatorias: {faltantes}. "
-                f"Agrégalas a la plantilla antes de exportar."
-            )
+        sources_presentes = {c.get("source") for c in columnas}
+        for nombre_requisito, alternativas in self.requisitos_alternativos:
+            cumple_alguna = any(alt.issubset(sources_presentes) for alt in alternativas)
+            if not cumple_alguna:
+                opciones = " o ".join("+".join(sorted(alt)) for alt in alternativas)
+                errores.append(
+                    f"La plantilla de {self.nombre_sistema} no tiene columnas para '{nombre_requisito}' "
+                    f"(agrega una columna con origen: {opciones})."
+                )
         return errores
 
     @abstractmethod
@@ -36,7 +50,15 @@ class AccountingExportAdapter(ABC):
 
 class SiigoExportAdapter(AccountingExportAdapter):
     nombre_sistema = "Siigo Pyme"
-    campos_obligatorios = ["Fecha", "Cuenta", "Nit", "Debito", "Credito"]
+    # Confirmado con el archivo real "Movimiento Contable": obligatorios
+    # son Tipo de Comprobante, Código Comprobante, Cuenta Contable,
+    # Débito o Crédito y Valor de la Secuencia. Tipo/Código de comprobante
+    # suelen ser valores fijos según la parametrización propia del
+    # usuario en Siigo — no se pueden validar estructuralmente aquí.
+    requisitos_alternativos = [
+        ("cuenta contable", [{"cuenta"}]),
+        ("valor del movimiento", [{"debito_credito", "valor"}, {"debito", "credito"}]),
+    ]
 
     def validar_negocio(self, filas: list[dict]) -> list[str]:
         errores = []
@@ -49,16 +71,23 @@ class SiigoExportAdapter(AccountingExportAdapter):
 
 class WorldOfficeExportAdapter(AccountingExportAdapter):
     nombre_sistema = "World Office"
-    # World Office exige explícitamente el nombre del tercero en el archivo,
-    # a diferencia de Siigo (que puede resolverlo internamente por NIT) —
-    # esta es una regla de negocio propia de este adaptador, no genérica.
-    campos_obligatorios = ["Fecha", "Cuenta", "Nit", "Tercero", "Debito", "Credito"]
+    # Confirmado con el archivo real "WORLD_OFFICE_JUNIO_2026.xlsx": solo
+    # trae el NIT del tercero (columnas "Tercero Externo"), sin ninguna
+    # columna de nombre — World Office lo resuelve internamente por NIT,
+    # igual que Siigo. La suposición anterior (que exigía nombre) era
+    # incorrecta y quedó corregida al revisar un archivo real.
+    requisitos_alternativos = [
+        ("cuenta contable", [{"cuenta"}]),
+        ("nit del tercero", [{"nit"}]),
+        ("débito y crédito", [{"debito", "credito"}]),
+    ]
 
     def validar_negocio(self, filas: list[dict]) -> list[str]:
         errores = []
         for i, fila in enumerate(filas):
-            if not str(fila.get("Tercero", "")).strip():
-                errores.append(f"Fila {i + 1}: World Office requiere el nombre del tercero, viene vacío.")
+            nit = str(fila.get("Nit", "")).strip()
+            if not nit:
+                errores.append(f"Fila {i + 1}: World Office requiere el NIT del tercero, viene vacío.")
         return errores
 
 

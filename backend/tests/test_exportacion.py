@@ -49,19 +49,29 @@ def test_plantilla_sin_columnas_obligatorias_falla_validacion_de_adaptador(clien
                       json={"plantilla_id": plantilla_id, "factura_ids": [factura["id"]]})
     body = r2.json()
     assert body["valido"] is False
-    assert any("obligatorias" in e for e in body["errores"])
+    assert any("valor del movimiento" in e for e in body["errores"])
 
 
-def test_world_office_exige_tercero_y_siigo_no(client, empresa_a):
+def test_siigo_acepta_debito_credito_combinado_world_office_no(client, empresa_a):
     """
-    Prueba que confirma que los dos adaptadores son realmente distintos,
-    no la misma lógica genérica con otro nombre (sección 21).
+    Diferencia estructural real confirmada con archivos reales de ambos
+    sistemas (sección 21: adaptadores genuinamente distintos, no la
+    misma lógica con otro nombre): Siigo Pyme (Movimiento Contable) usa
+    una sola columna D/C + Valor; World Office siempre usa Débito y
+    Crédito como columnas separadas — una plantilla con solo el
+    indicador combinado es válida para Siigo pero no para World Office.
     """
+    columnas_combinadas = [
+        {"label": "Cuenta", "source": "cuenta", "valor_fijo": ""},
+        {"label": "Nit", "source": "nit", "valor_fijo": ""},
+        {"label": "DC", "source": "debito_credito", "valor_fijo": ""},
+        {"label": "Valor", "source": "valor", "valor_fijo": ""},
+    ]
     r_siigo = client.post(f"/empresas/{empresa_a['id']}/plantillas", json={
-        "nombre": "Siigo sin tercero", "sistema_contable": "siigo_pyme", "columnas": SIIGO_COLUMNAS,
+        "nombre": "Siigo combinado", "sistema_contable": "siigo_pyme", "columnas": columnas_combinadas,
     })
     r_wo = client.post(f"/empresas/{empresa_a['id']}/plantillas", json={
-        "nombre": "WO sin tercero", "sistema_contable": "world_office", "columnas": SIIGO_COLUMNAS,  # a propósito, sin "Tercero"
+        "nombre": "WO combinado", "sistema_contable": "world_office", "columnas": columnas_combinadas,
     })
 
     factura = _preparar_factura_lista(client, empresa_a["id"], "FEX002", "cufe-exp-2", "900722722")
@@ -71,8 +81,8 @@ def test_world_office_exige_tercero_y_siigo_no(client, empresa_a):
     val_wo = client.post(f"/empresas/{empresa_a['id']}/exportaciones/validar",
                           json={"plantilla_id": r_wo.json()["id"], "factura_ids": [factura["id"]]}).json()
 
-    assert val_siigo["valido"] is True     # a Siigo sí le basta con NIT
-    assert val_wo["valido"] is False       # World Office exige la columna Tercero
+    assert val_siigo["valido"] is True     # Siigo sí acepta el indicador D/C combinado
+    assert val_wo["valido"] is False       # World Office exige Débito y Crédito como columnas separadas
 
 
 def test_no_permite_exportar_factura_sin_partida_generada(client, empresa_a):

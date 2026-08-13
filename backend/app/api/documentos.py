@@ -278,8 +278,21 @@ def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaReq
 
     cuenta_gasto = historial_service.get_or_create_cuenta(db, empresa_id, payload.cuenta_gasto_codigo)
 
+    centro_costo = None
+    if payload.centro_costo_codigo:
+        from app.models.models import CentroCosto
+        centro_costo = db.query(CentroCosto).filter(
+            CentroCosto.empresa_id == empresa_id, CentroCosto.codigo == payload.centro_costo_codigo
+        ).first()
+        if not centro_costo:
+            raise HTTPException(
+                status_code=422,
+                detail=f"El centro de costo '{payload.centro_costo_codigo}' no existe en esta empresa. "
+                       f"Créalo primero en POST /empresas/{{id}}/centros-costo (nunca se inventa uno nuevo).",
+            )
+
     resultado = partida_doble_service.generar_partida(
-        db, empresa, f, cuenta_gasto.id, payload.contrapartida
+        db, empresa, f, cuenta_gasto.id, payload.contrapartida, centro_costo
     )
 
     if resultado.balanceado:
@@ -306,7 +319,8 @@ def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaReq
     return PartidaOut(
         factura_id=factura_id,
         lineas=[LineaPartidaOut(cuenta_codigo=l.cuenta_codigo, cuenta_nombre=l.cuenta_nombre,
-                                 tipo=l.tipo, valor=l.valor, descripcion=l.descripcion)
+                                 tipo=l.tipo, valor=l.valor, descripcion=l.descripcion,
+                                 centro_costo_codigo=l.centro_costo_codigo)
                 for l in resultado.lineas],
         total_debito=resultado.total_debito, total_credito=resultado.total_credito,
         balanceado=resultado.balanceado, errores=resultado.errores,
@@ -329,7 +343,8 @@ def obtener_partida(empresa_id: str, factura_id: str, db: Session = Depends(get_
     return PartidaOut(
         factura_id=factura_id,
         lineas=[LineaPartidaOut(cuenta_codigo=m.cuenta.codigo, cuenta_nombre=m.cuenta.nombre,
-                                 tipo=m.tipo, valor=float(m.valor), descripcion=m.descripcion or "")
+                                 tipo=m.tipo, valor=float(m.valor), descripcion=m.descripcion or "",
+                                 centro_costo_codigo=m.centro_costo.codigo if m.centro_costo else None)
                 for m in movimientos],
         total_debito=round(total_debito, 2), total_credito=round(total_credito, 2),
         balanceado=abs(total_debito - total_credito) < 0.01, errores=[],
@@ -355,3 +370,49 @@ def contabilizar_factura(empresa_id: str, factura_id: str, db: Session = Depends
     db.commit()
     db.refresh(f)
     return f
+
+
+@router.delete("/{factura_id}")
+def eliminar_factura(empresa_id: str, factura_id: str, db: Session = Depends(get_db),
+                      empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
+    """
+    Elimina una factura cargada por error o que ya no se necesita (ej.
+    pruebas, duplicados de una carga fallida). Se borran también sus
+    movimientos de partida doble asociados, si los tenía. El historial
+    de aprendizaje (decisiones ya registradas) NO se toca — es una
+    bitácora permanente independiente de si la factura sigue existiendo
+    (secciones 11-12). Queda registro en auditoría de la eliminación.
+    """
+    f = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id == factura_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Factura no encontrada en esta empresa.")
+
+    resumen = {"numero_factura": f.numero_factura, "cufe": f.cufe, "nit_emisor": f.nit_emisor, "estado": f.estado.value}
+    db.query(Movimiento).filter(Movimiento.factura_id == factura_id).delete()
+    db.delete(f)
+    auditoria_registrar(db, empresa_id, "Factura", factura_id, "factura_eliminada", resumen, usuario)
+    db.commit()
+    return {"eliminada": True, "id": factura_id}
+
+
+@router.post("/eliminar-multiples")
+def eliminar_facturas_multiples(empresa_id: str, factura_ids: list[str], db: Session = Depends(get_db),
+                                 empresa: Empresa = Depends(get_empresa_activa),
+                                 usuario: str = Depends(usuario_actual)):
+    """Elimina varias facturas de una vez (ej. limpiar una carga de prueba completa)."""
+    if not factura_ids:
+        raise HTTPException(status_code=422, detail="No se indicó ninguna factura para eliminar.")
+    facturas = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id.in_(factura_ids)).all()
+    if not facturas:
+        raise HTTPException(status_code=404, detail="Ninguna de las facturas indicadas existe en esta empresa.")
+
+    eliminadas = []
+    for f in facturas:
+        db.query(Movimiento).filter(Movimiento.factura_id == f.id).delete()
+        eliminadas.append({"numero_factura": f.numero_factura, "cufe": f.cufe})
+        db.delete(f)
+
+    auditoria_registrar(db, empresa_id, "Factura", None, "facturas_eliminadas_lote",
+                         {"cantidad": len(eliminadas), "facturas": eliminadas}, usuario)
+    db.commit()
+    return {"eliminadas": len(facturas), "no_encontradas": len(factura_ids) - len(facturas)}

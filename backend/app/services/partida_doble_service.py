@@ -36,6 +36,8 @@ class LineaPartida:
     tipo: str  # "debito" | "credito"
     valor: float
     descripcion: str = ""
+    centro_costo_id: Optional[str] = None
+    centro_costo_codigo: Optional[str] = None
 
 
 @dataclass
@@ -74,7 +76,8 @@ def _resolver_contrapartida(db: Session, empresa: Empresa, contrapartida: str,
 
 
 def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
-                             cuenta_gasto_id: str, contrapartida: str) -> ResultadoPartida:
+                             cuenta_gasto_id: str, contrapartida: str,
+                             centro_costo=None) -> ResultadoPartida:
     """Factura RECIBIDA de un tercero: gasto/costo + IVA descontable, contrapartida Proveedores/Caja/Banco."""
     errores = []
     cuenta_gasto = db.get(CuentaContable, cuenta_gasto_id) if cuenta_gasto_id else None
@@ -95,8 +98,13 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
 
     lineas = []
     if cuenta_gasto:
+        # El centro de costo se aplica a la línea de gasto/costo (donde
+        # tiene sentido contable de verdad) — no a IVA, retenciones ni a
+        # la contrapartida, que no pertenecen a un centro de costo.
         lineas.append(LineaPartida(cuenta_gasto.id, cuenta_gasto.codigo, cuenta_gasto.nombre,
-                                    "debito", subtotal, f"Factura {factura.numero_factura or ''}"))
+                                    "debito", subtotal, f"Factura {factura.numero_factura or ''}",
+                                    centro_costo_id=centro_costo.id if centro_costo else None,
+                                    centro_costo_codigo=centro_costo.codigo if centro_costo else None))
 
     if iva > 0:
         if empresa.responsable_iva:
@@ -158,7 +166,8 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
 
 
 def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
-                            cuenta_ingreso_id: str, contrapartida: str) -> ResultadoPartida:
+                            cuenta_ingreso_id: str, contrapartida: str,
+                            centro_costo=None) -> ResultadoPartida:
     """
     Factura EMITIDA por la propia empresa: es un ingreso, no un gasto.
     Ingreso + IVA generado (créditos) contra Clientes/Caja/Banco (débito).
@@ -180,7 +189,9 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
     lineas = []
     if cuenta_ingreso:
         lineas.append(LineaPartida(cuenta_ingreso.id, cuenta_ingreso.codigo, cuenta_ingreso.nombre,
-                                    "credito", subtotal, f"Venta — Factura {factura.numero_factura or ''}"))
+                                    "credito", subtotal, f"Venta — Factura {factura.numero_factura or ''}",
+                                    centro_costo_id=centro_costo.id if centro_costo else None,
+                                    centro_costo_codigo=centro_costo.codigo if centro_costo else None))
 
     if iva > 0:
         if empresa.responsable_iva:
@@ -226,12 +237,15 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
 
 
 def generar_partida(db: Session, empresa: Empresa, factura: Factura,
-                     cuenta_gasto_id: str, contrapartida: str = "proveedores") -> ResultadoPartida:
+                     cuenta_gasto_id: str, contrapartida: str = "proveedores",
+                     centro_costo=None) -> ResultadoPartida:
     """
     Punto de entrada único. Enruta según la clasificación real del
     documento (sección reportada por el usuario: la descarga de la DIAN
     mezcla facturas emitidas/recibidas, notas crédito/débito y nómina —
     cada una necesita un tratamiento contable distinto, nunca el mismo).
+    centro_costo es opcional: si se indica, se aplica a la línea de
+    gasto/ingreso (nunca a IVA, retenciones ni contrapartida).
     """
     if factura.naturaleza_documento == "nomina":
         return ResultadoPartida(errores=[
@@ -241,9 +255,9 @@ def generar_partida(db: Session, empresa: Empresa, factura: Factura,
         ])
 
     if factura.direccion_documento == "emitida":
-        resultado = _generar_partida_venta(db, empresa, factura, cuenta_gasto_id, contrapartida)
+        resultado = _generar_partida_venta(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
     else:
-        resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida)
+        resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
 
     if factura.naturaleza_documento == "nota_credito" and resultado.lineas:
         # Misma cuenta, débito y crédito invertidos: una nota crédito
@@ -272,6 +286,7 @@ def persistir_partida(db: Session, empresa_id: str, factura: Factura,
     for i, linea in enumerate(resultado.lineas):
         mov = Movimiento(
             empresa_id=empresa_id, factura_id=factura.id, cuenta_id=linea.cuenta_id,
+            centro_costo_id=linea.centro_costo_id,
             tipo=TipoMovimiento(linea.tipo), valor=linea.valor,
             descripcion=linea.descripcion, orden=i,
         )

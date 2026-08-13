@@ -10,6 +10,7 @@ fuerza".
 """
 import io
 import json
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -32,14 +33,21 @@ def _norm(v) -> str:
     return str(v).strip() if v not in (None, "") else ""
 
 
+_PATRON_FECHA_ISO = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}")
+
+
 def _parse_fecha(v) -> Optional[datetime]:
     v = _norm(v)
     if not v:
         return None
     try:
-        # dayfirst=True: el Excel de la DIAN usa DD-MM-YYYY. Sin esto,
-        # fechas con día ≤ 12 (ej. "03-07-2026") se interpretarían mal
-        # como MM-DD-YYYY (3 de julio quedaría como 7 de marzo).
+        if _PATRON_FECHA_ISO.match(v):
+            # Formato ISO (AAAA-MM-DD): no ambiguo, el año va primero.
+            # dayfirst=True aquí produciría el error contrario al que
+            # se quería corregir (confundiría mes y día).
+            return pd.to_datetime(v, dayfirst=False).to_pydatetime()
+        # Cualquier otro formato (ej. el DD-MM-AAAA que usa el Excel de
+        # la DIAN) sí es ambiguo para pandas sin dayfirst=True.
         return pd.to_datetime(v, dayfirst=True).to_pydatetime()
     except Exception:
         return None
