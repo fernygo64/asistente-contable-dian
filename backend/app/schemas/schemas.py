@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ----------------------------------------------------------------- Empresa
@@ -246,7 +246,7 @@ class ColumnaPlantilla(BaseModel):
 
 
 class PlantillaCreate(BaseModel):
-    nombre: str
+    nombre: str = Field(min_length=1, description="No puede quedar vacío — se usa para identificarla en el historial de auditoría")
     sistema_contable: str  # "siigo_pyme" | "world_office"
     delimitador: str = "|"
     extension: str = "txt"
@@ -254,6 +254,14 @@ class PlantillaCreate(BaseModel):
     formato_fecha: str = "%Y-%m-%d"
     columnas: List[ColumnaPlantilla]
     equivalencias_cuentas: Dict[str, str] = {}
+
+    @field_validator("nombre")
+    @classmethod
+    def nombre_no_vacio(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("El nombre de la plantilla no puede quedar vacío ni ser solo espacios.")
+        return v
 
 
 class PlantillaOut(BaseModel):

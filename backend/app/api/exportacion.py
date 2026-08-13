@@ -78,6 +78,40 @@ def listar_plantillas(empresa_id: str, db: Session = Depends(get_db),
     return [_plantilla_a_out(p) for p in plantillas]
 
 
+@router.patch("/plantillas/{plantilla_id}/renombrar", response_model=PlantillaOut)
+def renombrar_plantilla(empresa_id: str, plantilla_id: str, nombre: str, db: Session = Depends(get_db),
+                         empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
+    """
+    Corrige el nombre de una plantilla — útil sobre todo para una que
+    haya quedado con el nombre vacío y ya no se pueda eliminar por estar
+    referenciada en el historial de exportaciones. Renombrar no afecta
+    la auditoría: las exportaciones guardan el ID de la plantilla, no
+    una copia de su nombre.
+    """
+    nombre = nombre.strip()
+    if not nombre:
+        raise HTTPException(status_code=422, detail="El nombre no puede quedar vacío.")
+    plantilla = db.query(PlantillaExportacion).filter(
+        PlantillaExportacion.empresa_id == empresa_id, PlantillaExportacion.id == plantilla_id
+    ).first()
+    if not plantilla:
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada en esta empresa.")
+    existente = db.query(PlantillaExportacion).filter(
+        PlantillaExportacion.empresa_id == empresa_id, PlantillaExportacion.nombre == nombre,
+        PlantillaExportacion.id != plantilla_id,
+    ).first()
+    if existente:
+        raise HTTPException(status_code=409, detail=f"Ya existe otra plantilla llamada '{nombre}' en esta empresa.")
+
+    nombre_anterior = plantilla.nombre
+    plantilla.nombre = nombre
+    auditoria_registrar(db, empresa_id, "PlantillaExportacion", plantilla_id, "plantilla_renombrada",
+                         {"nombre_anterior": nombre_anterior, "nombre_nuevo": nombre}, usuario)
+    db.commit()
+    db.refresh(plantilla)
+    return _plantilla_a_out(plantilla)
+
+
 @router.delete("/plantillas/{plantilla_id}")
 def eliminar_plantilla(empresa_id: str, plantilla_id: str, db: Session = Depends(get_db),
                         empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
@@ -85,8 +119,8 @@ def eliminar_plantilla(empresa_id: str, plantilla_id: str, db: Session = Depends
     Elimina una plantilla mal configurada. Si ya se usó para generar al
     menos una exportación real, se rechaza — borrarla dejaría ese
     registro de auditoría (sección 39) sin poder mostrar qué plantilla
-    se usó. En ese caso, crea una plantilla nueva en vez de modificar
-    la existente.
+    se usó. En ese caso, usa "renombrar" si solo necesitas corregirle
+    el nombre, o crea una plantilla nueva para otra configuración.
     """
     plantilla = db.query(PlantillaExportacion).filter(
         PlantillaExportacion.empresa_id == empresa_id, PlantillaExportacion.id == plantilla_id
@@ -96,11 +130,12 @@ def eliminar_plantilla(empresa_id: str, plantilla_id: str, db: Session = Depends
 
     ya_usada = db.query(Exportacion).filter(Exportacion.plantilla_id == plantilla_id).first()
     if ya_usada:
+        nombre_mostrar = plantilla.nombre or "(sin nombre)"
         raise HTTPException(
             status_code=422,
-            detail=f"No se puede eliminar: la plantilla '{plantilla.nombre}' ya se usó para generar "
-                   f"una exportación (queda en el historial de auditoría). Crea una plantilla nueva si "
-                   f"necesitas otra configuración.",
+            detail=f"No se puede eliminar: la plantilla '{nombre_mostrar}' ya se usó para generar "
+                   f"una exportación (queda en el historial de auditoría). Usa 'renombrar' si solo "
+                   f"necesitas corregirle el nombre, o crea una plantilla nueva para otra configuración.",
         )
 
     nombre = plantilla.nombre
