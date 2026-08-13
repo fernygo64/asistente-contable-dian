@@ -164,6 +164,44 @@ def validar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
     return {"valido": len(errores) == 0, "errores": errores}
 
 
+@router.post("/exportaciones/previsualizar")
+def previsualizar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db: Session = Depends(get_db),
+                               empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Genera el contenido REAL del archivo (con las cuentas que se
+    escogieron para las facturas nuevas) pero sin descargarlo ni
+    marcar nada como exportado — para que el usuario apruebe cómo va a
+    quedar antes de confirmar la descarga definitiva (sección 24).
+    """
+    plantilla = db.query(PlantillaExportacion).filter(
+        PlantillaExportacion.empresa_id == empresa_id, PlantillaExportacion.id == payload.plantilla_id
+    ).first()
+    if not plantilla:
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada en esta empresa.")
+    facturas = db.query(Factura).filter(Factura.empresa_id == empresa_id,
+                                         Factura.id.in_(payload.factura_ids)).all()
+    if len(facturas) != len(payload.factura_ids):
+        raise HTTPException(status_code=422, detail="Alguna factura indicada no existe en esta empresa.")
+
+    errores = export_service.validar_exportacion(db, empresa, plantilla, facturas)
+    if errores:
+        return {"valido": False, "errores": errores, "encabezado": [], "filas": []}
+
+    columnas_plantilla = json.loads(plantilla.columnas_json)
+    contenido, total_filas = export_service.generar_archivo(db, empresa, plantilla, facturas)
+    delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
+    lineas = contenido.decode("utf-8").split("\r\n")
+    encabezado = [c["label"] for c in columnas_plantilla]
+    inicio_filas = 1 if plantilla.incluir_encabezado else 0
+    filas = [l.split(delimitador) for l in lineas[inicio_filas:] if l]
+
+    return {
+        "valido": True, "errores": [],
+        "encabezado": encabezado, "filas": filas[:500],  # tope razonable para no inflar la respuesta
+        "total_filas": total_filas,
+    }
+
+
 @router.post("/exportaciones/generar")
 def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db: Session = Depends(get_db),
                          empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
@@ -200,7 +238,7 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
         raise HTTPException(status_code=422, detail={"mensaje": "No se generó el archivo por errores de validación.",
                                                        "errores": errores})
 
-    contenido, total_filas = export_service.generar_archivo(db, plantilla, facturas)
+    contenido, total_filas = export_service.generar_archivo(db, empresa, plantilla, facturas)
     db.add(exportacion)
     db.flush()  # necesario para que exportacion.id exista antes de usarlo en el nombre del archivo
     nombre_archivo = f"exportacion_{plantilla.sistema_contable.value}_{exportacion.id[:8]}.{plantilla.extension}"

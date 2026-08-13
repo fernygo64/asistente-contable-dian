@@ -52,7 +52,18 @@ def _parse_valor(v) -> Optional[float]:
 
 
 def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_archivo: str,
-                        mapeo: dict, usuario: Optional[str]) -> ImportacionHistorico:
+                        mapeo: dict, usuario: Optional[str],
+                        cuentas_excluir: Optional[list[str]] = None) -> ImportacionHistorico:
+    """
+    cuentas_excluir: lista de códigos o prefijos de cuenta a ignorar del
+    aprendizaje (ej. ["2205", "1105", "2408"] para proveedores, caja/
+    bancos, IVA). Un archivo de "Movimiento Contable" trae TODAS las
+    líneas del comprobante — la cuenta de gasto/ingreso real, pero
+    también la contrapartida, el IVA y las retenciones. Sin excluir
+    esas cuentas de control, el sistema aprendería, por ejemplo, que
+    "proveedores" es una cuenta típica de gasto de ese NIT, lo cual es
+    ruido, no una decisión de clasificación real.
+    """
     df = _leer_dataframe(contenido, nombre_archivo)
     columnas_reales = list(df.columns)
 
@@ -77,8 +88,11 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
     columna_nit = mapeo_resuelto["nit"]
     columna_cuenta = mapeo_resuelto["cuenta"]
 
+    prefijos_excluir = [p.strip() for p in (cuentas_excluir or []) if p.strip()]
+
     total = len(df)
     validos = 0
+    excluidos_por_cuenta = 0
     rechazos: list[str] = []
 
     importacion = ImportacionHistorico(
@@ -98,6 +112,10 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
         cuenta_codigo = str(row.get(columna_cuenta, "")).strip()
         if not nit or not cuenta_codigo:
             rechazos.append(f"Fila {i + 2}: falta NIT o cuenta.")
+            continue
+
+        if any(cuenta_codigo.startswith(p) for p in prefijos_excluir):
+            excluidos_por_cuenta += 1
             continue
 
         nombre_col = mapeo_resuelto.get("nombre")
@@ -125,13 +143,17 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
         validos += 1
 
     importacion.registros_validos = validos
-    importacion.registros_rechazados = total - validos
+    importacion.registros_rechazados = total - validos - excluidos_por_cuenta
+    if excluidos_por_cuenta:
+        rechazos.insert(0, f"{excluidos_por_cuenta} fila(s) omitidas por pertenecer a una cuenta excluida "
+                           f"(contrapartida/impuestos, no se cuentan como rechazo ni como aprendizaje).")
     importacion.detalle_rechazos_json = json.dumps(rechazos[:200], ensure_ascii=False)  # tope razonable
 
     auditoria_registrar(
         db, empresa_id, entidad="ImportacionHistorico", entidad_id=importacion.id,
         accion="importacion_historico",
-        detalle={"archivo": nombre_archivo, "validos": validos, "rechazados": total - validos},
+        detalle={"archivo": nombre_archivo, "validos": validos, "excluidos_por_cuenta": excluidos_por_cuenta,
+                 "rechazados": total - validos - excluidos_por_cuenta},
         usuario=usuario,
     )
 

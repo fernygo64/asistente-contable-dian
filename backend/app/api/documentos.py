@@ -139,6 +139,7 @@ async def cargar_documentos(
         total_descartados=carga.total_descartados,
         total_duplicados=carga.total_duplicados,
         errores_zip=resultado["errores_zip"], avisos_descarte=resultado["avisos_descarte"],
+        desglose_clasificacion=resultado["desglose_clasificacion"],
         creado_en=carga.creado_en,
     )
 
@@ -299,12 +300,20 @@ def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaReq
         partida_doble_service.persistir_partida(db, empresa_id, f, resultado)
         f.estado = EstadoFactura.lista_para_contabilizar
 
-        if f.nit_emisor:
-            proveedor = historial_service.get_or_create_proveedor(db, empresa_id, f.nit_emisor, f.nombre_emisor)
+        if f.tercero_nit:
+            proveedor = historial_service.get_or_create_proveedor(db, empresa_id, f.tercero_nit, f.tercero_nombre)
+            concepto_factura = None
+            if f.conceptos_json:
+                try:
+                    items = json.loads(f.conceptos_json)
+                    concepto_factura = "; ".join(i.get("descripcion", "") for i in items if i.get("descripcion"))[:500] or None
+                except (ValueError, TypeError):
+                    concepto_factura = None
             historial_service.registrar_decision(
                 db, empresa_id, proveedor.id, cuenta_gasto.id,
                 origen=OrigenDecision(payload.origen_decision),
                 fecha_documento=f.fecha_emision, numero_documento=f.numero_factura,
+                descripcion=concepto_factura,
                 valor=f.subtotal, importacion_id=None,
             )
 

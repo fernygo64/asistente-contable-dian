@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_empresa_activa, usuario_actual
-from app.models.models import Empresa, OrigenDecision
+from app.models.models import Empresa, OrigenDecision, ImportacionHistorico
 from app.schemas.schemas import SugerenciaCuenta, ImportacionResumen, HistorialManualCreate
 from app.services import historial_service, importacion_service
 
@@ -22,6 +22,7 @@ async def importar_historico(
     mapeo_tipo_documento: str | None = Form(default=None),
     mapeo_descripcion: str | None = Form(default=None),
     mapeo_valor: str | None = Form(default=None),
+    cuentas_excluir: str | None = Form(default=None, description="Códigos/prefijos separados por coma a ignorar del aprendizaje (ej. proveedores, bancos, IVA)"),
     db: Session = Depends(get_db),
     empresa: Empresa = Depends(get_empresa_activa),
     usuario: str = Depends(usuario_actual),
@@ -32,10 +33,11 @@ async def importar_historico(
         "tipo_documento": mapeo_tipo_documento, "descripcion": mapeo_descripcion,
         "valor": mapeo_valor,
     }
+    lista_excluir = [c.strip() for c in (cuentas_excluir or "").split(",") if c.strip()]
     contenido = await archivo.read()
     try:
         importacion = importacion_service.importar_historico(
-            db, empresa_id, contenido, archivo.filename, mapeo, usuario
+            db, empresa_id, contenido, archivo.filename, mapeo, usuario, cuentas_excluir=lista_excluir
         )
     except ValueError as e:
         db.rollback()
@@ -51,6 +53,26 @@ async def importar_historico(
         detalle_rechazos=json.loads(importacion.detalle_rechazos_json or "[]"),
         importado_en=importacion.importado_en,
     )
+
+
+@router.get("/importaciones")
+def listar_importaciones(empresa_id: str, db: Session = Depends(get_db),
+                          empresa: Empresa = Depends(get_empresa_activa)):
+    """Historial de cargas ya hechas (sección 12) — nunca se borran ni se modifican."""
+    filas = (
+        db.query(ImportacionHistorico)
+        .filter(ImportacionHistorico.empresa_id == empresa_id)
+        .order_by(ImportacionHistorico.importado_en.desc())
+        .all()
+    )
+    return [
+        {
+            "id": f.id, "archivo_nombre": f.archivo_nombre, "total_registros": f.total_registros,
+            "registros_validos": f.registros_validos, "registros_rechazados": f.registros_rechazados,
+            "usuario": f.usuario, "importado_en": f.importado_en,
+        }
+        for f in filas
+    ]
 
 
 @router.get("/sugerencia", response_model=SugerenciaCuenta)

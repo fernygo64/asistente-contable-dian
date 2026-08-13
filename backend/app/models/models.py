@@ -95,6 +95,18 @@ class Empresa(Base):
     cuenta_iva_generado_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_iva_generado"), nullable=True)
     cuenta_nomina_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_nomina"), nullable=True)
 
+    # Tipo de comprobante contable por tipo de documento DIAN (sección 19):
+    # en Siigo/World Office, compras, ventas, notas crédito/débito y nómina
+    # normalmente van a comprobantes DISTINTOS — nunca al mismo. Son textos
+    # libres (ej. "CC", "P", "FV") porque cada empresa parametriza los suyos
+    # propios en su software; nunca se asume un valor por defecto.
+    comprobante_factura_recibida = Column(String(20), nullable=True)
+    comprobante_factura_emitida = Column(String(20), nullable=True)
+    comprobante_nota_credito = Column(String(20), nullable=True)
+    comprobante_nota_debito = Column(String(20), nullable=True)
+    comprobante_nomina = Column(String(20), nullable=True)
+    comprobante_documento_equivalente = Column(String(20), nullable=True)
+
     activa = Column(Boolean, nullable=False, default=True)
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
 
@@ -105,6 +117,34 @@ class Empresa(Base):
 
     __table_args__ = (
         UniqueConstraint("nit", name="uq_empresa_nit"),
+    )
+
+
+# ---------------------------------------------------- Catálogo PUC (global) --
+class PucCuenta(Base):
+    """
+    Catálogo de referencia del Plan Único de Cuentas colombiano (Decreto
+    2650 de 1993) — es el mismo para todas las empresas, por eso NO lleva
+    empresa_id. Se usa únicamente como ayuda de búsqueda al configurar las
+    cuentas base de una empresa o al clasificar una factura sin historial
+    (nunca se aplica solo, siempre requiere que el usuario elija).
+
+    No pretende tener las ~2.460 cuentas completas del PUC oficial — trae
+    un subconjunto verificado de las cuentas de uso más común en una pyme
+    (activos y pasivos corrientes, proveedores, clientes, impuestos,
+    retenciones, y los grupos principales de ingresos/gastos/costos). Cada
+    empresa puede seguir creando cualquier cuenta propia con
+    POST /empresas/{id}/cuentas aunque no esté en este catálogo.
+    """
+    __tablename__ = "puc_cuentas"
+
+    codigo = Column(String(20), primary_key=True)
+    nombre = Column(String(200), nullable=False)
+    clase = Column(String(60), nullable=False)   # ej. "Gastos", "Activo"
+    naturaleza = Column(String(10), nullable=False)  # "debito" | "credito"
+
+    __table_args__ = (
+        Index("ix_puc_nombre", "nombre"),
     )
 
 
@@ -345,6 +385,26 @@ class Factura(Base):
         Index("ix_factura_empresa_numero_nit", "empresa_id", "numero_factura", "nit_emisor"),
         Index("ix_factura_empresa_estado", "empresa_id", "estado"),
     )
+
+    @property
+    def tercero_nit(self) -> str | None:
+        """
+        NIT del TERCERO relevante para efectos de historial/sugerencia
+        contable — el emisor si la factura es recibida (nuestro
+        proveedor), pero el RECEPTOR si la factura es emitida (nuestro
+        cliente), nunca la propia empresa. Corrige un error real: antes
+        el sistema siempre usaba el emisor, que para una venta somos
+        nosotros mismos.
+        """
+        if self.direccion_documento == "emitida":
+            return self.nit_receptor or self.nit_emisor
+        return self.nit_emisor
+
+    @property
+    def tercero_nombre(self) -> str | None:
+        if self.direccion_documento == "emitida":
+            return self.nombre_receptor or self.nombre_emisor
+        return self.nombre_emisor
 
 
 class TipoMovimiento(str, enum.Enum):

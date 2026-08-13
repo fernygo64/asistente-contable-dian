@@ -99,12 +99,24 @@ def _buscar_regla_aplicable(db: Session, empresa_id: str, nit: str,
     return None
 
 
+def _normalizar_texto(t: str) -> str:
+    import unicodedata
+    t = (t or "").strip().lower()
+    return "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c))
+
+
+def _palabras_clave(t: str, largo_minimo: int = 4) -> set:
+    return {p for p in _normalizar_texto(t).split() if len(p) >= largo_minimo}
+
+
 def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
                     descripcion: Optional[str] = None) -> dict:
     """
     Devuelve un dict serializable con la sugerencia y su explicación,
     siguiendo el orden de prioridad de la sección 37:
-    historial de la empresa → reglas de la empresa → sin información.
+    historial de la empresa (afinado por NIT+concepto cuando es posible)
+    → reglas de la empresa → catálogo PUC como candidatos (nunca una
+    decisión, solo opciones para elegir) → sin información.
     """
     nit = nit.strip()
     proveedor = db.query(Proveedor).filter(
@@ -112,34 +124,66 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
     ).first()
 
     if proveedor:
-        filas = (
-            db.query(HistorialContable.cuenta_id, func.count(HistorialContable.id).label("usos"))
-            .filter(HistorialContable.empresa_id == empresa_id,
-                    HistorialContable.proveedor_id == proveedor.id)
-            .group_by(HistorialContable.cuenta_id)
+        registros = (
+            db.query(HistorialContable)
+            .filter(HistorialContable.empresa_id == empresa_id, HistorialContable.proveedor_id == proveedor.id)
             .all()
         )
-        if filas:
-            total = sum(f.usos for f in filas)
+        if registros:
+            total = len(registros)
+            fuente = "historial"
+            registros_para_contar = registros
+            claves_concepto = _palabras_clave(descripcion) if descripcion else set()
+
+            if claves_concepto:
+                coincidentes = [
+                    r for r in registros
+                    if r.descripcion and (_palabras_clave(r.descripcion) & claves_concepto)
+                ]
+                if coincidentes:
+                    registros_para_contar = coincidentes
+                    fuente = "historial_nit_concepto"
+
+            conteo: dict[str, int] = {}
+            for r in registros_para_contar:
+                conteo[r.cuenta_id] = conteo.get(r.cuenta_id, 0) + 1
+            total_considerado = sum(conteo.values())
+
             opciones = []
-            for cuenta_id, usos in filas:
+            for cuenta_id, usos in conteo.items():
                 cta = db.get(CuentaContable, cuenta_id)
                 opciones.append({
                     "cuenta_codigo": cta.codigo,
                     "cuenta_nombre": cta.nombre,
                     "usos": usos,
-                    "porcentaje": round(usos * 100.0 / total, 1),
+                    "porcentaje": round(usos * 100.0 / total_considerado, 1),
                 })
             # Empate en frecuencia -> desempate determinístico por código de
             # cuenta ascendente, para que la sugerencia nunca dependa del
             # orden interno (no documentado) de la base de datos.
             opciones.sort(key=lambda o: (-o["usos"], o["cuenta_codigo"]))
             principal = opciones[0]
-            motivo = (
-                f"Este proveedor (NIT {nit}) tiene {total} documento(s) histórico(s) en esta empresa. "
-                f"La cuenta {principal['cuenta_codigo']} ({principal['cuenta_nombre']}) se usó "
-                f"{principal['usos']} vez/veces, el {principal['porcentaje']}% del historial."
-            )
+
+            if fuente == "historial_nit_concepto":
+                motivo = (
+                    f"De los {total} documento(s) histórico(s) de este proveedor (NIT {nit}), "
+                    f"{total_considerado} tienen un concepto similar al de esta factura. "
+                    f"La cuenta {principal['cuenta_codigo']} ({principal['cuenta_nombre']}) se usó en "
+                    f"{principal['usos']} de esos ({principal['porcentaje']}%)."
+                )
+            else:
+                aviso_concepto = (
+                    " No se encontró en el historial ningún documento con un concepto similar al de esta "
+                    "factura, así que se usa la frecuencia general de este proveedor (confianza menor)."
+                    if claves_concepto else ""
+                )
+                motivo = (
+                    f"Este proveedor (NIT {nit}) tiene {total} documento(s) histórico(s) en esta empresa. "
+                    f"La cuenta {principal['cuenta_codigo']} ({principal['cuenta_nombre']}) se usó "
+                    f"{principal['usos']} vez/veces, el {principal['porcentaje']}% del historial."
+                    f"{aviso_concepto}"
+                )
+
             return {
                 "proveedor_nit": nit,
                 "proveedor_nombre": proveedor.nombre,
@@ -147,7 +191,7 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
                 "opciones": opciones,
                 "cuenta_sugerida": principal["cuenta_codigo"],
                 "motivo": motivo,
-                "fuente": "historial",
+                "fuente": fuente,
             }
 
     # Sin historial (o proveedor nuevo): buscar regla explícita de la empresa
@@ -164,7 +208,35 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
             "fuente": "regla",
         }
 
-    # Ni historial ni regla: NO se inventa una cuenta (sección 13, 37)
+    # Ni historial ni regla: buscar candidatos en el catálogo PUC según el
+    # concepto — son solo OPCIONES para que el usuario elija, nunca una
+    # decisión automática (sección 13, 37: nunca se inventa una cuenta).
+    if descripcion:
+        from app.models.models import PucCuenta
+        claves = _palabras_clave(descripcion)
+        if claves:
+            candidatos = []
+            for cta in db.query(PucCuenta).all():
+                claves_cuenta = _palabras_clave(cta.nombre)
+                if claves_cuenta & claves:
+                    candidatos.append(cta)
+            if candidatos:
+                return {
+                    "proveedor_nit": nit,
+                    "proveedor_nombre": proveedor.nombre if proveedor else None,
+                    "total_documentos_historicos": 0,
+                    "opciones": [
+                        {"cuenta_codigo": c.codigo, "cuenta_nombre": c.nombre, "usos": 0, "porcentaje": 0.0}
+                        for c in candidatos[:8]
+                    ],
+                    "cuenta_sugerida": None,
+                    "motivo": "Sin historial ni regla para este proveedor. Estas son cuentas del catálogo PUC "
+                              "cuyo nombre coincide con el concepto de la factura — revísalas y elige "
+                              "manualmente, no son una decisión automática.",
+                    "fuente": "puc_catalogo",
+                }
+
+    # Ni historial, ni regla, ni coincidencia en el PUC: NO se inventa nada
     return {
         "proveedor_nit": nit,
         "proveedor_nombre": proveedor.nombre if proveedor else None,

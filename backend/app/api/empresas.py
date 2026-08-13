@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.models import Empresa
-from app.schemas.schemas import EmpresaCreate, EmpresaOut, EmpresaCuentasBase
+from app.schemas.schemas import EmpresaCreate, EmpresaOut, EmpresaCuentasBase, EmpresaComprobantesPorTipo
 from app.services.auditoria_service import registrar as auditoria_registrar
 from app.core.security import usuario_actual, get_empresa_activa
 
@@ -106,6 +106,37 @@ def obtener_cuentas_base(empresa_id: str, db: Session = Depends(get_db),
         "cuenta_clientes": resolver(empresa.cuenta_clientes_id),
         "cuenta_iva_generado": resolver(empresa.cuenta_iva_generado_id),
         "cuenta_nomina": resolver(empresa.cuenta_nomina_id),
+    }
+
+
+@router.patch("/{empresa_id}/comprobantes-por-tipo", response_model=EmpresaOut)
+def configurar_comprobantes_por_tipo(empresa_id: str, payload: EmpresaComprobantesPorTipo, db: Session = Depends(get_db),
+                                      empresa: Empresa = Depends(get_empresa_activa),
+                                      usuario: str = Depends(usuario_actual)):
+    """
+    Define el tipo de comprobante (texto libre, según la parametrización
+    propia de cada empresa en su software) que debe usarse al exportar
+    según la clasificación real del documento — nunca uno solo para todo.
+    """
+    cambios = payload.model_dump(exclude_none=True)
+    for campo, valor in cambios.items():
+        setattr(empresa, campo, valor)
+    auditoria_registrar(db, empresa_id, "Empresa", empresa.id, "configurar_comprobantes_por_tipo", cambios, usuario)
+    db.commit()
+    db.refresh(empresa)
+    return empresa
+
+
+@router.get("/{empresa_id}/comprobantes-por-tipo")
+def obtener_comprobantes_por_tipo(empresa_id: str, db: Session = Depends(get_db),
+                                   empresa: Empresa = Depends(get_empresa_activa)):
+    return {
+        "comprobante_factura_recibida": empresa.comprobante_factura_recibida,
+        "comprobante_factura_emitida": empresa.comprobante_factura_emitida,
+        "comprobante_nota_credito": empresa.comprobante_nota_credito,
+        "comprobante_nota_debito": empresa.comprobante_nota_debito,
+        "comprobante_nomina": empresa.comprobante_nomina,
+        "comprobante_documento_equivalente": empresa.comprobante_documento_equivalente,
     }
 
 

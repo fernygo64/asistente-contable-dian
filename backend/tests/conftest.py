@@ -18,6 +18,8 @@ def db_session():
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
     session = TestingSessionLocal()
+    from app.services.puc_catalogo import sembrar_catalogo_puc
+    sembrar_catalogo_puc(session)
     try:
         yield session
     finally:

@@ -29,6 +29,21 @@ class EmpresaCuentasBase(BaseModel):
     cuenta_nomina: Optional[str] = None
 
 
+class EmpresaComprobantesPorTipo(BaseModel):
+    """
+    Tipo de comprobante contable (texto libre, ej. 'CC', 'P', 'FV') que
+    debe usarse al exportar según la clasificación real del documento
+    (sección 19-20-21): compras, ventas, notas y nómina normalmente van
+    a comprobantes distintos, nunca al mismo.
+    """
+    comprobante_factura_recibida: Optional[str] = None
+    comprobante_factura_emitida: Optional[str] = None
+    comprobante_nota_credito: Optional[str] = None
+    comprobante_nota_debito: Optional[str] = None
+    comprobante_nomina: Optional[str] = None
+    comprobante_documento_equivalente: Optional[str] = None
+
+
 class EmpresaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -170,6 +185,8 @@ class FacturaOut(BaseModel):
     duplicado_de_id: Optional[str] = None
     naturaleza_documento: str = "factura"
     direccion_documento: str = "recibida"
+    tercero_nit: Optional[str] = None
+    tercero_nombre: Optional[str] = None
     estado: str
     creado_en: datetime
 
@@ -187,6 +204,7 @@ class CargaResumen(BaseModel):
     total_duplicados: int
     errores_zip: List[Dict[str, Any]] = []
     avisos_descarte: List[Dict[str, Any]] = []
+    desglose_clasificacion: Dict[str, int] = {}
     creado_en: datetime
 
 

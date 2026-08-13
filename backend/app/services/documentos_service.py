@@ -336,6 +336,11 @@ def procesar_carga(db: Session, empresa_id: str, carga_id: str,
         elif factura.estado == EstadoFactura.pendiente_clasificacion:
             pendientes_clasificacion += 1
 
+    desglose: dict[str, int] = {}
+    for f in facturas_creadas:
+        clave = f"{f.naturaleza_documento}_{f.direccion_documento}"
+        desglose[clave] = desglose.get(clave, 0) + 1
+
     return {
         "facturas": facturas_creadas,
         "total_filas_excel": len(filas_excel) + len(filas_descartadas_excel),
@@ -349,6 +354,7 @@ def procesar_carga(db: Session, empresa_id: str, carga_id: str,
                 "aviso": f"Fila del Excel de tipo '{f.get('tipo_documento')}' — no es un documento contable, se omitió."}
                for f in filas_descartadas_excel]
         ),
+        "desglose_clasificacion": desglose,
         "total_relacionados": relacionados,
         "total_pendientes_revision": pendientes_revision,
         "total_pendientes_clasificacion": pendientes_clasificacion,

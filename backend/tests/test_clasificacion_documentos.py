@@ -15,6 +15,10 @@ INVOICE_TEMPLATE = """<?xml version="1.0"?>
     <cac:PartyIdentification><cbc:ID>{nit}</cbc:ID></cac:PartyIdentification>
     <cac:PartyLegalEntity><cbc:RegistrationName>{nombre}</cbc:RegistrationName></cac:PartyLegalEntity>
   </cac:Party></cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty><cac:Party>
+    <cac:PartyIdentification><cbc:ID>{nit_receptor}</cbc:ID></cac:PartyIdentification>
+    <cac:PartyLegalEntity><cbc:RegistrationName>{nombre_receptor}</cbc:RegistrationName></cac:PartyLegalEntity>
+  </cac:Party></cac:AccountingCustomerParty>
   <cac:LegalMonetaryTotal>
     <cbc:LineExtensionAmount>{subtotal}</cbc:LineExtensionAmount>
     <cbc:TaxExclusiveAmount>{subtotal}</cbc:TaxExclusiveAmount>
@@ -40,6 +44,10 @@ CREDIT_NOTE_TEMPLATE = """<?xml version="1.0"?>
     <cac:PartyIdentification><cbc:ID>{nit}</cbc:ID></cac:PartyIdentification>
     <cac:PartyLegalEntity><cbc:RegistrationName>{nombre}</cbc:RegistrationName></cac:PartyLegalEntity>
   </cac:Party></cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty><cac:Party>
+    <cac:PartyIdentification><cbc:ID>{nit_receptor}</cbc:ID></cac:PartyIdentification>
+    <cac:PartyLegalEntity><cbc:RegistrationName>{nombre_receptor}</cbc:RegistrationName></cac:PartyLegalEntity>
+  </cac:Party></cac:AccountingCustomerParty>
   <cac:LegalMonetaryTotal>
     <cbc:LineExtensionAmount>{subtotal}</cbc:LineExtensionAmount>
     <cbc:TaxExclusiveAmount>{subtotal}</cbc:TaxExclusiveAmount>
@@ -67,14 +75,18 @@ NOMINA_TEMPLATE = """<?xml version="1.0"?>
 </NominaIndividual>"""
 
 
-def _factura(numero, cufe, nit, nombre="Proveedor SAS", subtotal="100000", total="100000") -> bytes:
+def _factura(numero, cufe, nit, nombre="Proveedor SAS", subtotal="100000", total="100000",
+             nit_receptor="900555555", nombre_receptor="Cliente Generico SAS") -> bytes:
     return INVOICE_TEMPLATE.format(numero=numero, cufe=cufe, nit=nit, nombre=nombre,
-                                    subtotal=subtotal, total=total).encode()
+                                    subtotal=subtotal, total=total,
+                                    nit_receptor=nit_receptor, nombre_receptor=nombre_receptor).encode()
 
 
-def _nota_credito(numero, cufe, nit, nombre="Proveedor SAS", subtotal="100000", total="100000") -> bytes:
+def _nota_credito(numero, cufe, nit, nombre="Proveedor SAS", subtotal="100000", total="100000",
+                   nit_receptor="900555555", nombre_receptor="Cliente Generico SAS") -> bytes:
     return CREDIT_NOTE_TEMPLATE.format(numero=numero, cufe=cufe, nit=nit, nombre=nombre,
-                                        subtotal=subtotal, total=total).encode()
+                                        subtotal=subtotal, total=total,
+                                        nit_receptor=nit_receptor, nombre_receptor=nombre_receptor).encode()
 
 
 def _acuse_recibo(numero, cufe) -> bytes:

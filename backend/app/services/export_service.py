@@ -16,13 +16,36 @@ from app.models.models import Empresa, Factura, Movimiento, PlantillaExportacion
 from app.services.export_adapters import obtener_adaptador
 
 
+def _tipo_comprobante_para_factura(empresa: Empresa, factura: Factura) -> str:
+    """
+    Resuelve el tipo de comprobante configurado en la empresa según la
+    clasificación real del documento — nunca el mismo para compras,
+    ventas, notas y nómina (sección 19-21, confirmado con archivos
+    reales de Siigo/World Office que usan comprobantes distintos).
+    """
+    if factura.naturaleza_documento == "nota_credito":
+        return empresa.comprobante_nota_credito or ""
+    if factura.naturaleza_documento == "nota_debito":
+        return empresa.comprobante_nota_debito or ""
+    if factura.naturaleza_documento == "nomina":
+        return empresa.comprobante_nomina or ""
+    if factura.naturaleza_documento == "documento_equivalente":
+        return empresa.comprobante_documento_equivalente or ""
+    if factura.direccion_documento == "emitida":
+        return empresa.comprobante_factura_emitida or ""
+    return empresa.comprobante_factura_recibida or ""
+
+
 def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
-                    equivalencias: dict, formato_fecha: str) -> str:
+                    equivalencias: dict, formato_fecha: str, empresa: Optional[Empresa] = None) -> str:
     source = columna.get("source")
     fijo = columna.get("valor_fijo", "")
 
     if source == "fijo":
         return fijo
+    if source == "tipo_comprobante":
+        valor = _tipo_comprobante_para_factura(empresa, factura) if empresa else ""
+        return valor or fijo
     if source == "fecha":
         return factura.fecha_emision.strftime(formato_fecha) if factura.fecha_emision else fijo
     if source == "anio":
@@ -37,9 +60,9 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
     if source == "nombre_cuenta":
         return movimiento.cuenta.nombre
     if source == "nit":
-        return factura.nit_emisor or fijo
+        return factura.tercero_nit or fijo
     if source == "tercero":
-        return factura.nombre_emisor or fijo
+        return factura.tercero_nombre or fijo
     if source == "numero_factura":
         return factura.numero_factura or fijo
     if source == "cufe":
@@ -92,13 +115,14 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
                             f"vs crédito {total_c}).")
         if not f.fecha_emision:
             errores.append(f"La factura {f.numero_factura or f.id} no tiene fecha de emisión válida.")
-        if not f.nit_emisor:
-            errores.append(f"La factura {f.numero_factura or f.id} no tiene NIT de emisor.")
+        if not f.tercero_nit:
+            errores.append(f"La factura {f.numero_factura or f.id} no tiene NIT de tercero "
+                            f"({'receptor' if f.direccion_documento == 'emitida' else 'emisor'}).")
 
         for m in movimientos:
             filas_por_validar.append({
                 "Fecha": f.fecha_emision.strftime(plantilla.formato_fecha) if f.fecha_emision else "",
-                "Cuenta": m.cuenta.codigo, "Nit": f.nit_emisor or "", "Tercero": f.nombre_emisor or "",
+                "Cuenta": m.cuenta.codigo, "Nit": f.tercero_nit or "", "Tercero": f.tercero_nombre or "",
                 "Debito": float(m.valor) if m.tipo == "debito" else 0,
                 "Credito": float(m.valor) if m.tipo == "credito" else 0,
             })
@@ -109,7 +133,8 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
     return errores
 
 
-def generar_archivo(db: Session, plantilla: PlantillaExportacion, facturas: list[Factura]) -> tuple[bytes, int]:
+def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
+                     facturas: list[Factura]) -> tuple[bytes, int]:
     """Devuelve (contenido_bytes, cantidad_de_filas). Se asume ya validado."""
     columnas = json.loads(plantilla.columnas_json)
     equivalencias = json.loads(plantilla.equivalencias_cuentas_json or "{}")
@@ -124,7 +149,7 @@ def generar_archivo(db: Session, plantilla: PlantillaExportacion, facturas: list
         movimientos = db.query(Movimiento).filter(Movimiento.factura_id == f.id).order_by(Movimiento.orden).all()
         for m in movimientos:
             valores = [
-                _valor_columna(c, f, m, equivalencias, plantilla.formato_fecha).replace(delimitador, " ")
+                _valor_columna(c, f, m, equivalencias, plantilla.formato_fecha, empresa).replace(delimitador, " ")
                 for c in columnas
             ]
             lineas.append(delimitador.join(valores))
