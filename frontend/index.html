@@ -67,6 +67,7 @@
 <nav id="tabs">
   <button data-tab="empresas" class="active">Empresas</button>
   <button data-tab="cargar">Cargar documentos</button>
+  <button data-tab="historial">Historial contable</button>
   <button data-tab="facturas">Facturas</button>
   <button data-tab="plantillas">Plantillas / Exportar</button>
   <button data-tab="auditoria">Auditoría</button>
@@ -99,37 +100,52 @@
 
     <div class="card" id="cuentasBaseCard">
       <h2>Cuentas base de la empresa activa</h2>
-      <p class="muted">Sin estas cuentas, la partida doble no se puede generar (nunca se inventa una cuenta).</p>
+      <p class="muted">Sin estas cuentas, la partida doble no se puede generar (nunca se inventa una cuenta). Empieza a escribir el nombre o el código y aparecerán sugerencias del catálogo PUC — puedes elegir una o escribir tu propio código si tu empresa usa uno distinto.</p>
       <p class="muted" style="font-weight:600; color:var(--ink-soft); margin-bottom:2px;">Lado de compra (facturas RECIBIDAS de terceros)</p>
       <div class="row">
-        <div><label>Proveedores</label><input id="cbProveedores" placeholder="220501"></div>
-        <div><label>Caja</label><input id="cbCaja" placeholder="110505"></div>
-        <div><label>Banco</label><input id="cbBanco" placeholder="111005"></div>
-        <div><label>IVA descontable</label><input id="cbIva" placeholder="240802"></div>
+        <div><label>Proveedores</label><input id="cbProveedores" list="dl-cbProveedores" placeholder="220501 o 'proveedores'" oninput="buscarPuc(this)"><datalist id="dl-cbProveedores"></datalist></div>
+        <div><label>Caja</label><input id="cbCaja" list="dl-cbCaja" placeholder="110505 o 'caja'" oninput="buscarPuc(this)"><datalist id="dl-cbCaja"></datalist></div>
+        <div><label>Banco</label><input id="cbBanco" list="dl-cbBanco" placeholder="111005 o 'bancos'" oninput="buscarPuc(this)"><datalist id="dl-cbBanco"></datalist></div>
+        <div><label>IVA descontable</label><input id="cbIva" list="dl-cbIva" placeholder="240802 o 'iva'" oninput="buscarPuc(this)"><datalist id="dl-cbIva"></datalist></div>
       </div>
       <div class="row">
-        <div><label>Retefuente</label><input id="cbRetefuente" placeholder="236540"></div>
-        <div><label>ReteICA</label><input id="cbReteica" placeholder="236801"></div>
-        <div><label>ReteIVA</label><input id="cbReteiva" placeholder="236705"></div>
-        <div><label>INC</label><input id="cbInc" placeholder="240815"></div>
+        <div><label>Retefuente</label><input id="cbRetefuente" list="dl-cbRetefuente" placeholder="236540" oninput="buscarPuc(this)"><datalist id="dl-cbRetefuente"></datalist></div>
+        <div><label>ReteICA</label><input id="cbReteica" list="dl-cbReteica" placeholder="236801" oninput="buscarPuc(this)"><datalist id="dl-cbReteica"></datalist></div>
+        <div><label>ReteIVA</label><input id="cbReteiva" list="dl-cbReteiva" placeholder="236705" oninput="buscarPuc(this)"><datalist id="dl-cbReteiva"></datalist></div>
+        <div><label>INC</label><input id="cbInc" list="dl-cbInc" placeholder="240815" oninput="buscarPuc(this)"><datalist id="dl-cbInc"></datalist></div>
       </div>
       <p class="muted" style="font-weight:600; color:var(--ink-soft); margin-bottom:2px; margin-top:14px;">Lado de venta (facturas EMITIDAS por esta empresa)</p>
       <div class="row">
-        <div><label>Ingresos</label><input id="cbIngresos" placeholder="413595"></div>
-        <div><label>Clientes</label><input id="cbClientes" placeholder="130505"></div>
-        <div><label>IVA generado</label><input id="cbIvaGenerado" placeholder="240801"></div>
-        <div><label>Nómina (gasto)</label><input id="cbNomina" placeholder="510506"></div>
+        <div><label>Ingresos</label><input id="cbIngresos" list="dl-cbIngresos" placeholder="413501 o 'ingresos'" oninput="buscarPuc(this)"><datalist id="dl-cbIngresos"></datalist></div>
+        <div><label>Clientes</label><input id="cbClientes" list="dl-cbClientes" placeholder="130505 o 'clientes'" oninput="buscarPuc(this)"><datalist id="dl-cbClientes"></datalist></div>
+        <div><label>IVA generado</label><input id="cbIvaGenerado" list="dl-cbIvaGenerado" placeholder="240801" oninput="buscarPuc(this)"><datalist id="dl-cbIvaGenerado"></datalist></div>
+        <div><label>Nómina (gasto)</label><input id="cbNomina" list="dl-cbNomina" placeholder="510506" oninput="buscarPuc(this)"><datalist id="dl-cbNomina"></datalist></div>
         <div><button class="btn" onclick="guardarCuentasBase()">Guardar cuentas base</button></div>
       </div>
       <div id="cuentasBaseActuales" class="muted"></div>
     </div>
 
     <div class="card">
-      <h2>Centros de costo</h2>
+      <h2>Tipo de comprobante por tipo de documento</h2>
+      <p class="muted">En Siigo/World Office, las compras, ventas, notas y nómina normalmente van a comprobantes distintos — configúralo una sola vez aquí y las plantillas de exportación lo usan automáticamente según la clasificación de cada factura. Si dejas alguno vacío, esa columna sale en blanco en el archivo (nunca se inventa un código).</p>
+      <div class="row">
+        <div><label>Facturas recibidas (compras)</label><input id="tcRecibida" placeholder="CC"></div>
+        <div><label>Facturas emitidas (ventas)</label><input id="tcEmitida" placeholder="FV"></div>
+        <div><label>Notas crédito</label><input id="tcNotaCredito" placeholder="NC"></div>
+        <div><label>Notas débito</label><input id="tcNotaDebito" placeholder="ND"></div>
+        <div><label>Nómina</label><input id="tcNomina" placeholder="NI"></div>
+        <div><label>Documento equivalente</label><input id="tcEquivalente" placeholder="DE"></div>
+        <div><button class="btn" onclick="guardarComprobantesPorTipo()">Guardar</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Centros de costo <span class="muted" style="text-transform:none; font-weight:normal;">(opcional — solo si tu empresa los necesita)</span></h2>
+      <p class="muted">No es indispensable para generar la partida doble; puedes ignorarlo por completo si no manejas centros de costo.</p>
       <div class="row">
         <div><label>Código</label><input id="ccCodigo" placeholder="CC01"></div>
         <div><label>Nombre</label><input id="ccNombre" placeholder="Sucursal Norte"></div>
-        <div><button class="btn" onclick="crearCentroCosto()">Crear</button></div>
+        <div><button class="btn ghost" onclick="crearCentroCosto()">Crear</button></div>
       </div>
       <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th></tr></thead><tbody id="tablaCentrosCosto"></tbody></table>
     </div>
@@ -160,6 +176,41 @@
       <p class="muted">Si tu Excel trae "Tipo de documento" y "Grupo" (como el de la DIAN), selecciónalas — el sistema descarta automáticamente los "Application response" y clasifica correctamente facturas emitidas, recibidas, nómina y documentos equivalentes usando la propia clasificación de la DIAN, que es más confiable que adivinarlo.
       <button class="btn" onclick="cargarDocumentos()">Cargar y relacionar</button>
       <div id="resultadoCarga" style="margin-top:12px;"></div>
+    </div>
+  </section>
+
+  <!-- HISTORIAL CONTABLE -->
+  <section id="tab-historial" class="hidden">
+    <div class="card">
+      <h2>Cargar historial contable (aprendizaje)</h2>
+      <p class="muted">Sube el auxiliar/movimiento contable de tu software (o, si lo tienes, un balance por tercero a nivel de subcuenta — es opcional, no indispensable). El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje. La aprobación de las facturas nuevas se sigue haciendo en la pestaña Facturas.</p>
+      <div class="row">
+        <div><label>Archivo (auxiliar, movimiento contable o balance por tercero)</label><input type="file" id="histArchivoInput" accept=".xlsx,.xls,.csv"></div>
+        <div><button class="btn ghost" onclick="detectarColumnasHistorial()">Detectar columnas del archivo</button></div>
+      </div>
+      <div class="row">
+        <div><label>Columna NIT (obligatoria)</label><select id="histMapNit"><option value="">— elige —</option></select></div>
+        <div><label>Columna Cuenta (obligatoria)</label><select id="histMapCuenta"><option value="">— elige —</option></select></div>
+        <div><label>Columna Nombre tercero</label><select id="histMapNombre"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Concepto/Detalle</label><select id="histMapDescripcion"><option value="">— no aplica —</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Columna Fecha</label><select id="histMapFecha"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Nº documento</label><select id="histMapNumero"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Valor</label><select id="histMapValor"><option value="">— no aplica —</option></select></div>
+      </div>
+      <div class="row">
+        <div style="flex:2;"><label>Cuentas a excluir del aprendizaje (códigos o prefijos, separados por coma)</label><input id="histCuentasExcluir" placeholder="220501, 1105, 24 (proveedores, caja/bancos, IVA/retenciones)"></div>
+        <div><button class="btn" onclick="importarHistorico()">Importar</button></div>
+      </div>
+      <p class="muted">Excluye aquí las cuentas de contrapartida/control (proveedores, caja, bancos, IVA, retenciones) para que el sistema solo aprenda de la cuenta de gasto/ingreso real — un archivo de movimiento contable trae todas las líneas del comprobante, no solo la que importa clasificar.</p>
+      <div id="resultadoImportacionHistorial" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Importaciones anteriores</h2>
+      <table><thead><tr><th>Archivo</th><th>Registros</th><th>Válidos</th><th>Rechazados</th><th>Fecha</th></tr></thead>
+        <tbody id="tablaImportacionesHistorial"></tbody></table>
     </div>
   </section>
 
@@ -231,7 +282,7 @@
       </div>
       <p class="muted">Sube un archivo plano que ya te haya funcionado en tu software y detecto automáticamente el delimitador y las columnas — revisa y ajusta abajo, nunca se asume ciegamente qué significa cada una.</p>
 
-      <p class="muted">Columnas (una por línea, formato <code>Etiqueta=origen</code>. Orígenes válidos: fecha, anio, mes, dia, cuenta, nombre_cuenta, nit, tercero, numero_factura, cufe, concepto, debito, credito, debito_credito, valor, fijo:VALOR. Usa "debito_credito"+"valor" para sistemas como Siigo Pyme que traen una sola columna D/C en vez de Débito y Crédito separados.)</p>
+      <p class="muted">Columnas (una por línea, formato <code>Etiqueta=origen</code>. Orígenes válidos: tipo_comprobante, fecha, anio, mes, dia, cuenta, nombre_cuenta, nit, tercero, numero_factura, cufe, concepto, debito, credito, debito_credito, valor, fijo:VALOR. "tipo_comprobante" usa automáticamente lo que configuraste en Empresas → Tipo de comprobante por tipo de documento. Usa "debito_credito"+"valor" para sistemas como Siigo Pyme que traen una sola columna D/C en vez de Débito y Crédito separados.)</p>
       <textarea id="plColumnas" rows="6">Fecha=fecha
 Cuenta=cuenta
 Nit=nit
@@ -253,9 +304,10 @@ Credito=credito</textarea>
         <div><label>Plantilla</label><select id="expPlantilla"></select></div>
         <div style="flex:2;"><label>IDs de factura (coma)</label><input id="expFacturaIds"></div>
         <div><button class="btn ghost" onclick="validarExportacion()">Validar</button></div>
-        <div><button class="btn" onclick="generarExportacion()">Generar y descargar</button></div>
+        <div><button class="btn ghost" onclick="previsualizarExportacion()">Ver vista previa</button></div>
       </div>
       <div id="resultadoExportacion"></div>
+      <div id="previsualizacionExportacion" style="margin-top:12px;"></div>
     </div>
 
     <div class="card">
@@ -310,6 +362,7 @@ document.getElementById('tabs').addEventListener('click', e=>{
   e.target.classList.add('active');
   document.querySelectorAll('main > section').forEach(s=>s.classList.add('hidden'));
   document.getElementById('tab-' + e.target.dataset.tab).classList.remove('hidden');
+  if(e.target.dataset.tab === 'historial') cargarImportacionesHistorial();
   if(e.target.dataset.tab === 'facturas') cargarFacturas();
   if(e.target.dataset.tab === 'plantillas') { cargarPlantillas(); cargarExportaciones(); }
   if(e.target.dataset.tab === 'auditoria') cargarAuditoria();
@@ -386,6 +439,50 @@ async function seleccionarEmpresa(id){
   await cargarEmpresas();
   await cargarCuentasBase();
   await cargarCentrosCosto();
+  await cargarComprobantesPorTipo();
+}
+
+let _pucBuscarTimeout = null;
+function buscarPuc(input){
+  clearTimeout(_pucBuscarTimeout);
+  const texto = input.value.trim();
+  const datalist = document.getElementById('dl-' + input.id);
+  if(!datalist || texto.length < 2) return;
+  _pucBuscarTimeout = setTimeout(async ()=>{
+    try{
+      const resultados = await req(`/puc/buscar?q=${encodeURIComponent(texto)}`);
+      datalist.innerHTML = resultados.map(c=>`<option value="${c.codigo}">${c.codigo} — ${c.nombre}</option>`).join('');
+    }catch(e){ /* silencioso: el campo sigue aceptando texto libre igual */ }
+  }, 200);
+}
+
+async function guardarComprobantesPorTipo(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const payload = {
+    comprobante_factura_recibida: document.getElementById('tcRecibida').value.trim() || null,
+    comprobante_factura_emitida: document.getElementById('tcEmitida').value.trim() || null,
+    comprobante_nota_credito: document.getElementById('tcNotaCredito').value.trim() || null,
+    comprobante_nota_debito: document.getElementById('tcNotaDebito').value.trim() || null,
+    comprobante_nomina: document.getElementById('tcNomina').value.trim() || null,
+    comprobante_documento_equivalente: document.getElementById('tcEquivalente').value.trim() || null,
+  };
+  try{
+    await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Tipos de comprobante guardados');
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarComprobantesPorTipo(){
+  if(!empresaActivaId) return;
+  try{
+    const c = await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`);
+    document.getElementById('tcRecibida').value = c.comprobante_factura_recibida || '';
+    document.getElementById('tcEmitida').value = c.comprobante_factura_emitida || '';
+    document.getElementById('tcNotaCredito').value = c.comprobante_nota_credito || '';
+    document.getElementById('tcNotaDebito').value = c.comprobante_nota_debito || '';
+    document.getElementById('tcNomina').value = c.comprobante_nomina || '';
+    document.getElementById('tcEquivalente').value = c.comprobante_documento_equivalente || '';
+  }catch(e){ /* silencioso */ }
 }
 
 async function crearCentroCosto(){
@@ -499,7 +596,18 @@ async function cargarDocumentos(){
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/cargar`, {method:'POST', headers:{'X-User':'contador@app.local'}, body: fd});
     if(!resp.ok){ const d = await resp.json(); throw new Error(JSON.stringify(d.detail)); }
     const body = await resp.json();
+    const etiquetasClasificacion = {
+      factura_recibida: 'Facturas recibidas (compras)', factura_emitida: 'Facturas emitidas (ventas)',
+      nota_credito_recibida: 'Notas crédito (compras)', nota_credito_emitida: 'Notas crédito (ventas)',
+      nota_debito_recibida: 'Notas débito (compras)', nota_debito_emitida: 'Notas débito (ventas)',
+      nomina_recibida: 'Nómina electrónica', nomina_no_aplica: 'Nómina electrónica',
+      documento_equivalente_recibida: 'Documentos equivalentes',
+    };
+    const filasDesglose = Object.entries(body.desglose_clasificacion || {})
+      .map(([clave, n]) => `<div class="pill ok">${etiquetasClasificacion[clave] || clave}: ${n}</div>`).join('');
     document.getElementById('resultadoCarga').innerHTML = `
+      <p class="muted" style="font-weight:600; color:var(--ink-soft); margin-bottom:6px;">Clasificación de lo que se cargó:</p>
+      <div class="row" style="margin-bottom:10px;">${filasDesglose || '<span class="muted">Sin documentos contables nuevos.</span>'}</div>
       <div class="pill ok">Relacionados: ${body.total_relacionados}</div>
       <div class="pill warn">Pendientes de revisión: ${body.total_pendientes_revision}</div>
       <div class="pill warn">Pendientes de clasificación (nómina/emitidas): ${body.total_pendientes_clasificacion}</div>
@@ -510,6 +618,81 @@ async function cargarDocumentos(){
     `;
     toast('Carga procesada');
   }catch(e){ toast(e.message, true); }
+}
+
+// ---------- historial contable ----------
+document.getElementById('histArchivoInput').addEventListener('change', ()=>{
+  ['histMapNit','histMapCuenta','histMapNombre','histMapDescripcion','histMapFecha','histMapNumero','histMapValor']
+    .forEach(id=>{ document.getElementById(id).innerHTML = '<option value="">— elige —</option>'; });
+});
+
+async function detectarColumnasHistorial(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('histArchivoInput').files[0];
+  if(!archivo){ toast('Selecciona primero el archivo', true); return; }
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-columnas`, {
+      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+    });
+    if(!resp.ok){ const d = await resp.json(); throw new Error(d.detail || 'No se pudo leer el archivo'); }
+    const body = await resp.json();
+    const opciones = '<option value="">— no aplica —</option>' + body.columnas.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
+    ['histMapNit','histMapCuenta','histMapNombre','histMapDescripcion','histMapFecha','histMapNumero','histMapValor']
+      .forEach(id=>{ document.getElementById(id).innerHTML = opciones; });
+    toast(`${body.columnas.length} columnas detectadas — selecciónalas abajo`);
+  }catch(e){ toast(e.message, true); }
+}
+
+async function importarHistorico(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('histArchivoInput').files[0];
+  if(!archivo){ toast('Selecciona el archivo', true); return; }
+  const nit = document.getElementById('histMapNit').value;
+  const cuenta = document.getElementById('histMapCuenta').value;
+  if(!nit || !cuenta){ toast('Debes indicar al menos la columna de NIT y la de Cuenta', true); return; }
+
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  fd.append('mapeo_nit', nit);
+  fd.append('mapeo_cuenta', cuenta);
+  const opcionales = {histMapNombre:'mapeo_nombre', histMapDescripcion:'mapeo_descripcion',
+    histMapFecha:'mapeo_fecha', histMapNumero:'mapeo_numero_documento', histMapValor:'mapeo_valor'};
+  for(const [id, campo] of Object.entries(opcionales)){
+    const v = document.getElementById(id).value;
+    if(v) fd.append(campo, v);
+  }
+  const excluir = document.getElementById('histCuentasExcluir').value.trim();
+  if(excluir) fd.append('cuentas_excluir', excluir);
+
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/importar`, {
+      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+    });
+    if(!resp.ok){ const d = await resp.json(); throw new Error(typeof d.detail === 'object' ? JSON.stringify(d.detail) : d.detail); }
+    const body = await resp.json();
+    document.getElementById('resultadoImportacionHistorial').innerHTML = `
+      <div class="pill ok">Registros válidos aprendidos: ${body.registros_validos}</div>
+      <div class="pill warn">Rechazados/excluidos: ${body.registros_rechazados}</div>
+      <div class="muted">De ${body.total_registros} filas totales en el archivo.</div>
+      ${body.detalle_rechazos && body.detalle_rechazos.length ? '<p class="muted">'+body.detalle_rechazos.slice(0,10).join('<br>')+'</p>' : ''}
+    `;
+    toast('Historial importado — ya se puede usar en la sugerencia de cuentas');
+    cargarImportacionesHistorial();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarImportacionesHistorial(){
+  if(!empresaActivaId) return;
+  try{
+    const importaciones = await req(`/empresas/${empresaActivaId}/historial/importaciones`);
+    document.getElementById('tablaImportacionesHistorial').innerHTML = importaciones.map(i=>`
+      <tr><td>${i.archivo_nombre}</td><td>${i.total_registros}</td>
+      <td>${i.registros_validos}</td><td>${i.registros_rechazados}</td>
+      <td>${new Date(i.importado_en).toLocaleString('es-CO')}</td></tr>
+    `).join('') || '<tr><td colspan="5" class="muted">Sin importaciones todavía.</td></tr>';
+  }catch(e){ /* silencioso */ }
 }
 
 // ---------- facturas ----------
@@ -531,7 +714,7 @@ async function cargarFacturas(){
       <details>
         <summary>
           <span class="col-check"><input type="checkbox" ${facturaSeleccionParaExportar.has(f.id)?'checked':''} onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
-          <span><strong>${f.nombre_emisor || '(sin nombre)'}</strong> · NIT ${f.nit_emisor||'—'} · Fact. ${f.numero_factura||'—'}</span>
+          <span><strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}</span>
           <span>
             <span class="pill ${estadoPill(f.estado)}">${f.estado}</span>
             <span class="pill ${direccionPill(f.direccion_documento)}">${etiquetaNaturaleza(f.naturaleza_documento)} · ${f.direccion_documento==='emitida'?'Emitida (venta)':(f.direccion_documento==='recibida'?'Recibida (compra)':f.direccion_documento)}</span>
@@ -550,7 +733,7 @@ async function cargarFacturas(){
             <button class="btn ghost" onclick="resolverDuplicado('${f.id}', false)">No es duplicado</button>` : ''}
 
           <div class="row" style="margin-top:10px;">
-            <div><button class="btn ghost" onclick="verSugerencia('${f.id}', '${f.nit_emisor||''}')">Ver sugerencia de cuenta</button></div>
+            <div><button class="btn ghost" onclick="verSugerencia('${f.id}', '${f.tercero_nit||''}')">Ver sugerencia de cuenta</button></div>
           </div>
           <div id="sugerencia-${f.id}"></div>
 
@@ -612,14 +795,27 @@ function toggleSeleccionarTodas(marcarTodas){
 }
 
 async function verSugerencia(facturaId, nit){
-  if(!nit){ toast('Esta factura no tiene NIT emisor', true); return; }
+  if(!nit){ toast('Esta factura no tiene NIT de tercero', true); return; }
   try{
-    const sug = await req(`/empresas/${empresaActivaId}/historial/sugerencia?nit=${encodeURIComponent(nit)}`);
+    let descripcion = '';
+    try{
+      const detalle = await req(`/empresas/${empresaActivaId}/documentos/${facturaId}`);
+      if(detalle.conceptos && detalle.conceptos.length){
+        descripcion = detalle.conceptos.map(c=>c.descripcion).filter(Boolean).join('; ');
+      }
+    }catch(e){ /* si falla, se sigue sin concepto */ }
+
+    const qs = new URLSearchParams({nit});
+    if(descripcion) qs.set('descripcion', descripcion);
+    const sug = await req(`/empresas/${empresaActivaId}/historial/sugerencia?${qs.toString()}`);
     const div = document.getElementById('sugerencia-'+facturaId);
     if(sug.cuenta_sugerida){
       div.innerHTML = `<p><strong>Sugerido: ${sug.cuenta_sugerida}</strong> — ${sug.motivo}</p>
         <ul>${sug.opciones.map(o=>`<li>${o.cuenta_codigo} (${o.cuenta_nombre}): ${o.usos} usos — ${o.porcentaje}%</li>`).join('')}</ul>
         <button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${sug.cuenta_sugerida}'">Usar esta cuenta</button>`;
+    } else if(sug.fuente === 'puc_catalogo' && sug.opciones.length){
+      div.innerHTML = `<p class="muted">${sug.motivo}</p>
+        <ul>${sug.opciones.map(o=>`<li><button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${o.cuenta_codigo}'">${o.cuenta_codigo} — ${o.cuenta_nombre}</button></li>`).join('')}</ul>`;
     } else {
       div.innerHTML = `<p class="muted">${sug.motivo}</p>`;
     }
@@ -744,6 +940,11 @@ async function crearPlantilla(){
 
 async function cargarPlantillas(){
   if(!empresaActivaId) return;
+  const campoNombre = document.getElementById('plNombre');
+  if(campoNombre && !campoNombre.value.trim()){
+    const emp = empresas.find(e=>e.id===empresaActivaId);
+    if(emp) campoNombre.value = emp.nombre;
+  }
   try{
     const plantillas = await req(`/empresas/${empresaActivaId}/plantillas`);
     document.getElementById('tablaPlantillas').innerHTML = plantillas.map(p=>`
@@ -787,6 +988,27 @@ async function validarExportacion(){
     document.getElementById('resultadoExportacion').innerHTML = r.valido
       ? '<p class="pill ok">✓ Listo para exportar, sin errores</p>'
       : '<p class="pill err">✕ Hay errores</p><ul>' + r.errores.map(e=>'<li>'+e+'</li>').join('') + '</ul>';
+  }catch(e){ toast(e.message, true); }
+}
+
+async function previsualizarExportacion(){
+  if(!empresaActivaId){ toast('Selecciona una empresa', true); return; }
+  const plantillaId = document.getElementById('expPlantilla').value;
+  const ids = document.getElementById('expFacturaIds').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y al menos una factura', true); return; }
+  const div = document.getElementById('previsualizacionExportacion');
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/exportaciones/previsualizar`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids})});
+    if(!r.valido){
+      div.innerHTML = '<p class="pill err">✕ No se puede generar la vista previa</p><ul>' + r.errores.map(e=>'<li>'+e+'</li>').join('') + '</ul>';
+      return;
+    }
+    div.innerHTML = `
+      <p class="muted" style="font-weight:600; color:var(--ink-soft);">Así va a quedar el archivo (${r.total_filas} línea(s)) — revisa que las cuentas sean correctas antes de aprobar la descarga:</p>
+      <div style="overflow-x:auto;"><table><thead><tr>${r.encabezado.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${r.filas.map(fila=>`<tr>${fila.map(c=>`<td class="mono">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <div style="margin-top:10px;"><button class="btn" onclick="generarExportacion()">✓ Apruebo esta vista previa — generar y descargar</button></div>
+    `;
   }catch(e){ toast(e.message, true); }
 }
 
