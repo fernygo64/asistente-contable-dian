@@ -186,8 +186,10 @@
       <p class="muted">Sube el auxiliar/movimiento contable de tu software (o, si lo tienes, un balance por tercero a nivel de subcuenta — es opcional, no indispensable). El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje. La aprobación de las facturas nuevas se sigue haciendo en la pestaña Facturas.</p>
       <div class="row">
         <div><label>Archivo (auxiliar, movimiento contable o balance por tercero)</label><input type="file" id="histArchivoInput" accept=".xlsx,.xls,.csv"></div>
-        <div><button class="btn ghost" onclick="detectarColumnasHistorial()">Detectar columnas del archivo</button></div>
+        <div><button class="btn" onclick="usarPlantillaConocidaHistorial()">Usar plantilla de <span id="histSistemaNombre">tu sistema contable</span></button></div>
+        <div><button class="btn ghost" onclick="detectarColumnasHistorial()">Detectar columnas solamente</button></div>
       </div>
+      <p class="muted" id="histAyudaPlantilla">La empresa activa está configurada para <strong id="histSistemaNombre2">—</strong> — el botón de arriba reconoce automáticamente las columnas típicas de ese sistema (verificado contra archivos reales) y también sugiere qué cuentas de control excluir, usando las que ya configuraste en "Cuentas base". Revisa y ajusta lo que haga falta antes de importar.</p>
       <div class="row">
         <div><label>Columna NIT (obligatoria)</label><select id="histMapNit"><option value="">— elige —</option></select></div>
         <div><label>Columna Cuenta (obligatoria)</label><select id="histMapCuenta"><option value="">— elige —</option></select></div>
@@ -195,9 +197,17 @@
         <div><label>Columna Concepto/Detalle</label><select id="histMapDescripcion"><option value="">— no aplica —</option></select></div>
       </div>
       <div class="row">
-        <div><label>Columna Fecha</label><select id="histMapFecha"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Fecha (completa)</label><select id="histMapFecha"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Año</label><select id="histMapAnio"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Mes</label><select id="histMapMes"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Día</label><select id="histMapDia"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Nº documento</label><select id="histMapNumero"><option value="">— no aplica —</option></select></div>
-        <div><label>Columna Valor</label><select id="histMapValor"><option value="">— no aplica —</option></select></div>
+      </div>
+      <p class="muted" style="margin-top:6px;">Usa "Columna Valor" si tu sistema trae el monto en una sola columna (ej. Siigo). Si en cambio trae Débito y Crédito por separado (ej. World Office), usa esos dos campos en vez del anterior.</p>
+      <div class="row">
+        <div><label>Columna Valor (una sola columna)</label><select id="histMapValor"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Débito (si están separados)</label><select id="histMapValorDebito"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Crédito (si están separados)</label><select id="histMapValorCredito"><option value="">— no aplica —</option></select></div>
       </div>
       <div class="row">
         <div style="flex:2;"><label>Cuentas a excluir del aprendizaje (códigos o prefijos, separados por coma)</label><input id="histCuentasExcluir" placeholder="220501, 1105, 24 (proveedores, caja/bancos, IVA/retenciones)"></div>
@@ -351,18 +361,47 @@ function toast(msg, esError){
   document.body.appendChild(t);
   setTimeout(()=>t.remove(), 4500);
 }
+async function jsonSeguro(resp){
+  // Protege también el camino de ÉXITO: incluso con status 200, el
+  // cuerpo puede llegar cortado si el servidor se reinicia o se corta
+  // la conexión a mitad de la respuesta (confirmado: pasa cuando el
+  // servidor gratuito está sobrecargado por una carga pesada en curso).
+  // Sin esto, el navegador muestra el críptico "Unexpected end of JSON
+  // input" en vez de un mensaje que explique qué pasó.
+  const texto = await resp.text();
+  try{
+    return JSON.parse(texto);
+  }catch(e){
+    throw new Error(`El servidor respondió pero el contenido llegó incompleto o corrupto — probablemente `+
+      `se reinició por sobrecarga (ej. varias cargas pesadas seguidas). Espera unos segundos e inténtalo de nuevo.`);
+  }
+}
+
+async function errorDeRespuesta(resp){
+  // Nunca debe fallar en sí misma: si el cuerpo no es JSON válido (ej. el
+  // servidor se cortó a medio camino, un proxy devolvió una página de
+  // error HTML, o la petición expiró), se muestra el texto crudo en vez
+  // de un mensaje confuso de "JSON inválido" que oculta el problema real.
+  let texto = '';
+  try{ texto = await resp.text(); }catch(e){ /* no hay cuerpo que leer */ }
+  try{
+    const d = JSON.parse(texto);
+    return typeof d.detail === 'object' ? JSON.stringify(d.detail) : (d.detail || texto || resp.statusText);
+  }catch(e){
+    if(texto && texto.trim()) return `(HTTP ${resp.status}) ${texto.slice(0, 300)}`;
+    return `(HTTP ${resp.status}) ${resp.statusText || 'Sin respuesta del servidor — puede ser que la operación haya tardado demasiado (archivo muy grande) o que el servidor se haya reiniciado.'}`;
+  }
+}
+
 async function req(path, options){
   options = options || {};
   options.headers = Object.assign({'X-User': 'contador@app.local'}, options.headers || {});
   const resp = await fetch(api() + path, options);
   if(!resp.ok){
-    let detalle;
-    try{ detalle = await resp.json(); }catch(e){ detalle = {detail: resp.statusText}; }
-    const msg = typeof detalle.detail === 'object' ? JSON.stringify(detalle.detail) : (detalle.detail || 'Error');
-    throw new Error(msg);
+    throw new Error(await errorDeRespuesta(resp));
   }
   const ct = resp.headers.get('content-type') || '';
-  if(ct.includes('application/json')) return resp.json();
+  if(ct.includes('application/json')) return jsonSeguro(resp);
   return resp;
 }
 
@@ -447,6 +486,9 @@ async function seleccionarEmpresa(id){
   empresaActivaId = id;
   const emp = empresas.find(e=>e.id===id);
   document.getElementById('empresaActivaBanner').textContent = `Empresa activa: ${emp.nombre} (NIT ${emp.nit}) — ${emp.sistema_contable}${emp.regimen_simple?' · Régimen Simple':''}`;
+  const nombreSistema = emp.sistema_contable === 'siigo_pyme' ? 'Siigo Pyme' : (emp.sistema_contable === 'world_office' ? 'World Office' : emp.sistema_contable);
+  const elBoton = document.getElementById('histSistemaNombre'); if(elBoton) elBoton.textContent = nombreSistema;
+  const elTexto = document.getElementById('histSistemaNombre2'); if(elTexto) elTexto.textContent = nombreSistema;
   await cargarEmpresas();
   await cargarCuentasBase();
   await cargarCentrosCosto();
@@ -575,8 +617,8 @@ document.getElementById('excelInput').addEventListener('change', async e=>{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-columnas`, {
       method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
     });
-    if(!resp.ok){ const d = await resp.json(); throw new Error(d.detail || 'No se pudo leer el Excel'); }
-    const body = await resp.json();
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
     const opciones = '<option value="">— no aplica —</option>' + body.columnas.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
     selects.forEach(s=> s.innerHTML = opciones);
     document.getElementById('mapeoAyuda').textContent = `Columnas detectadas en tu Excel (${body.columnas.length}): elige la que corresponde a cada campo.`;
@@ -605,8 +647,8 @@ async function cargarDocumentos(){
   }
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/cargar`, {method:'POST', headers:{'X-User':'contador@app.local'}, body: fd});
-    if(!resp.ok){ const d = await resp.json(); throw new Error(JSON.stringify(d.detail)); }
-    const body = await resp.json();
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
     const etiquetasClasificacion = {
       factura_recibida: 'Facturas recibidas (compras)', factura_emitida: 'Facturas emitidas (ventas)',
       nota_credito_recibida: 'Notas crédito (compras)', nota_credito_emitida: 'Notas crédito (ventas)',
@@ -632,9 +674,12 @@ async function cargarDocumentos(){
 }
 
 // ---------- historial contable ----------
+const HIST_CAMPOS_SELECT = ['histMapNit','histMapCuenta','histMapNombre','histMapDescripcion',
+  'histMapFecha','histMapAnio','histMapMes','histMapDia','histMapNumero',
+  'histMapValor','histMapValorDebito','histMapValorCredito'];
+
 document.getElementById('histArchivoInput').addEventListener('change', ()=>{
-  ['histMapNit','histMapCuenta','histMapNombre','histMapDescripcion','histMapFecha','histMapNumero','histMapValor']
-    .forEach(id=>{ document.getElementById(id).innerHTML = '<option value="">— elige —</option>'; });
+  HIST_CAMPOS_SELECT.forEach(id=>{ document.getElementById(id).innerHTML = '<option value="">— elige —</option>'; });
 });
 
 async function detectarColumnasHistorial(){
@@ -647,12 +692,45 @@ async function detectarColumnasHistorial(){
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-columnas`, {
       method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
     });
-    if(!resp.ok){ const d = await resp.json(); throw new Error(d.detail || 'No se pudo leer el archivo'); }
-    const body = await resp.json();
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
     const opciones = '<option value="">— no aplica —</option>' + body.columnas.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
-    ['histMapNit','histMapCuenta','histMapNombre','histMapDescripcion','histMapFecha','histMapNumero','histMapValor']
-      .forEach(id=>{ document.getElementById(id).innerHTML = opciones; });
+    HIST_CAMPOS_SELECT.forEach(id=>{ document.getElementById(id).innerHTML = opciones; });
     toast(`${body.columnas.length} columnas detectadas — selecciónalas abajo`);
+  }catch(e){ toast(e.message, true); }
+}
+
+async function usarPlantillaConocidaHistorial(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('histArchivoInput').files[0];
+  if(!archivo){ toast('Selecciona primero el archivo', true); return; }
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/sugerir-mapeo`, {
+      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    const opciones = '<option value="">— no aplica —</option>' + body.columnas.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
+    HIST_CAMPOS_SELECT.forEach(id=>{ document.getElementById(id).innerHTML = opciones; });
+
+    const campoASelect = {nit:'histMapNit', cuenta:'histMapCuenta', nombre:'histMapNombre',
+      descripcion:'histMapDescripcion', fecha:'histMapFecha', anio:'histMapAnio', mes:'histMapMes',
+      dia:'histMapDia', numero_documento:'histMapNumero', valor:'histMapValor',
+      valor_debito:'histMapValorDebito', valor_credito:'histMapValorCredito'};
+    for(const [campo, columna] of Object.entries(body.mapeo || {})){
+      const sel = document.getElementById(campoASelect[campo]);
+      if(sel) sel.value = columna;
+    }
+    if(body.cuentas_excluir_sugeridas && body.cuentas_excluir_sugeridas.length){
+      document.getElementById('histCuentasExcluir').value = body.cuentas_excluir_sugeridas.join(', ');
+    }
+    if(body.reconocidas && body.reconocidas.length){
+      toast(`Plantilla de ${body.sistema_contable} aplicada — se reconocieron ${body.reconocidas.length} columnas, revísalas antes de importar`);
+    } else {
+      toast('No se reconoció ninguna columna típica de este sistema en el archivo — revisa el mapeo a mano', true);
+    }
   }catch(e){ toast(e.message, true); }
 }
 
@@ -669,7 +747,9 @@ async function importarHistorico(){
   fd.append('mapeo_nit', nit);
   fd.append('mapeo_cuenta', cuenta);
   const opcionales = {histMapNombre:'mapeo_nombre', histMapDescripcion:'mapeo_descripcion',
-    histMapFecha:'mapeo_fecha', histMapNumero:'mapeo_numero_documento', histMapValor:'mapeo_valor'};
+    histMapFecha:'mapeo_fecha', histMapAnio:'mapeo_anio', histMapMes:'mapeo_mes', histMapDia:'mapeo_dia',
+    histMapNumero:'mapeo_numero_documento', histMapValor:'mapeo_valor',
+    histMapValorDebito:'mapeo_valor_debito', histMapValorCredito:'mapeo_valor_credito'};
   for(const [id, campo] of Object.entries(opcionales)){
     const v = document.getElementById(id).value;
     if(v) fd.append(campo, v);
@@ -678,11 +758,12 @@ async function importarHistorico(){
   if(excluir) fd.append('cuentas_excluir', excluir);
 
   try{
+    toast('Importando... si el archivo es grande puede tardar unos segundos');
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/importar`, {
       method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
     });
-    if(!resp.ok){ const d = await resp.json(); throw new Error(typeof d.detail === 'object' ? JSON.stringify(d.detail) : d.detail); }
-    const body = await resp.json();
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
     document.getElementById('resultadoImportacionHistorial').innerHTML = `
       <div class="pill ok">Registros válidos aprendidos: ${body.registros_validos}</div>
       <div class="pill warn">Rechazados/excluidos: ${body.registros_rechazados}</div>
@@ -768,7 +849,12 @@ async function cargarFacturas(){
       </details>
     `).join('');
     actualizarContadorSeleccion();
-  }catch(e){ toast(e.message, true); }
+  }catch(e){
+    toast(e.message, true);
+    document.getElementById('listaFacturas').innerHTML =
+      `<p class="pill err">No se pudieron cargar las facturas: ${e.message}</p>
+       <button class="btn ghost" onclick="cargarFacturas()">Reintentar</button>`;
+  }
 }
 
 function estadoPill(estado){
@@ -923,8 +1009,8 @@ async function detectarColumnasDesdeEjemplo(){
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/plantillas/inferir-desde-ejemplo`, {
       method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
     });
-    if(!resp.ok){ const d = await resp.json(); throw new Error(d.detail || 'No se pudo leer el archivo'); }
-    const body = await resp.json();
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
     document.getElementById('plDelim').value = body.delimitador === '\t' ? ';' : body.delimitador;
     const texto = body.columnas.map(c => `${c.label}=${c.source}`).join('\n');
     document.getElementById('plColumnas').value = texto;
@@ -1033,7 +1119,7 @@ async function generarExportacion(){
       method:'POST', headers:{'Content-Type':'application/json', 'X-User':'contador@app.local'},
       body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids}),
     });
-    if(!resp.ok){ const d = await resp.json(); throw new Error(JSON.stringify(d.detail)); }
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const blob = await resp.blob();
     const nombre = (resp.headers.get('Content-Disposition')||'').split('filename=')[1]?.replace(/"/g,'') || 'exportacion.txt';
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
