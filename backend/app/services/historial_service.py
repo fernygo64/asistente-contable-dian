@@ -208,9 +208,43 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
             "fuente": "regla",
         }
 
-    # Ni historial ni regla: buscar candidatos en el catálogo PUC según el
-    # concepto — son solo OPCIONES para que el usuario elija, nunca una
-    # decisión automática (sección 13, 37: nunca se inventa una cuenta).
+    # Ni historial ni regla: buscar candidatos primero en las CUENTAS
+    # PROPIAS de la empresa (si ya tienen un nombre real, ej. cargado
+    # desde un balance por tercero — "IVA Compras 19%", "Servicios
+    # Prestados") — son más precisas que el catálogo PUC genérico porque
+    # son el plan de cuentas real de ESTA contabilidad específica, con
+    # sus propios códigos y su propio criterio de nombrar cada cuenta
+    # (ej. distinguir IVA al 19% del 5%, o servicio de compra, por el
+    # nombre). Si no hay coincidencia ahí, se cae al catálogo PUC.
+    if descripcion:
+        claves = _palabras_clave(descripcion)
+        if claves:
+            cuentas_propias = (
+                db.query(CuentaContable)
+                .filter(CuentaContable.empresa_id == empresa_id, CuentaContable.nombre != CuentaContable.codigo)
+                .all()
+            )
+            candidatos_propios = [c for c in cuentas_propias if _palabras_clave(c.nombre) & claves]
+            if candidatos_propios:
+                return {
+                    "proveedor_nit": nit,
+                    "proveedor_nombre": proveedor.nombre if proveedor else None,
+                    "total_documentos_historicos": 0,
+                    "opciones": [
+                        {"cuenta_codigo": c.codigo, "cuenta_nombre": c.nombre, "usos": 0, "porcentaje": 0.0}
+                        for c in candidatos_propios[:8]
+                    ],
+                    "cuenta_sugerida": None,
+                    "motivo": "Sin historial ni regla para este proveedor. Estas son cuentas de TU propio plan "
+                              "de cuentas cuyo nombre coincide con el concepto de la factura — revísalas y "
+                              "elige manualmente, no son una decisión automática.",
+                    "fuente": "cuentas_propias",
+                }
+
+    # Ni historial, ni regla, ni cuenta propia con nombre reconocible:
+    # buscar candidatos en el catálogo PUC según el concepto — son solo
+    # OPCIONES para que el usuario elija, nunca una decisión automática
+    # (sección 13, 37: nunca se inventa una cuenta).
     if descripcion:
         from app.models.models import PucCuenta
         claves = _palabras_clave(descripcion)

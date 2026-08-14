@@ -171,6 +171,22 @@ def agrupar_documentos(pares: list[tuple[str, bytes]], nit_empresa: Optional[str
             doc.nombre_pdf = nombre_pdf
             doc.pdf_bytes = contenido_pdf
 
+    for clave_archivo, (nombre_pdf, contenido_pdf) in list(pdf_pendientes.items()):
+        # El PDF no coincidió por NOMBRE con ningún XML — antes de crearlo
+        # como documento aparte (y arriesgar una factura duplicada),
+        # se intenta extraer su CUFE del propio texto: si coincide con
+        # el de un XML ya procesado, es la MISMA factura con un nombre
+        # de archivo distinto (pasa seguido en descargas reales de la
+        # DIAN, donde el XML y el PDF no siempre comparten nombre) — se
+        # adjunta al documento existente en vez de duplicarlo.
+        resultado_pdf = extraer_factura_pdf(contenido_pdf)
+        cufe_pdf = (resultado_pdf["campos"].get("cufe") or "").lower()
+        if cufe_pdf and cufe_pdf in documentos:
+            doc_existente = documentos[cufe_pdf]
+            doc_existente.nombre_pdf = nombre_pdf
+            doc_existente.pdf_bytes = contenido_pdf
+            pdf_pendientes.pop(clave_archivo)
+
     for clave_archivo, (nombre_pdf, contenido_pdf) in pdf_pendientes.items():
         resultado = extraer_factura_pdf(contenido_pdf)
         documentos[clave_archivo] = DocumentoExtraido(

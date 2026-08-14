@@ -59,6 +59,7 @@ async def importar_historico(
     mapeo_nit: str = Form(...),
     mapeo_cuenta: str = Form(...),
     mapeo_nombre: str | None = Form(default=None),
+    mapeo_nombre_cuenta: str | None = Form(default=None, description="Columna con el NOMBRE de la cuenta (ej. 'IVA Compras 19%') — permite luego reconocer por texto si una cuenta es de IVA al 19%, al 5%, de servicios o de compras, usando el nombre real de TU plan de cuentas"),
     mapeo_fecha: str | None = Form(default=None),
     mapeo_anio: str | None = Form(default=None),
     mapeo_mes: str | None = Form(default=None),
@@ -76,6 +77,7 @@ async def importar_historico(
 ):
     mapeo = {
         "nit": mapeo_nit, "cuenta": mapeo_cuenta, "nombre": mapeo_nombre,
+        "nombre_cuenta": mapeo_nombre_cuenta,
         "fecha": mapeo_fecha, "anio": mapeo_anio, "mes": mapeo_mes, "dia": mapeo_dia,
         "numero_documento": mapeo_numero_documento,
         "tipo_documento": mapeo_tipo_documento, "descripcion": mapeo_descripcion,

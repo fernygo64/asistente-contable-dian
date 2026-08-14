@@ -109,6 +109,7 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
     columna_nit = mapeo_resuelto["nit"]
     columna_cuenta = mapeo_resuelto["cuenta"]
     columna_nombre = mapeo_resuelto.get("nombre")
+    columna_nombre_cuenta = mapeo_resuelto.get("nombre_cuenta")
     columna_fecha = mapeo_resuelto.get("fecha")
     columna_anio = mapeo_resuelto.get("anio")
     columna_mes = mapeo_resuelto.get("mes")
@@ -156,6 +157,7 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
         filas_validas.append((
             nit, cuenta_codigo,
             str(row.get(columna_nombre, "")).strip() if columna_nombre else None,
+            str(row.get(columna_nombre_cuenta, "")).strip() if columna_nombre_cuenta else None,
             fecha,
             str(row.get(columna_numero, "")).strip() if columna_numero else None,
             str(row.get(columna_tipo, "")).strip() if columna_tipo else None,
@@ -188,10 +190,23 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
         db.add(p)
 
     nuevas_cuentas = {}
-    for _, codigo, *_ in filas_validas:
-        if codigo in cuentas_existentes or codigo in nuevas_cuentas:
+    for _, codigo, _nombre_prov, nombre_cuenta, *_ in filas_validas:
+        if codigo in cuentas_existentes:
+            # Si la cuenta ya existía pero solo tenía el código como
+            # nombre provisional (se creó así porque hasta ahora nadie
+            # había dicho su nombre real), y este archivo SÍ trae un
+            # nombre real (ej. "IVA Descontable 19%"), se actualiza —
+            # ese nombre es justamente lo que permite luego reconocer
+            # por texto si una cuenta es de IVA al 19%, al 5%, de
+            # servicios o de compras.
+            cta = cuentas_existentes[codigo]
+            if nombre_cuenta and cta.nombre == cta.codigo:
+                cta.nombre = nombre_cuenta
             continue
-        c = CuentaContable(id=str(uuid.uuid4()), empresa_id=empresa_id, codigo=codigo, nombre=codigo)
+        if codigo in nuevas_cuentas:
+            continue
+        c = CuentaContable(id=str(uuid.uuid4()), empresa_id=empresa_id, codigo=codigo,
+                            nombre=nombre_cuenta or codigo)
         nuevas_cuentas[codigo] = c
         db.add(c)
 
@@ -211,7 +226,7 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
     db.flush()  # una sola ida a la base para obtener los IDs generados arriba y el de la importación
 
     # ---- Paso 3: insertar el historial usando los mapas ya resueltos en memoria ----
-    for nit, cuenta_codigo, nombre, fecha, numero, tipo, desc, valor in filas_validas:
+    for nit, cuenta_codigo, nombre, nombre_cuenta, fecha, numero, tipo, desc, valor in filas_validas:
         proveedor = mapa_proveedores[nit]
         cuenta = mapa_cuentas[cuenta_codigo]
         if nombre and not proveedor.nombre:

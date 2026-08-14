@@ -10,6 +10,7 @@ por empresa_id — eso se refuerza en la capa de servicios/API
 (app/core/security.py + dependencias por request), no solo aquí.
 """
 import enum
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -405,6 +406,29 @@ class Factura(Base):
         if self.direccion_documento == "emitida":
             return self.nombre_receptor or self.nombre_emisor
         return self.nombre_emisor
+
+    @property
+    def concepto_resumen(self) -> str | None:
+        """
+        Breve descripción de qué se compró/vendió — sección pedida por
+        el usuario: cuando el sistema no tiene sugerencia (ni historial
+        ni regla), el contador necesita ver de un vistazo de qué se
+        trata la factura para decidir manualmente qué cuenta usar, sin
+        tener que abrir el detalle completo. Se arma a partir de los
+        conceptos/ítems ya extraídos del XML, recortado a un tamaño
+        legible en la lista.
+        """
+        if not self.conceptos_json:
+            return None
+        try:
+            items = json.loads(self.conceptos_json)
+        except (ValueError, TypeError):
+            return None
+        descripciones = [i.get("descripcion", "") for i in items if i.get("descripcion")]
+        if not descripciones:
+            return None
+        texto = "; ".join(descripciones)
+        return texto[:150] + ("…" if len(texto) > 150 else "")
 
 
 class TipoMovimiento(str, enum.Enum):

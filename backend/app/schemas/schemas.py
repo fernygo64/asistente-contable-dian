@@ -187,6 +187,7 @@ class FacturaOut(BaseModel):
     direccion_documento: str = "recibida"
     tercero_nit: Optional[str] = None
     tercero_nombre: Optional[str] = None
+    concepto_resumen: Optional[str] = None
     estado: str
     creado_en: datetime
 
