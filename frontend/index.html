@@ -103,6 +103,21 @@
         <tbody id="tablaEmpresas"></tbody></table>
     </div>
 
+    <div class="card">
+      <h2>Modo contable de la empresa activa</h2>
+      <p class="muted">Define cómo se contabilizan las facturas que la DIAN marca como "Emitidas". Si esta empresa es una persona natural (o cualquier caso donde TODO deba ir como gasto, sin manejar clientes/ingresos propios), usa "Solo gastos" — evita tener que configurar cuentas de ingresos/clientes y no bloquea el flujo si esas cuentas no existen.</p>
+      <div class="row">
+        <div>
+          <label>¿Cómo se contabilizan las facturas de esta empresa?</label>
+          <select id="modoContableSelect">
+            <option value="mixto">Mixto — recibidas como gasto, emitidas como ingreso (caso normal)</option>
+            <option value="solo_gastos">Solo gastos — TODO se contabiliza como gasto (persona natural, sin ingresos/clientes)</option>
+          </select>
+        </div>
+        <div><button class="btn" onclick="guardarModoContable()">Guardar modo contable</button></div>
+      </div>
+    </div>
+
     <div class="card" id="cuentasBaseCard">
       <h2>Cuentas base de la empresa activa</h2>
       <p class="muted">Sin estas cuentas, la partida doble no se puede generar (nunca se inventa una cuenta). Empieza a escribir el nombre o el código y aparecerán sugerencias del catálogo PUC — puedes elegir una o escribir tu propio código si tu empresa usa uno distinto.</p>
@@ -154,6 +169,10 @@
       </div>
       <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th></tr></thead><tbody id="tablaCentrosCosto"></tbody></table>
     </div>
+
+    <div class="card" style="text-align:right;">
+      <button class="btn" onclick="irAPestana('cargar')">Ir a cargar documentos →</button>
+    </div>
   </section>
 
   <!-- CARGAR DOCUMENTOS -->
@@ -193,14 +212,25 @@
   <section id="tab-historial" class="hidden">
     <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
       <p class="muted" style="color:var(--accent-dark); margin:0;">
-        <strong>¿Qué hacer aquí?</strong> Este módulo NO genera ningún archivo — solo enseña al sistema qué cuenta usa cada NIT, para que la sugerencia en Facturas sea más precisa. Sube tu auxiliar/movimiento contable (o un balance de prueba por tercero, si lo tienes — trae el nombre real de cada cuenta, lo que ayuda a distinguir IVA 19% de 5%, o servicio de compra, por el nombre), pulsa "Usar plantilla de [tu sistema]" para que reconozca las columnas automáticamente, revisa el mapeo, y excluye las cuentas de contrapartida (proveedores, bancos, IVA) para que no contaminen el aprendizaje. Es opcional — puedes seguir clasificando facturas en Facturas sin haber cargado nunca un histórico, solo que sin él las sugerencias empiezan desde cero.
+        <strong>¿Qué hacer aquí?</strong> Este módulo NO genera ningún archivo — solo enseña al sistema qué cuenta usa cada NIT, para que la sugerencia en Facturas sea más precisa. Hay dos formas de cargar, en tarjetas separadas más abajo: un <strong>balance de prueba por tercero</strong> (solo subes el archivo, nada más — el sistema detecta las columnas solo) o tu <strong>auxiliar/movimiento contable completo</strong> (trae más columnas y sí necesita que revises el mapeo). Ninguna es obligatoria — puedes seguir clasificando facturas en Facturas sin haber cargado nunca un histórico, solo que sin él las sugerencias empiezan desde cero.
       </p>
     </div>
+
     <div class="card">
-      <h2>Cargar historial contable (aprendizaje)</h2>
-      <p class="muted">Sube el auxiliar/movimiento contable de tu software, o un <strong>balance de prueba por tercero</strong> (a nivel de subcuenta, con el nombre real de cada cuenta) — este último es opcional, pero le enseña al sistema los nombres de tu propio plan de cuentas para reconocer por texto si algo es IVA al 19% o al 5%, servicio o compra. El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje. La aprobación de las facturas nuevas se sigue haciendo en la pestaña Facturas.</p>
+      <h2>Balance de prueba por tercero</h2>
+      <p class="muted">Sube el archivo y ya — no hay nada que configurar. El sistema detecta solo las columnas de NIT, cuenta y nombre de cuenta, y aprende directamente. Trae el nombre real de cada cuenta (ej. "IVA Descontable 19%" vs "5%", o "Servicios" vs "Compra de mercancía"), lo que le da al sistema más confianza para elegir la cuenta correcta en las próximas facturas — incluida la cuenta de IVA exacta según la tasa real de cada una.</p>
       <div class="row">
-        <div><label>Archivo (auxiliar, movimiento contable o balance por tercero)</label><input type="file" id="histArchivoInput" accept=".xlsx,.xls,.csv"></div>
+        <div><label>Archivo del balance</label><input type="file" id="balanceArchivoInput" accept=".xlsx,.xls,.csv"></div>
+        <div><button class="btn" onclick="importarBalanceAutomatico()">Importar balance</button></div>
+      </div>
+      <div id="resultadoImportacionBalance" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Auxiliar / Movimiento contable (con mapeo de columnas)</h2>
+      <p class="muted">Para el auxiliar/movimiento contable completo de tu software — trae muchas más columnas (comprobante, débito/crédito, retenciones, etc.) y sí conviene revisar el mapeo antes de importar. El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje. La aprobación de las facturas nuevas se sigue haciendo en la pestaña Facturas.</p>
+      <div class="row">
+        <div><label>Archivo (auxiliar o movimiento contable)</label><input type="file" id="histArchivoInput" accept=".xlsx,.xls,.csv"></div>
         <div><button class="btn" onclick="usarPlantillaConocidaHistorial()">Usar plantilla de <span id="histSistemaNombre">tu sistema contable</span></button></div>
         <div><button class="btn ghost" onclick="detectarColumnasHistorial()">Detectar columnas solamente</button></div>
       </div>
@@ -212,7 +242,6 @@
         <div><label>Columna Nombre de cuenta</label><select id="histMapNombreCuenta"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Concepto/Detalle</label><select id="histMapDescripcion"><option value="">— no aplica —</option></select></div>
       </div>
-      <p class="muted" style="margin-top:-6px;">"Nombre de cuenta" es clave si subes un <strong>balance de prueba por tercero</strong>: con el nombre real de tus cuentas (ej. "IVA Descontable 19%" vs "IVA Descontable 5%", o "Servicios" vs "Compra de mercancía"), el sistema puede distinguirlas por texto al sugerir — mucho más preciso que el catálogo PUC genérico, porque es TU propio plan de cuentas.</p>
       <div class="row">
         <div><label>Columna Fecha (completa)</label><select id="histMapFecha"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Año</label><select id="histMapAnio"><option value="">— no aplica —</option></select></div>
@@ -238,6 +267,10 @@
       <h2>Importaciones anteriores</h2>
       <table><thead><tr><th>Archivo</th><th>Registros</th><th>Válidos</th><th>Rechazados</th><th>Fecha</th></tr></thead>
         <tbody id="tablaImportacionesHistorial"></tbody></table>
+    </div>
+
+    <div class="card" style="text-align:right;">
+      <button class="btn" onclick="irARevisarFacturas()">Ir a revisar facturas →</button>
     </div>
   </section>
 
@@ -305,6 +338,9 @@
         <div id="resultadoMasivo" style="margin-top:8px;"></div>
       </div>
       <div id="listaFacturas"></div>
+    </div>
+    <div class="card" style="text-align:right;">
+      <button class="btn" onclick="irAPestana('plantillas', () => { cargarPlantillas(); cargarExportaciones(); })">Ir a Plantillas / Exportar →</button>
     </div>
   </section>
 
@@ -525,6 +561,7 @@ async function seleccionarEmpresa(id){
   const nombreSistema = emp.sistema_contable === 'siigo_pyme' ? 'Siigo Pyme' : (emp.sistema_contable === 'world_office' ? 'World Office' : emp.sistema_contable);
   const elBoton = document.getElementById('histSistemaNombre'); if(elBoton) elBoton.textContent = nombreSistema;
   const elTexto = document.getElementById('histSistemaNombre2'); if(elTexto) elTexto.textContent = nombreSistema;
+  const elModo = document.getElementById('modoContableSelect'); if(elModo) elModo.value = emp.modo_contable || 'mixto';
   await cargarEmpresas();
   await cargarCuentasBase();
   await cargarCentrosCosto();
@@ -572,6 +609,16 @@ async function cargarComprobantesPorTipo(){
     document.getElementById('tcNomina').value = c.comprobante_nomina || '';
     document.getElementById('tcEquivalente').value = c.comprobante_documento_equivalente || '';
   }catch(e){ /* silencioso */ }
+}
+
+async function guardarModoContable(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const modo = document.getElementById('modoContableSelect').value;
+  try{
+    await req(`/empresas/${empresaActivaId}/modo-contable?modo=${modo}`, {method:'PATCH'});
+    toast('Modo contable guardado');
+    cargarEmpresas();
+  }catch(e){ toast(e.message, true); }
 }
 
 async function crearCentroCosto(){
@@ -710,13 +757,42 @@ async function cargarDocumentos(){
   }catch(e){ toast(e.message, true); }
 }
 
+function irAPestana(nombrePestana, alLlegar){
+  document.querySelector(`#tabs button[data-tab="${nombrePestana}"]`).click();
+  if(alLlegar) alLlegar();
+}
+
 function irARevisarFacturas(){
-  document.querySelector('#tabs button[data-tab="facturas"]').click();
-  document.getElementById('filtroEstado').value = '';
-  cargarFacturas();
+  irAPestana('facturas', () => {
+    document.getElementById('filtroEstado').value = '';
+    cargarFacturas();
+  });
 }
 
 // ---------- historial contable ----------
+async function importarBalanceAutomatico(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('balanceArchivoInput').files[0];
+  if(!archivo){ toast('Selecciona el archivo del balance', true); return; }
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/importar-balance`, {
+      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    document.getElementById('resultadoImportacionBalance').innerHTML = `
+      <div class="pill ok">Registros válidos aprendidos: ${body.registros_validos}</div>
+      <div class="pill warn">Rechazados: ${body.registros_rechazados}</div>
+      <div class="muted">De ${body.total_registros} filas totales — columnas detectadas automáticamente.</div>
+    `;
+    toast('Balance importado — ya se puede usar en la sugerencia de cuentas');
+    cargarImportacionesHistorial();
+  }catch(e){ toast(e.message, true); }
+}
+
+
 const HIST_CAMPOS_SELECT = ['histMapNit','histMapCuenta','histMapNombre','histMapNombreCuenta','histMapDescripcion',
   'histMapFecha','histMapAnio','histMapMes','histMapDia','histMapNumero',
   'histMapValor','histMapValorDebito','histMapValorCredito'];
@@ -879,18 +955,22 @@ async function cargarFacturas(){
           <div class="row">
             ${f.naturaleza_documento === 'nomina' ? '' : `
             <div><label>${f.direccion_documento === 'emitida' ? 'Cuenta de ingreso' : 'Cuenta de gasto'}</label><input id="cuenta-${f.id}" placeholder="${f.direccion_documento === 'emitida' ? '413595' : '513595'}"></div>
-            <div><label>Contrapartida</label>
-              <select id="contra-${f.id}">
-                <option value="proveedores" ${f.direccion_documento!=='emitida'?'selected':''}>Proveedores</option>
-                <option value="clientes" ${f.direccion_documento==='emitida'?'selected':''}>Clientes</option>
-                <option value="caja">Caja</option><option value="banco">Banco</option>
-              </select>
-            </div>
             <div><label>Centro de costo (opcional)</label><input id="cc-${f.id}" placeholder="CC01"></div>
             <div><button class="btn" onclick="generarPartida('${f.id}')">Generar partida doble</button></div>
             <div><button class="btn ghost" onclick="contabilizar('${f.id}')">Contabilizar</button></div>
             `}
           </div>
+          ${f.naturaleza_documento === 'nomina' ? '' : `
+          <details style="margin-top:4px;">
+            <summary class="muted" style="cursor:pointer; font-size:12px;">Cambiar contrapartida (opcional — por defecto usa lo ya configurado en Empresas)</summary>
+            <select id="contra-${f.id}" style="margin-top:6px;">
+              <option value="">— usar la configurada automáticamente —</option>
+              <option value="proveedores">Proveedores</option>
+              <option value="clientes">Clientes</option>
+              <option value="caja">Caja</option><option value="banco">Banco</option>
+            </select>
+          </details>
+          `}
           <div id="partida-${f.id}"></div>
         </div>
       </details>
@@ -974,7 +1054,7 @@ async function generarPartida(facturaId){
   try{
     const r = await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/partida/generar`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({cuenta_gasto_codigo: cuenta, contrapartida: contra, origen_decision: 'manual',
+      body: JSON.stringify({cuenta_gasto_codigo: cuenta, contrapartida: contra || null, origen_decision: 'manual',
         centro_costo_codigo: centroCosto || null}),
     });
     const div = document.getElementById('partida-'+facturaId);
