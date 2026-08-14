@@ -199,9 +199,14 @@
         <div><label>Columna Nombre emisor</label><select id="mapNombre"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Fecha</label><select id="mapFecha"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Valor total</label><select id="mapTotal"><option value="">— no aplica —</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Columna NIT receptor</label><select id="mapNitReceptor"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Nombre receptor</label><select id="mapNombreReceptor"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Tipo de documento</label><select id="mapTipo"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Grupo (Emitido/Recibido)</label><select id="mapGrupo"><option value="">— no aplica —</option></select></div>
       </div>
+      <p class="muted">Mapea también "NIT receptor" y "Nombre receptor" si tu Excel los trae — son el dato que de verdad importa en una factura <strong>emitida</strong> (tu cliente, no tú mismo) cuando esa factura no tiene un XML que la respalde, solo la fila del Excel.</p>
       <p class="muted">Si tu Excel trae "Tipo de documento" y "Grupo" (como el de la DIAN), selecciónalas — el sistema descarta automáticamente los "Application response" y clasifica correctamente facturas emitidas, recibidas, nómina y documentos equivalentes usando la propia clasificación de la DIAN, que es más confiable que adivinarlo.
       <button class="btn" onclick="cargarDocumentos()">Cargar y relacionar</button>
       <div id="resultadoCarga" style="margin-top:12px;"></div>
@@ -329,7 +334,11 @@
         <div class="row" style="margin:0; align-items:flex-end;">
           <div><label style="text-transform:none; font-size:12px;">Cuenta para las seleccionadas</label><input id="masivoCuenta" placeholder="513595" list="dl-masivoCuenta" oninput="buscarPuc(this)"><datalist id="dl-masivoCuenta"></datalist></div>
           <div><label style="text-transform:none; font-size:12px;">Contrapartida</label>
-            <select id="masivoContrapartida"><option value="proveedores">Proveedores</option><option value="clientes">Clientes</option><option value="caja">Caja</option><option value="banco">Banco</option></select>
+            <select id="masivoContrapartida">
+              <option value="">— usar la configurada automáticamente —</option>
+              <option value="proveedores">Proveedores</option><option value="clientes">Clientes</option>
+              <option value="caja">Caja</option><option value="banco">Banco</option>
+            </select>
           </div>
           <div><button class="btn ghost" onclick="generarPartidaMasivoConCuenta()">Aplicar cuenta a seleccionadas</button></div>
           <div><button class="btn ghost" onclick="generarPartidaMasivoConSugerencia()">Usar sugerencia del historial en seleccionadas</button></div>
@@ -687,7 +696,7 @@ async function cargarCuentasBase(){
 
 // ---------- cargar documentos ----------
 document.getElementById('excelInput').addEventListener('change', async e=>{
-  const selects = ['mapCufe','mapNumero','mapNit','mapNombre','mapFecha','mapTotal','mapTipo','mapGrupo'].map(id=>document.getElementById(id));
+  const selects = ['mapCufe','mapNumero','mapNit','mapNombre','mapNitReceptor','mapNombreReceptor','mapFecha','mapTotal','mapTipo','mapGrupo'].map(id=>document.getElementById(id));
   const excelFile = e.target.files[0];
   if(!excelFile){
     selects.forEach(s=> s.innerHTML = '<option value="">— no aplica —</option>');
@@ -721,7 +730,8 @@ async function cargarDocumentos(){
   if(excelFile){
     fd.append('excel', excelFile);
     const mapeos = {mapCufe:'mapeo_cufe', mapNumero:'mapeo_numero_factura', mapNit:'mapeo_nit_emisor',
-      mapNombre:'mapeo_nombre_emisor', mapFecha:'mapeo_fecha', mapTotal:'mapeo_valor_total',
+      mapNombre:'mapeo_nombre_emisor', mapNitReceptor:'mapeo_nit_receptor', mapNombreReceptor:'mapeo_nombre_receptor',
+      mapFecha:'mapeo_fecha', mapTotal:'mapeo_valor_total',
       mapTipo:'mapeo_tipo_documento', mapGrupo:'mapeo_grupo'};
     for(const [id, campo] of Object.entries(mapeos)){
       const v = document.getElementById(id).value.trim();
@@ -1146,7 +1156,7 @@ async function generarPartidaMasivoConCuenta(){
   try{
     const body = await req(`/empresas/${empresaActivaId}/documentos/partida/generar-masivo`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({factura_ids: ids, cuenta_gasto_codigo: cuenta, contrapartida}),
+      body: JSON.stringify({factura_ids: ids, cuenta_gasto_codigo: cuenta, contrapartida: contrapartida || null}),
     });
     _mostrarResultadoMasivo(body, 'Partidas generadas');
     toast(`${body.aplicadas} partida(s) generada(s)`);
@@ -1157,11 +1167,12 @@ async function generarPartidaMasivoConCuenta(){
 async function generarPartidaMasivoConSugerencia(){
   const ids = Array.from(facturaSeleccionParaExportar);
   if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
+  const contrapartida = document.getElementById('masivoContrapartida').value;
   if(!confirm(`Se generará la partida de ${ids.length} factura(s) usando la cuenta que el historial sugiere para cada una (solo las que tengan una sugerencia confiable — las demás se omiten). ¿Continuar?`)) return;
   try{
     const body = await req(`/empresas/${empresaActivaId}/documentos/partida/generar-masivo`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({factura_ids: ids, usar_sugerencia: true}),
+      body: JSON.stringify({factura_ids: ids, usar_sugerencia: true, contrapartida: contrapartida || null}),
     });
     _mostrarResultadoMasivo(body, 'Partidas generadas');
     toast(`${body.aplicadas} partida(s) generada(s) con sugerencia del historial`);
