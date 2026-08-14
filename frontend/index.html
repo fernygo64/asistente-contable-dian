@@ -193,12 +193,12 @@
   <section id="tab-historial" class="hidden">
     <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
       <p class="muted" style="color:var(--accent-dark); margin:0;">
-        <strong>¿Qué hacer aquí?</strong> Este módulo NO genera ningún archivo — solo enseña al sistema qué cuenta usa cada NIT, para que la sugerencia en Facturas sea más precisa. Sube tu auxiliar/movimiento contable, pulsa "Usar plantilla de [tu sistema]" para que reconozca las columnas automáticamente, revisa el mapeo, y excluye las cuentas de contrapartida (proveedores, bancos, IVA) para que no contaminen el aprendizaje. Es opcional — puedes seguir clasificando facturas en Facturas sin haber cargado nunca un histórico, solo que sin él las sugerencias empiezan desde cero.
+        <strong>¿Qué hacer aquí?</strong> Este módulo NO genera ningún archivo — solo enseña al sistema qué cuenta usa cada NIT, para que la sugerencia en Facturas sea más precisa. Sube tu auxiliar/movimiento contable (o un balance de prueba por tercero, si lo tienes — trae el nombre real de cada cuenta, lo que ayuda a distinguir IVA 19% de 5%, o servicio de compra, por el nombre), pulsa "Usar plantilla de [tu sistema]" para que reconozca las columnas automáticamente, revisa el mapeo, y excluye las cuentas de contrapartida (proveedores, bancos, IVA) para que no contaminen el aprendizaje. Es opcional — puedes seguir clasificando facturas en Facturas sin haber cargado nunca un histórico, solo que sin él las sugerencias empiezan desde cero.
       </p>
     </div>
     <div class="card">
       <h2>Cargar historial contable (aprendizaje)</h2>
-      <p class="muted">Sube el auxiliar/movimiento contable de tu software (o, si lo tienes, un balance por tercero a nivel de subcuenta — es opcional, no indispensable). El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje. La aprobación de las facturas nuevas se sigue haciendo en la pestaña Facturas.</p>
+      <p class="muted">Sube el auxiliar/movimiento contable de tu software, o un <strong>balance de prueba por tercero</strong> (a nivel de subcuenta, con el nombre real de cada cuenta) — este último es opcional, pero le enseña al sistema los nombres de tu propio plan de cuentas para reconocer por texto si algo es IVA al 19% o al 5%, servicio o compra. El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje. La aprobación de las facturas nuevas se sigue haciendo en la pestaña Facturas.</p>
       <div class="row">
         <div><label>Archivo (auxiliar, movimiento contable o balance por tercero)</label><input type="file" id="histArchivoInput" accept=".xlsx,.xls,.csv"></div>
         <div><button class="btn" onclick="usarPlantillaConocidaHistorial()">Usar plantilla de <span id="histSistemaNombre">tu sistema contable</span></button></div>
@@ -209,8 +209,10 @@
         <div><label>Columna NIT (obligatoria)</label><select id="histMapNit"><option value="">— elige —</option></select></div>
         <div><label>Columna Cuenta (obligatoria)</label><select id="histMapCuenta"><option value="">— elige —</option></select></div>
         <div><label>Columna Nombre tercero</label><select id="histMapNombre"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Nombre de cuenta</label><select id="histMapNombreCuenta"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Concepto/Detalle</label><select id="histMapDescripcion"><option value="">— no aplica —</option></select></div>
       </div>
+      <p class="muted" style="margin-top:-6px;">"Nombre de cuenta" es clave si subes un <strong>balance de prueba por tercero</strong>: con el nombre real de tus cuentas (ej. "IVA Descontable 19%" vs "IVA Descontable 5%", o "Servicios" vs "Compra de mercancía"), el sistema puede distinguirlas por texto al sugerir — mucho más preciso que el catálogo PUC genérico, porque es TU propio plan de cuentas.</p>
       <div class="row">
         <div><label>Columna Fecha (completa)</label><select id="histMapFecha"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Año</label><select id="histMapAnio"><option value="">— no aplica —</option></select></div>
@@ -715,7 +717,7 @@ function irARevisarFacturas(){
 }
 
 // ---------- historial contable ----------
-const HIST_CAMPOS_SELECT = ['histMapNit','histMapCuenta','histMapNombre','histMapDescripcion',
+const HIST_CAMPOS_SELECT = ['histMapNit','histMapCuenta','histMapNombre','histMapNombreCuenta','histMapDescripcion',
   'histMapFecha','histMapAnio','histMapMes','histMapDia','histMapNumero',
   'histMapValor','histMapValorDebito','histMapValorCredito'];
 
@@ -757,6 +759,7 @@ async function usarPlantillaConocidaHistorial(){
     HIST_CAMPOS_SELECT.forEach(id=>{ document.getElementById(id).innerHTML = opciones; });
 
     const campoASelect = {nit:'histMapNit', cuenta:'histMapCuenta', nombre:'histMapNombre',
+      nombre_cuenta:'histMapNombreCuenta',
       descripcion:'histMapDescripcion', fecha:'histMapFecha', anio:'histMapAnio', mes:'histMapMes',
       dia:'histMapDia', numero_documento:'histMapNumero', valor:'histMapValor',
       valor_debito:'histMapValorDebito', valor_credito:'histMapValorCredito'};
@@ -787,7 +790,7 @@ async function importarHistorico(){
   fd.append('archivo', archivo);
   fd.append('mapeo_nit', nit);
   fd.append('mapeo_cuenta', cuenta);
-  const opcionales = {histMapNombre:'mapeo_nombre', histMapDescripcion:'mapeo_descripcion',
+  const opcionales = {histMapNombre:'mapeo_nombre', histMapNombreCuenta:'mapeo_nombre_cuenta', histMapDescripcion:'mapeo_descripcion',
     histMapFecha:'mapeo_fecha', histMapAnio:'mapeo_anio', histMapMes:'mapeo_mes', histMapDia:'mapeo_dia',
     histMapNumero:'mapeo_numero_documento', histMapValor:'mapeo_valor',
     histMapValorDebito:'mapeo_valor_debito', histMapValorCredito:'mapeo_valor_credito'};
@@ -847,7 +850,10 @@ async function cargarFacturas(){
       <details>
         <summary>
           <span class="col-check"><input type="checkbox" ${facturaSeleccionParaExportar.has(f.id)?'checked':''} onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
-          <span><strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}</span>
+          <span>
+            <strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}
+            ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}
+          </span>
           <span>
             <span class="pill ${estadoPill(f.estado)}">${f.estado}</span>
             <span class="pill ${direccionPill(f.direccion_documento)}">${etiquetaNaturaleza(f.naturaleza_documento)} · ${f.direccion_documento==='emitida'?'Emitida (venta)':(f.direccion_documento==='recibida'?'Recibida (compra)':f.direccion_documento)}</span>
@@ -951,7 +957,7 @@ async function verSugerencia(facturaId, nit){
       div.innerHTML = `<p><strong>Sugerido: ${sug.cuenta_sugerida}</strong> — ${sug.motivo}</p>
         <ul>${sug.opciones.map(o=>`<li>${o.cuenta_codigo} (${o.cuenta_nombre}): ${o.usos} usos — ${o.porcentaje}%</li>`).join('')}</ul>
         <button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${sug.cuenta_sugerida}'">Usar esta cuenta</button>`;
-    } else if(sug.fuente === 'puc_catalogo' && sug.opciones.length){
+    } else if((sug.fuente === 'puc_catalogo' || sug.fuente === 'cuentas_propias') && sug.opciones.length){
       div.innerHTML = `<p class="muted">${sug.motivo}</p>
         <ul>${sug.opciones.map(o=>`<li><button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${o.cuenta_codigo}'">${o.cuenta_codigo} — ${o.cuenta_nombre}</button></li>`).join('')}</ul>`;
     } else {
@@ -1090,7 +1096,13 @@ async function contabilizarMasivo(){
 // ---------- plantillas / exportación ----------
 function parsearColumnas(texto){
   return texto.split('\n').map(l=>l.trim()).filter(Boolean).map(linea=>{
-    const [label, origenRaw] = linea.split('=').map(s=>s.trim());
+    // El ÚLTIMO "=" es el separador etiqueta/origen — algunas columnas
+    // reales de Siigo traen su propio "=" en el nombre (ej. "DATOS
+    // ESTABLEC. (L=LOCAL O=OFICINA)"), y cortar en el PRIMER "=" partía
+    // la etiqueta a la mitad y corrompía el origen de esa columna.
+    const idx = linea.lastIndexOf('=');
+    const label = (idx === -1 ? linea : linea.slice(0, idx)).trim();
+    const origenRaw = (idx === -1 ? '' : linea.slice(idx + 1)).trim();
     if(origenRaw && origenRaw.startsWith('fijo:')){
       return {label, source:'fijo', valor_fijo: origenRaw.slice(5)};
     }
