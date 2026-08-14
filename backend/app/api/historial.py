@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
@@ -8,8 +9,58 @@ from app.schemas.schemas import SugerenciaCuenta, ImportacionResumen, HistorialM
 from app.services import historial_service, importacion_service
 from app.services.excel_utils import leer_columnas_excel
 from app.services.mapeo_conocido_service import sugerir_mapeo
+from app.services.balance_service import detectar_mapeo_balance
 
 router = APIRouter(prefix="/empresas/{empresa_id}/historial", tags=["historial"])
+
+
+@router.post("/importar-balance", response_model=ImportacionResumen, status_code=201)
+async def importar_balance_automatico(
+    empresa_id: str, archivo: UploadFile = File(...),
+    db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa),
+    usuario: str = Depends(usuario_actual),
+):
+    """
+    Balance de prueba por tercero — el usuario NO mapea nada, solo sube
+    el archivo. Se detectan las columnas (NIT, cuenta, nombre de cuenta)
+    por palabras clave, y si se identifican con confianza, se importa
+    directo. Un balance por tercero no trae contrapartida/control
+    mezclada como un auxiliar completo, así que no requiere excluir
+    cuentas — cada fila ya es una asociación NIT↔cuenta útil de aprender.
+    """
+    contenido = await archivo.read()
+    try:
+        columnas = leer_columnas_excel(contenido, archivo.filename or "balance.xlsx")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"No se pudo leer el archivo: {e}")
+
+    deteccion = detectar_mapeo_balance(columnas)
+    if deteccion["faltantes"]:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No se pudieron identificar automáticamente las columnas: {', '.join(deteccion['faltantes'])}. "
+                   f"Este archivo no tiene la forma esperada de un balance por tercero simple — usa la sección "
+                   f"'Auxiliar / Movimiento contable' de más abajo, donde sí puedes mapear las columnas a mano. "
+                   f"Columnas detectadas en tu archivo: {columnas}",
+        )
+
+    try:
+        importacion = importacion_service.importar_historico(
+            db, empresa_id, contenido, archivo.filename, deteccion["mapeo"], usuario, cuentas_excluir=None
+        )
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(e))
+    db.commit()
+    return ImportacionResumen(
+        id=importacion.id,
+        archivo_nombre=importacion.archivo_nombre,
+        total_registros=importacion.total_registros,
+        registros_validos=importacion.registros_validos,
+        registros_rechazados=importacion.registros_rechazados,
+        detalle_rechazos=json.loads(importacion.detalle_rechazos_json or "[]"),
+        importado_en=importacion.importado_en,
+    )
 
 
 @router.post("/sugerir-mapeo")

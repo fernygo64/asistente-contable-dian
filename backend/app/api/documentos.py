@@ -274,6 +274,19 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
 
     cuenta_gasto = historial_service.get_or_create_cuenta(db, empresa_id, cuenta_gasto_codigo)
 
+    # Contrapartida: si no se indicó explícitamente, se deriva de lo que
+    # la empresa ya parametrizó (sección 38) — no hay que volver a
+    # elegirla en cada factura. Recibida -> proveedores; emitida ->
+    # clientes; en modo "solo_gastos" siempre proveedores, aunque la
+    # DIAN haya marcado el documento como emitido.
+    if not contrapartida:
+        if empresa.modo_contable == "solo_gastos":
+            contrapartida = "proveedores"
+        elif f.direccion_documento == "emitida":
+            contrapartida = "clientes"
+        else:
+            contrapartida = "proveedores"
+
     centro_costo = None
     if centro_costo_codigo:
         from app.models.models import CentroCosto
@@ -409,7 +422,12 @@ def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends
             continue
 
         cuenta_codigo = cuenta_fija
-        contrapartida = contrapartida_fija or ("clientes" if f.direccion_documento == "emitida" else "proveedores")
+        if contrapartida_fija:
+            contrapartida = contrapartida_fija
+        elif empresa.modo_contable == "solo_gastos":
+            contrapartida = "proveedores"
+        else:
+            contrapartida = "clientes" if f.direccion_documento == "emitida" else "proveedores"
 
         if usar_sugerencia:
             if f.naturaleza_documento == "nomina":

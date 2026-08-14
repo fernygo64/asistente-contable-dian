@@ -96,6 +96,17 @@ class Empresa(Base):
     cuenta_iva_generado_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_iva_generado"), nullable=True)
     cuenta_nomina_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_nomina"), nullable=True)
 
+    # Modo contable (reportado por el usuario): una empresa "mixta" (la
+    # mayoría de personas jurídicas) contabiliza sus facturas RECIBIDAS
+    # como gasto y las EMITIDAS como ingreso, cada una con sus propias
+    # cuentas. Pero una persona natural que solo usa este sistema para
+    # llevar SUS PROPIOS gastos (aunque la DIAN marque algún documento
+    # como "Emitido" por razones ajenas a una venta real) puede no tener
+    # ni necesitar cuentas de ingreso/clientes configuradas — en ese caso
+    # "solo_gastos" hace que TODO se contabilice por el lado de gasto,
+    # sin exigir cuenta de ingresos ni bloquear el flujo.
+    modo_contable = Column(String(20), nullable=False, default="mixto")  # "mixto" | "solo_gastos"
+
     # Tipo de comprobante contable por tipo de documento DIAN (sección 19):
     # en Siigo/World Office, compras, ventas, notas crédito/débito y nómina
     # normalmente van a comprobantes DISTINTOS — nunca al mismo. Son textos

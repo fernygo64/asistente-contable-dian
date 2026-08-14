@@ -52,6 +52,7 @@ class EmpresaOut(BaseModel):
     sistema_contable: str
     responsable_iva: bool
     regimen_simple: bool
+    modo_contable: str = "mixto"
     activa: bool
     creado_en: datetime
 
@@ -233,7 +234,7 @@ class ResolucionDuplicado(BaseModel):
 # --------------------------------------------------------------- Partida doble
 class GenerarPartidaRequest(BaseModel):
     cuenta_gasto_codigo: str
-    contrapartida: str = "proveedores"   # "proveedores" | "clientes" | "caja" | "banco"
+    contrapartida: Optional[str] = None   # si no se indica, se deriva de la dirección del documento (sección 38)
     origen_decision: str = "manual"      # "manual" | "sugerencia_aceptada"
     centro_costo_codigo: Optional[str] = None
     usuario: Optional[str] = None

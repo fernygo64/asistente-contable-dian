@@ -82,6 +82,29 @@ def configurar_cuentas_base(empresa_id: str, payload: EmpresaCuentasBase, db: Se
     return empresa
 
 
+@router.patch("/{empresa_id}/modo-contable", response_model=EmpresaOut)
+def configurar_modo_contable(empresa_id: str, modo: str, db: Session = Depends(get_db),
+                              empresa: Empresa = Depends(get_empresa_activa),
+                              usuario: str = Depends(usuario_actual)):
+    """
+    "mixto" (por defecto): las facturas recibidas se contabilizan como
+    gasto y las emitidas como ingreso, cada una con sus propias cuentas
+    — el caso normal de una empresa que compra y también vende.
+    "solo_gastos": TODO se contabiliza por el lado de gasto, sin
+    importar si la DIAN marcó el documento como emitido o recibido —
+    pensado para una persona natural que solo usa el sistema para
+    llevar sus propios gastos y no tiene (ni necesita) cuentas de
+    ingresos/clientes configuradas.
+    """
+    if modo not in ("mixto", "solo_gastos"):
+        raise HTTPException(status_code=422, detail="modo debe ser 'mixto' o 'solo_gastos'.")
+    empresa.modo_contable = modo
+    auditoria_registrar(db, empresa_id, "Empresa", empresa.id, "configurar_modo_contable", {"modo": modo}, usuario)
+    db.commit()
+    db.refresh(empresa)
+    return empresa
+
+
 @router.get("/{empresa_id}/cuentas-base")
 def obtener_cuentas_base(empresa_id: str, db: Session = Depends(get_db),
                           empresa: Empresa = Depends(get_empresa_activa)):

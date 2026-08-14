@@ -20,6 +20,7 @@ Reglas no negociables:
   se niega explícitamente en vez de arriesgar un asiento inventado.
 """
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -75,6 +76,37 @@ def _resolver_contrapartida(db: Session, empresa: Empresa, contrapartida: str,
     return db.get(CuentaContable, cuenta_id), errores
 
 
+def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: float, iva: float) -> Optional[CuentaContable]:
+    """
+    En vez de usar siempre LA MISMA cuenta de IVA configurada en
+    "Cuentas base" (que solo admite una), busca entre las cuentas
+    PROPIAS de la empresa con código que empieza por "2408" (grupo de
+    IVA en el PUC) una cuyo NOMBRE mencione la tasa real de esta
+    factura (19% o 5%, calculada del propio documento) — esto requiere
+    haber cargado un balance por tercero con los nombres reales de esas
+    cuentas (sección pedida por el usuario). Si no encuentra una
+    coincidencia específica, devuelve None y quien llama usa la cuenta
+    de IVA descontable única configurada, como antes.
+    """
+    if subtotal <= 0 or iva <= 0:
+        return None
+    tasa = round(iva / subtotal * 100)
+    if tasa not in (19, 5):
+        # Tasas no estándar (redondeos raros, IVA a otro % por un
+        # descuento, etc.) — no se arriesga una coincidencia falsa.
+        return None
+
+    candidatas = db.query(CuentaContable).filter(
+        CuentaContable.empresa_id == empresa.id, CuentaContable.codigo.like("2408%")
+    ).all()
+    patron = re.compile(rf"\b{tasa}\b")
+    coincidencias = [c for c in candidatas if patron.search(c.nombre)]
+    if len(coincidencias) == 1:
+        return coincidencias[0]
+    # Ambigüedad (0 o varias coincidencias) -> no se arriesga a elegir mal.
+    return None
+
+
 def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
                              cuenta_gasto_id: str, contrapartida: str,
                              centro_costo=None) -> ResultadoPartida:
@@ -108,9 +140,14 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
 
     if iva > 0:
         if empresa.responsable_iva:
-            if not empresa.cuenta_iva_descontable_id:
+            cta_por_tasa = _seleccionar_cuenta_iva_por_tasa(db, empresa, subtotal, iva)
+            if cta_por_tasa:
+                tasa_detectada = round(iva / subtotal * 100) if subtotal > 0 else None
+                lineas.append(LineaPartida(cta_por_tasa.id, cta_por_tasa.codigo, cta_por_tasa.nombre,
+                                            "debito", iva, f"IVA descontable {tasa_detectada}% (detectado automáticamente)"))
+            elif not empresa.cuenta_iva_descontable_id:
                 errores.append("La factura tiene IVA pero la empresa no tiene configurada la "
-                                "cuenta de IVA descontable.")
+                                "cuenta de IVA descontable (ni una cuenta 2408 propia que mencione la tasa).")
             else:
                 cta = db.get(CuentaContable, empresa.cuenta_iva_descontable_id)
                 lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", iva, "IVA descontable"))
@@ -254,7 +291,17 @@ def generar_partida(db: Session, empresa: Empresa, factura: Factura,
             "Regístralo manualmente con las cuentas de nómina correspondientes."
         ])
 
-    if factura.direccion_documento == "emitida":
+    # En modo "solo_gastos" (persona natural que solo lleva sus propios
+    # gastos), TODO se contabiliza por el lado de gasto sin importar lo
+    # que diga la clasificación Emitido/Recibido de la DIAN — evita
+    # exigir cuentas de ingresos/clientes que esta empresa no necesita.
+    if empresa.modo_contable == "solo_gastos":
+        # Si la contrapartida sugerida fue "clientes" (porque la DIAN
+        # marcó el documento como emitido), no aplica aquí — se usa
+        # proveedores en su lugar, ya que este modo no maneja clientes.
+        contrapartida_efectiva = "proveedores" if contrapartida == "clientes" else contrapartida
+        resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida_efectiva, centro_costo)
+    elif factura.direccion_documento == "emitida":
         resultado = _generar_partida_venta(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
     else:
         resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
