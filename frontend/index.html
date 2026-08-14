@@ -78,6 +78,11 @@
 
   <!-- EMPRESAS -->
   <section id="tab-empresas">
+    <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
+      <p class="muted" style="color:var(--accent-dark); margin:0;">
+        <strong>¿Qué hacer aquí?</strong> Este es el punto de partida: crea la empresa (con su NIT y el sistema contable que usas — Siigo o World Office), márcala "Usar" para activarla, y configura sus "Cuentas base" (proveedores, caja, banco, IVA, retenciones, ingresos, clientes) — sin esto la partida doble no se puede generar más adelante. El "Tipo de comprobante por tipo de documento" y los "Centros de costo" (opcionales) también se configuran aquí, una sola vez por empresa.
+      </p>
+    </div>
     <div class="card">
       <h2>Crear empresa</h2>
       <div class="row">
@@ -153,6 +158,11 @@
 
   <!-- CARGAR DOCUMENTOS -->
   <section id="tab-cargar" class="hidden">
+    <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
+      <p class="muted" style="color:var(--accent-dark); margin:0;">
+        <strong>¿Qué hacer aquí?</strong> Sube el ZIP (o los XML/PDF sueltos) que te descarga la DIAN, y opcionalmente el Excel de la DIAN de ese mismo período — si lo subes, selecciona qué columna corresponde a cada campo (o mejor, mapea "Tipo de documento" y "Grupo" si tu Excel los trae: así la DIAN clasifica por ti emitidas/recibidas/nómina/acuses, más confiable que adivinarlo). Al terminar verás el desglose de lo que se cargó y podrás ir directo a revisarlo en Facturas. Si tu archivo es grande, evita cargar el histórico contable justo después en la misma sesión — dale tiempo al servidor entre una carga pesada y otra.
+      </p>
+    </div>
     <div class="card">
       <h2>Cargar Excel DIAN + ZIP de XML/PDF</h2>
       <div class="row">
@@ -181,6 +191,11 @@
 
   <!-- HISTORIAL CONTABLE -->
   <section id="tab-historial" class="hidden">
+    <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
+      <p class="muted" style="color:var(--accent-dark); margin:0;">
+        <strong>¿Qué hacer aquí?</strong> Este módulo NO genera ningún archivo — solo enseña al sistema qué cuenta usa cada NIT, para que la sugerencia en Facturas sea más precisa. Sube tu auxiliar/movimiento contable, pulsa "Usar plantilla de [tu sistema]" para que reconozca las columnas automáticamente, revisa el mapeo, y excluye las cuentas de contrapartida (proveedores, bancos, IVA) para que no contaminen el aprendizaje. Es opcional — puedes seguir clasificando facturas en Facturas sin haber cargado nunca un histórico, solo que sin él las sugerencias empiezan desde cero.
+      </p>
+    </div>
     <div class="card">
       <h2>Cargar historial contable (aprendizaje)</h2>
       <p class="muted">Sube el auxiliar/movimiento contable de tu software (o, si lo tienes, un balance por tercero a nivel de subcuenta — es opcional, no indispensable). El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje. La aprobación de las facturas nuevas se sigue haciendo en la pestaña Facturas.</p>
@@ -229,12 +244,9 @@
     <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
       <p class="muted" style="color:var(--accent-dark); margin:0;">
         <strong>¿Qué hacer aquí?</strong> Cada factura de la lista está pendiente de que la clasifiques.
-        1) Haz clic sobre una factura para abrirla.
-        2) Pulsa "Ver sugerencia de cuenta" — te dice qué cuenta usó antes ese mismo NIT (o candidatos del PUC si es nuevo).
-        3) Escribe la cuenta (o usa el botón "Usar esta cuenta" de la sugerencia) y elige la contrapartida (Proveedores/Clientes/Caja/Banco).
-        4) Pulsa "Generar partida doble" — verifica que quede balanceada.
-        5) Si está correcta, pulsa "Contabilizar" para aprobarla.
-        6) Cuando tengas varias contabilizadas, ve a "Plantillas / Exportar" para generar el archivo con todas juntas.
+        <u>Una por una:</u> 1) Haz clic sobre una factura para abrirla. 2) Pulsa "Ver sugerencia de cuenta". 3) Escribe la cuenta (o "Usar esta cuenta") y la contrapartida. 4) "Generar partida doble". 5) "Contabilizar".
+        <u>En lote (más rápido con muchas facturas):</u> marca las casillas de varias facturas y usa la barra naranja de abajo — "Aplicar cuenta a seleccionadas" les pone la misma cuenta a todas, o "Usar sugerencia del historial" deja que cada una tome su propia cuenta sugerida (solo si el sistema tiene una sugerencia confiable — nunca inventa una cuenta para un NIT que no conoce). Luego "Contabilizar seleccionadas" aprueba todas de una vez.
+        Cuando tengas varias contabilizadas, ve a "Plantillas / Exportar".
       </p>
     </div>
     <div class="card">
@@ -268,7 +280,7 @@
           <div><button class="btn ghost" onclick="cargarFacturas()">Actualizar</button></div>
         </div>
       </div>
-      <div class="flex-between" style="background:#fef3e2; border:1px solid var(--warn); border-radius:8px; padding:10px 14px; margin:12px 0;">
+      <div class="flex-between" style="background:#fef3e2; border:1px solid var(--warn); border-radius:8px; padding:10px 14px; margin:12px 0 0;">
         <div>
           <label style="display:inline-flex; align-items:center; gap:6px; margin:0; text-transform:none; font-size:13px; color:var(--ink);">
             <input type="checkbox" id="seleccionarTodasChk" onchange="toggleSeleccionarTodas(this.checked)" style="width:auto;">
@@ -278,12 +290,29 @@
         </div>
         <button class="btn danger" onclick="eliminarSeleccionadas()">🗑 Eliminar seleccionadas</button>
       </div>
+      <div style="background:#fef3e2; border:1px solid var(--warn); border-top:none; border-radius:0 0 8px 8px; padding:10px 14px; margin-bottom:12px;">
+        <div class="row" style="margin:0; align-items:flex-end;">
+          <div><label style="text-transform:none; font-size:12px;">Cuenta para las seleccionadas</label><input id="masivoCuenta" placeholder="513595" list="dl-masivoCuenta" oninput="buscarPuc(this)"><datalist id="dl-masivoCuenta"></datalist></div>
+          <div><label style="text-transform:none; font-size:12px;">Contrapartida</label>
+            <select id="masivoContrapartida"><option value="proveedores">Proveedores</option><option value="clientes">Clientes</option><option value="caja">Caja</option><option value="banco">Banco</option></select>
+          </div>
+          <div><button class="btn ghost" onclick="generarPartidaMasivoConCuenta()">Aplicar cuenta a seleccionadas</button></div>
+          <div><button class="btn ghost" onclick="generarPartidaMasivoConSugerencia()">Usar sugerencia del historial en seleccionadas</button></div>
+          <div><button class="btn" onclick="contabilizarMasivo()">✓ Contabilizar seleccionadas</button></div>
+        </div>
+        <div id="resultadoMasivo" style="margin-top:8px;"></div>
+      </div>
       <div id="listaFacturas"></div>
     </div>
   </section>
 
   <!-- PLANTILLAS / EXPORTAR -->
   <section id="tab-plantillas" class="hidden">
+    <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
+      <p class="muted" style="color:var(--accent-dark); margin:0;">
+        <strong>¿Qué hacer aquí?</strong> Crea una plantilla que coincida con lo que tu software espera importar (sube un archivo de ejemplo tuyo y pulsa "Detectar columnas del archivo de ejemplo" para no armarla a mano). Luego, en "Generar exportación", elige la plantilla y las facturas ya contabilizadas (marca los checkboxes en Facturas primero, o pega los IDs), pulsa "Ver vista previa" para revisar cómo va a quedar el archivo real, y solo si se ve bien, aprueba la descarga.
+      </p>
+    </div>
     <div class="card">
       <h2>Nueva plantilla de exportación</h2>
       <div class="row">
@@ -340,6 +369,11 @@ Credito=credito</textarea>
 
   <!-- AUDITORIA -->
   <section id="tab-auditoria" class="hidden">
+    <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
+      <p class="muted" style="color:var(--accent-dark); margin:0;">
+        <strong>¿Qué hacer aquí?</strong> Este es un registro de solo lectura — no hay nada que hacer, solo consultar. Cada vez que se crea, cambia o elimina algo importante en la empresa activa (facturas contabilizadas, cuentas nuevas, plantillas creadas o borradas, empresas desactivadas, historial importado, etc.) queda una fila aquí con la fecha, quién lo hizo y el detalle. Útil para revisar qué pasó si algo no cuadra, o para justificar una decisión ante un tercero.
+      </p>
+    </div>
     <div class="card">
       <h2>Auditoría de la empresa activa</h2>
       <table><thead><tr><th>Fecha</th><th>Entidad</th><th>Acción</th><th>Usuario</th><th>Detalle</th></tr></thead>
@@ -668,9 +702,16 @@ async function cargarDocumentos(){
       <div class="pill" style="background:#eef1f4; color:#64748b;">Omitidos (acuses de recibo, etc.): ${body.total_descartados}</div>
       ${body.errores_zip.length ? '<p class="muted">Avisos de archivos: '+body.errores_zip.map(e=>e.error).join('; ')+'</p>' : ''}
       ${body.avisos_descarte && body.avisos_descarte.length ? '<p class="muted">Omitidos: '+body.avisos_descarte.slice(0,10).map(a=>a.aviso).join('; ')+(body.avisos_descarte.length>10?` (+${body.avisos_descarte.length-10} más)`:'')+'</p>' : ''}
+      <div style="margin-top:12px;"><button class="btn" onclick="irARevisarFacturas()">Ir a revisar estas facturas →</button></div>
     `;
     toast('Carga procesada');
   }catch(e){ toast(e.message, true); }
+}
+
+function irARevisarFacturas(){
+  document.querySelector('#tabs button[data-tab="facturas"]').click();
+  document.getElementById('filtroEstado').value = '';
+  cargarFacturas();
 }
 
 // ---------- historial contable ----------
@@ -984,6 +1025,64 @@ async function eliminarSeleccionadas(){
     toast(`${r.eliminadas} factura(s) eliminada(s)`);
     facturaSeleccionParaExportar.clear();
     document.getElementById('expFacturaIds').value = '';
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+function _mostrarResultadoMasivo(body, verbo){
+  const el = document.getElementById('resultadoMasivo');
+  const detalleOmitidas = (body.detalle || []).filter(d => d.estado !== 'aplicada' && d.estado !== 'aprobada');
+  el.innerHTML = `
+    <span class="pill ok">${verbo}: ${body.aplicadas ?? body.aprobadas}</span>
+    <span class="pill warn">Omitidas: ${body.omitidas}</span>
+    ${detalleOmitidas.length ? '<div class="muted" style="margin-top:4px;">' +
+      detalleOmitidas.slice(0, 15).map(d => `Factura ${d.factura_id.slice(0,8)}…: ${d.motivo || d.estado}`).join('<br>') +
+      (detalleOmitidas.length > 15 ? ` (+${detalleOmitidas.length-15} más)` : '') + '</div>' : ''}
+  `;
+}
+
+async function generarPartidaMasivoConCuenta(){
+  const ids = Array.from(facturaSeleccionParaExportar);
+  if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
+  const cuenta = document.getElementById('masivoCuenta').value.trim();
+  if(!cuenta){ toast('Escribe la cuenta a aplicar a todas las seleccionadas', true); return; }
+  const contrapartida = document.getElementById('masivoContrapartida').value;
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/partida/generar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids, cuenta_gasto_codigo: cuenta, contrapartida}),
+    });
+    _mostrarResultadoMasivo(body, 'Partidas generadas');
+    toast(`${body.aplicadas} partida(s) generada(s)`);
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function generarPartidaMasivoConSugerencia(){
+  const ids = Array.from(facturaSeleccionParaExportar);
+  if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
+  if(!confirm(`Se generará la partida de ${ids.length} factura(s) usando la cuenta que el historial sugiere para cada una (solo las que tengan una sugerencia confiable — las demás se omiten). ¿Continuar?`)) return;
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/partida/generar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids, usar_sugerencia: true}),
+    });
+    _mostrarResultadoMasivo(body, 'Partidas generadas');
+    toast(`${body.aplicadas} partida(s) generada(s) con sugerencia del historial`);
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function contabilizarMasivo(){
+  const ids = Array.from(facturaSeleccionParaExportar);
+  if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/contabilizar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids}),
+    });
+    _mostrarResultadoMasivo(body, 'Contabilizadas');
+    toast(`${body.aprobadas} factura(s) contabilizada(s)`);
     cargarFacturas();
   }catch(e){ toast(e.message, true); }
 }
