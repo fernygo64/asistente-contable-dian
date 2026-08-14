@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
@@ -44,6 +45,8 @@ async def cargar_documentos(
     mapeo_numero_factura: str | None = Form(default=None),
     mapeo_nit_emisor: str | None = Form(default=None),
     mapeo_nombre_emisor: str | None = Form(default=None),
+    mapeo_nit_receptor: str | None = Form(default=None, description="Necesario para que las facturas EMITIDAS (ventas) queden con el NIT del cliente cuando no hay XML que las respalde"),
+    mapeo_nombre_receptor: str | None = Form(default=None),
     mapeo_fecha: str | None = Form(default=None),
     mapeo_valor_total: str | None = Form(default=None),
     mapeo_tipo_documento: str | None = Form(default=None, description="Columna 'Tipo de documento' del Excel de la DIAN"),
@@ -79,6 +82,7 @@ async def cargar_documentos(
         mapeo = {
             "cufe": mapeo_cufe, "numero_factura": mapeo_numero_factura,
             "nit_emisor": mapeo_nit_emisor, "nombre_emisor": mapeo_nombre_emisor,
+            "nit_receptor": mapeo_nit_receptor, "nombre_receptor": mapeo_nombre_receptor,
             "fecha": mapeo_fecha, "valor_total": mapeo_valor_total,
             "tipo_documento": mapeo_tipo_documento, "grupo": mapeo_grupo,
         }
@@ -254,46 +258,33 @@ def resolver_duplicado(empresa_id: str, factura_id: str, payload: ResolucionDupl
 
 
 # --------------------------------------------------------------- Partida doble
-@router.post("/{factura_id}/partida/generar", response_model=PartidaOut)
-def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaRequest,
-                     db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa),
-                     usuario: str = Depends(usuario_actual)):
+def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f: Factura,
+                                cuenta_gasto_codigo: str, contrapartida: str, origen_decision: str,
+                                centro_costo_codigo: Optional[str], usuario: str):
     """
-    Genera la propuesta de partida doble (sección 16) a partir de la
-    cuenta de gasto elegida (sugerida o corregida por el usuario) y la
-    contrapartida seleccionada. Si cuadra, se persiste y la factura
-    queda 'lista_para_contabilizar'; si no cuadra o faltan cuentas
-    configuradas, se devuelven los errores y NO se persiste nada
-    (sección 16: nunca un comprobante descuadrado).
-    Además alimenta el historial de aprendizaje con esta decisión
-    (secciones 9 y 11) — nunca sobreescribe decisiones anteriores.
+    Lógica compartida entre el endpoint individual y el masivo — genera
+    la partida, la persiste si cuadra, y alimenta el historial. Devuelve
+    (resultado_partida, error_o_None). Nunca decide una cuenta por su
+    cuenta: cuenta_gasto_codigo siempre viene explícito de quien llama.
     """
-    f = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id == factura_id).first()
-    if not f:
-        raise HTTPException(status_code=404, detail="Factura no encontrada en esta empresa.")
     if f.estado == EstadoFactura.duplicada:
-        raise HTTPException(status_code=422, detail="No se puede generar partida para una factura marcada como duplicada.")
+        return None, "Factura marcada como duplicada."
+    if origen_decision not in ("manual", "sugerencia_aceptada"):
+        return None, "origen_decision debe ser 'manual' o 'sugerencia_aceptada'."
 
-    if payload.origen_decision not in ("manual", "sugerencia_aceptada"):
-        raise HTTPException(status_code=422, detail="origen_decision debe ser 'manual' o 'sugerencia_aceptada'.")
-
-    cuenta_gasto = historial_service.get_or_create_cuenta(db, empresa_id, payload.cuenta_gasto_codigo)
+    cuenta_gasto = historial_service.get_or_create_cuenta(db, empresa_id, cuenta_gasto_codigo)
 
     centro_costo = None
-    if payload.centro_costo_codigo:
+    if centro_costo_codigo:
         from app.models.models import CentroCosto
         centro_costo = db.query(CentroCosto).filter(
-            CentroCosto.empresa_id == empresa_id, CentroCosto.codigo == payload.centro_costo_codigo
+            CentroCosto.empresa_id == empresa_id, CentroCosto.codigo == centro_costo_codigo
         ).first()
         if not centro_costo:
-            raise HTTPException(
-                status_code=422,
-                detail=f"El centro de costo '{payload.centro_costo_codigo}' no existe en esta empresa. "
-                       f"Créalo primero en POST /empresas/{{id}}/centros-costo (nunca se inventa uno nuevo).",
-            )
+            return None, f"El centro de costo '{centro_costo_codigo}' no existe en esta empresa."
 
     resultado = partida_doble_service.generar_partida(
-        db, empresa, f, cuenta_gasto.id, payload.contrapartida, centro_costo
+        db, empresa, f, cuenta_gasto.id, contrapartida, centro_costo
     )
 
     if resultado.balanceado:
@@ -311,16 +302,47 @@ def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaReq
                     concepto_factura = None
             historial_service.registrar_decision(
                 db, empresa_id, proveedor.id, cuenta_gasto.id,
-                origen=OrigenDecision(payload.origen_decision),
+                origen=OrigenDecision(origen_decision),
                 fecha_documento=f.fecha_emision, numero_documento=f.numero_factura,
                 descripcion=concepto_factura,
                 valor=f.subtotal, importacion_id=None,
             )
 
         auditoria_registrar(db, empresa_id, "Factura", f.id, "partida_generada",
-                             {"cuenta_gasto": cuenta_gasto.codigo, "contrapartida": payload.contrapartida,
+                             {"cuenta_gasto": cuenta_gasto.codigo, "contrapartida": contrapartida,
                               "total_debito": resultado.total_debito},
-                             payload.usuario or usuario)
+                             usuario)
+        return resultado, None
+    else:
+        return resultado, "; ".join(resultado.errores)
+
+
+@router.post("/{factura_id}/partida/generar", response_model=PartidaOut)
+def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaRequest,
+                     db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa),
+                     usuario: str = Depends(usuario_actual)):
+    """
+    Genera la propuesta de partida doble (sección 16) a partir de la
+    cuenta de gasto elegida (sugerida o corregida por el usuario) y la
+    contrapartida seleccionada. Si cuadra, se persiste y la factura
+    queda 'lista_para_contabilizar'; si no cuadra o faltan cuentas
+    configuradas, se devuelven los errores y NO se persiste nada
+    (sección 16: nunca un comprobante descuadrado).
+    Además alimenta el historial de aprendizaje con esta decisión
+    (secciones 9 y 11) — nunca sobreescribe decisiones anteriores.
+    """
+    f = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id == factura_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Factura no encontrada en esta empresa.")
+
+    resultado, error = _aplicar_partida_a_factura(
+        db, empresa, empresa_id, f, payload.cuenta_gasto_codigo, payload.contrapartida,
+        payload.origen_decision, payload.centro_costo_codigo, payload.usuario or usuario,
+    )
+    if error and resultado is None:
+        raise HTTPException(status_code=422, detail=error)
+
+    if resultado.balanceado:
         db.commit()
     else:
         db.rollback()
@@ -334,6 +356,101 @@ def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaReq
         total_debito=resultado.total_debito, total_credito=resultado.total_credito,
         balanceado=resultado.balanceado, errores=resultado.errores,
     )
+
+
+@router.post("/partida/generar-masivo")
+def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends(get_db),
+                            empresa: Empresa = Depends(get_empresa_activa),
+                            usuario: str = Depends(usuario_actual)):
+    """
+    Genera partida doble para varias facturas en una sola llamada.
+
+    Dos modos, según el cuerpo recibido:
+    - {"factura_ids": [...], "cuenta_gasto_codigo": "513595", "contrapartida": "proveedores"}
+      Aplica la MISMA cuenta a todas las facturas indicadas — útil
+      cuando varias facturas del mismo NIT/tipo van a la misma cuenta.
+    - {"factura_ids": [...], "usar_sugerencia": true}
+      Para cada factura usa la sugerencia del historial — pero SOLO si
+      la fuente es "historial" o "historial_nit_concepto" (confianza
+      real, no un candidato genérico del PUC ni "sin información").
+      Las que no tengan una sugerencia confiable se omiten y quedan
+      reportadas con el motivo — nunca se inventa una cuenta al hacerlo
+      en lote, igual que al hacerlo una por una.
+
+    Devuelve el detalle de cada factura: aplicada, omitida (con motivo)
+    o con error — nada se aplica en silencio.
+    """
+    factura_ids = payload.get("factura_ids") or []
+    if not factura_ids:
+        raise HTTPException(status_code=422, detail="factura_ids no puede estar vacío.")
+
+    usar_sugerencia = bool(payload.get("usar_sugerencia"))
+    cuenta_fija = payload.get("cuenta_gasto_codigo")
+    contrapartida_fija = payload.get("contrapartida")
+    centro_costo_codigo = payload.get("centro_costo_codigo")
+    origen_decision = "sugerencia_aceptada" if usar_sugerencia else "manual"
+
+    if not usar_sugerencia and not cuenta_fija:
+        raise HTTPException(
+            status_code=422,
+            detail="Indica 'cuenta_gasto_codigo' (para aplicar la misma cuenta a todas), o "
+                   "'usar_sugerencia: true' (para que cada una use su propia sugerencia del historial).",
+        )
+
+    facturas = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id.in_(factura_ids)).all()
+    encontradas = {f.id: f for f in facturas}
+
+    resultados = []
+    aplicadas = 0
+    for fid in factura_ids:
+        f = encontradas.get(fid)
+        if not f:
+            resultados.append({"factura_id": fid, "estado": "no_encontrada"})
+            continue
+
+        cuenta_codigo = cuenta_fija
+        contrapartida = contrapartida_fija or ("clientes" if f.direccion_documento == "emitida" else "proveedores")
+
+        if usar_sugerencia:
+            if f.naturaleza_documento == "nomina":
+                resultados.append({"factura_id": fid, "estado": "omitida",
+                                    "motivo": "Es un documento de nómina, no se contabiliza automáticamente."})
+                continue
+            if not f.tercero_nit:
+                resultados.append({"factura_id": fid, "estado": "omitida",
+                                    "motivo": "La factura no tiene NIT de tercero."})
+                continue
+            concepto = None
+            if f.conceptos_json:
+                try:
+                    items = json.loads(f.conceptos_json)
+                    concepto = "; ".join(i.get("descripcion", "") for i in items if i.get("descripcion"))[:500] or None
+                except (ValueError, TypeError):
+                    concepto = None
+            sug = historial_service.sugerir_cuenta(db, empresa_id, f.tercero_nit, concepto)
+            if sug["fuente"] not in ("historial", "historial_nit_concepto") or not sug["cuenta_sugerida"]:
+                resultados.append({"factura_id": fid, "estado": "omitida",
+                                    "motivo": f"Sin sugerencia confiable del historial (fuente: {sug['fuente']}) "
+                                              f"— revísala manualmente en Facturas."})
+                continue
+            cuenta_codigo = sug["cuenta_sugerida"]
+
+        resultado, error = _aplicar_partida_a_factura(
+            db, empresa, empresa_id, f, cuenta_codigo, contrapartida, origen_decision,
+            centro_costo_codigo, usuario,
+        )
+        if error and resultado is None:
+            resultados.append({"factura_id": fid, "estado": "error", "motivo": error})
+        elif not resultado.balanceado:
+            db.rollback()
+            resultados.append({"factura_id": fid, "estado": "descuadrada", "motivo": "; ".join(resultado.errores)})
+        else:
+            aplicadas += 1
+            resultados.append({"factura_id": fid, "estado": "aplicada", "cuenta_usada": cuenta_codigo})
+
+    db.commit()
+    return {"total": len(factura_ids), "aplicadas": aplicadas,
+            "omitidas": len(factura_ids) - aplicadas, "detalle": resultados}
 
 
 @router.get("/{factura_id}/partida", response_model=PartidaOut)
@@ -379,6 +496,44 @@ def contabilizar_factura(empresa_id: str, factura_id: str, db: Session = Depends
     db.commit()
     db.refresh(f)
     return f
+
+
+@router.post("/contabilizar-masivo")
+def contabilizar_masivo(empresa_id: str, payload: dict, db: Session = Depends(get_db),
+                         empresa: Empresa = Depends(get_empresa_activa),
+                         usuario: str = Depends(usuario_actual)):
+    """
+    Aprueba varias facturas de una vez. Solo contabiliza las que ya
+    están en 'lista_para_contabilizar' (con partida generada y
+    balanceada) — las demás quedan reportadas como omitidas con el
+    motivo, nada se fuerza.
+    """
+    factura_ids = payload.get("factura_ids") or []
+    if not factura_ids:
+        raise HTTPException(status_code=422, detail="factura_ids no puede estar vacío.")
+
+    facturas = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id.in_(factura_ids)).all()
+    encontradas = {f.id: f for f in facturas}
+
+    resultados = []
+    aprobadas = 0
+    for fid in factura_ids:
+        f = encontradas.get(fid)
+        if not f:
+            resultados.append({"factura_id": fid, "estado": "no_encontrada"})
+            continue
+        if f.estado != EstadoFactura.lista_para_contabilizar:
+            resultados.append({"factura_id": fid, "estado": "omitida",
+                                "motivo": f"Está en estado '{f.estado.value}', no 'lista_para_contabilizar'."})
+            continue
+        f.estado = EstadoFactura.contabilizada
+        auditoria_registrar(db, empresa_id, "Factura", f.id, "contabilizacion_aprobada", {}, usuario)
+        aprobadas += 1
+        resultados.append({"factura_id": fid, "estado": "aprobada"})
+
+    db.commit()
+    return {"total": len(factura_ids), "aprobadas": aprobadas,
+            "omitidas": len(factura_ids) - aprobadas, "detalle": resultados}
 
 
 @router.delete("/{factura_id}")

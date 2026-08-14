@@ -137,6 +137,35 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
     except (ValueError, TypeError):
         total = None
     fecha_emision = _parse_fecha(c.get("fecha_emision"))
+    nombre_emisor = _norm(c.get("nombre_emisor"))
+    nit_receptor = _norm(c.get("nit_receptor"))
+    nombre_receptor = _norm(c.get("nombre_receptor"))
+
+    # Si el documento SÍ se relacionó con una fila del Excel de la DIAN
+    # pero el XML (por alguna variante de estructura) no trajo el NIT,
+    # el nombre, el número, la fecha o el total, se completa con lo que
+    # traiga esa fila del Excel en vez de dejarlo vacío — es la misma
+    # factura, y la DIAN ya tiene ese dato aunque el XML no lo haya
+    # expuesto en el lugar donde lo buscamos. Esto es especialmente
+    # importante para el RECEPTOR: si la factura no vino acompañada de
+    # su XML (solo la fila del Excel), antes se quedaba sin NIT/nombre
+    # de receptor — y para una factura EMITIDA (venta), el receptor es
+    # el dato que de verdad importa (el emisor ahí somos nosotros mismos).
+    if excel_fila:
+        if not nit_emisor:
+            nit_emisor = _norm(excel_fila.get("nit_emisor"))
+        if not nombre_emisor:
+            nombre_emisor = _norm(excel_fila.get("nombre_emisor"))
+        if not nit_receptor:
+            nit_receptor = _norm(excel_fila.get("nit_receptor"))
+        if not nombre_receptor:
+            nombre_receptor = _norm(excel_fila.get("nombre_receptor"))
+        if not numero:
+            numero = _norm(excel_fila.get("numero_factura"))
+        if not fecha_emision:
+            fecha_emision = _parse_fecha(excel_fila.get("fecha"))
+        if total is None:
+            total = _parse_valor(excel_fila.get("valor_total"))
 
     duplicado = _buscar_duplicado(db, empresa_id, cufe, numero, nit_emisor, fecha_emision, total)
 
@@ -179,10 +208,10 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
         fecha_emision=fecha_emision,
         hora_emision=_norm(c.get("hora_emision")) or None,
         nit_emisor=nit_emisor or None,
-        nombre_emisor=_norm(c.get("nombre_emisor")) or None,
+        nombre_emisor=nombre_emisor or None,
         direccion_emisor=_norm(c.get("direccion_emisor")) or None,
-        nit_receptor=_norm(c.get("nit_receptor")) or None,
-        nombre_receptor=_norm(c.get("nombre_receptor")) or None,
+        nit_receptor=nit_receptor or None,
+        nombre_receptor=nombre_receptor or None,
         subtotal=c.get("subtotal"),
         base_gravable=c.get("base_gravable"),
         iva=c.get("iva"),
