@@ -99,8 +99,8 @@ def test_sin_cuenta_2408_especifica_cae_a_la_configurada_como_antes(client, empr
     assert "240802" in [l["cuenta_codigo"] for l in body["lineas"]]
 
 
-def test_dos_cuentas_2408_de_la_misma_tasa_no_arriesga_una_eleccion_ambigua(client, empresa_a):
-    """Si hay dos cuentas 2408 que mencionan la misma tasa, no se arriesga a elegir mal — cae a la configurada."""
+def test_dos_cuentas_2408_de_la_misma_tasa_se_desambigua_por_concepto(client, empresa_a):
+    """Con dos cuentas de la misma tasa (compras vs servicios), el concepto de la factura desempata."""
     client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "240802019", "nombre": "IVA Compras 19%"})
     client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "240802020", "nombre": "IVA Servicios 19%"})
     client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "513595", "nombre": "Honorarios"})
@@ -109,11 +109,36 @@ def test_dos_cuentas_2408_de_la_misma_tasa_no_arriesga_una_eleccion_ambigua(clie
     })
     client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "240802001", "nombre": "IVA Descontable General"})
 
+    # el XML de prueba trae "Honorarios profesionales" como concepto -> debe elegir la de SERVICIOS
     zip_contenido = _zip_bytes({"FIVA004.xml": _xml_con_iva("FIVA004", "cufe-iva-4", "900980004",
                                                               subtotal="100000", iva="19000")})
     client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
                 files=[("documentos", ("d.zip", zip_contenido, "application/zip"))])
     factura = client.get(f"/empresas/{empresa_a['id']}/documentos", params={"nit_emisor": "900980004"}).json()[0]
+
+    r = client.post(f"/empresas/{empresa_a['id']}/documentos/{factura['id']}/partida/generar",
+                     json={"cuenta_gasto_codigo": "513595"})
+    body = r.json()
+    assert body["balanceado"] is True, body
+    assert "240802020" in [l["cuenta_codigo"] for l in body["lineas"]]  # la de SERVICIOS, por "Honorarios"
+
+
+def test_dos_cuentas_2408_sin_pistas_en_el_concepto_no_arriesga_una_eleccion_ambigua(client, empresa_a):
+    """Si el concepto no menciona ni servicio ni compra, sigue sin arriesgarse — cae a la configurada."""
+    client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "240802019", "nombre": "IVA Compras 19%"})
+    client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "240802020", "nombre": "IVA Servicios 19%"})
+    client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "513595", "nombre": "Otros"})
+    client.patch(f"/empresas/{empresa_a['id']}/cuentas-base", json={
+        "cuenta_proveedores": "220501", "cuenta_iva_descontable": "240802001",
+    })
+    client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "240802001", "nombre": "IVA Descontable General"})
+
+    xml_sin_pistas = _xml_con_iva("FIVA005", "cufe-iva-5", "900980005", subtotal="100000", iva="19000")
+    xml_sin_pistas = xml_sin_pistas.replace(b"Honorarios profesionales", b"Item generico")
+    zip_contenido = _zip_bytes({"FIVA005.xml": xml_sin_pistas})
+    client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
+                files=[("documentos", ("d.zip", zip_contenido, "application/zip"))])
+    factura = client.get(f"/empresas/{empresa_a['id']}/documentos", params={"nit_emisor": "900980005"}).json()[0]
 
     r = client.post(f"/empresas/{empresa_a['id']}/documentos/{factura['id']}/partida/generar",
                      json={"cuenta_gasto_codigo": "513595"})

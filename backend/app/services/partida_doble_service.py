@@ -76,7 +76,16 @@ def _resolver_contrapartida(db: Session, empresa: Empresa, contrapartida: str,
     return db.get(CuentaContable, cuenta_id), errores
 
 
-def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: float, iva: float) -> Optional[CuentaContable]:
+_PALABRAS_SERVICIO = re.compile(
+    r"servicio|honorario|asesor|consultor|mantenimiento|arrendamiento|transporte|"
+    r"vigilancia|aseo|publicidad|capacitaci[oó]n|reparaci[oó]n", re.IGNORECASE)
+_PALABRAS_COMPRA = re.compile(
+    r"compra|mercanc[ií]a|art[ií]culo|producto|materia\s*prima|insumo|repuesto|"
+    r"equipo|inventario|suministro", re.IGNORECASE)
+
+
+def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: float, iva: float,
+                                      concepto: Optional[str] = None) -> Optional[CuentaContable]:
     """
     En vez de usar siempre LA MISMA cuenta de IVA configurada en
     "Cuentas base" (que solo admite una), busca entre las cuentas
@@ -87,6 +96,12 @@ def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: fl
     cuentas (sección pedida por el usuario). Si no encuentra una
     coincidencia específica, devuelve None y quien llama usa la cuenta
     de IVA descontable única configurada, como antes.
+
+    Un plan de cuentas real puede tener VARIAS cuentas para la misma
+    tasa (ej. "IVA Descontable Compras 19%" y "IVA Descontable
+    Servicios 19%" a la vez — confirmado con un balance real) — cuando
+    pasa eso, se usa el concepto de la factura para desempatar entre
+    "servicio" y "compra"; si sigue sin ser claro, no se arriesga.
     """
     if subtotal <= 0 or iva <= 0:
         return None
@@ -103,7 +118,20 @@ def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: fl
     coincidencias = [c for c in candidatas if patron.search(c.nombre)]
     if len(coincidencias) == 1:
         return coincidencias[0]
-    # Ambigüedad (0 o varias coincidencias) -> no se arriesga a elegir mal.
+
+    if len(coincidencias) > 1 and concepto:
+        es_servicio = bool(_PALABRAS_SERVICIO.search(concepto))
+        es_compra = bool(_PALABRAS_COMPRA.search(concepto))
+        if es_servicio and not es_compra:
+            candidatas_servicio = [c for c in coincidencias if re.search(r"servicio", c.nombre, re.IGNORECASE)]
+            if len(candidatas_servicio) == 1:
+                return candidatas_servicio[0]
+        elif es_compra and not es_servicio:
+            candidatas_compra = [c for c in coincidencias if re.search(r"compra", c.nombre, re.IGNORECASE)]
+            if len(candidatas_compra) == 1:
+                return candidatas_compra[0]
+
+    # Sigue ambiguo -> no se arriesga a elegir mal.
     return None
 
 
@@ -140,7 +168,7 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
 
     if iva > 0:
         if empresa.responsable_iva:
-            cta_por_tasa = _seleccionar_cuenta_iva_por_tasa(db, empresa, subtotal, iva)
+            cta_por_tasa = _seleccionar_cuenta_iva_por_tasa(db, empresa, subtotal, iva, factura.concepto_resumen)
             if cta_por_tasa:
                 tasa_detectada = round(iva / subtotal * 100) if subtotal > 0 else None
                 lineas.append(LineaPartida(cta_por_tasa.id, cta_por_tasa.codigo, cta_por_tasa.nombre,

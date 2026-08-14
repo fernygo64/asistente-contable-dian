@@ -7,9 +7,12 @@ from app.core.security import get_empresa_activa, usuario_actual
 from app.models.models import Empresa, OrigenDecision, ImportacionHistorico
 from app.schemas.schemas import SugerenciaCuenta, ImportacionResumen, HistorialManualCreate
 from app.services import historial_service, importacion_service
+from app.services.auditoria_service import registrar as auditoria_registrar
 from app.services.excel_utils import leer_columnas_excel
+from app.services.excel_utils import leer_columnas_excel, leer_dataframe_excel
 from app.services.mapeo_conocido_service import sugerir_mapeo
 from app.services.balance_service import detectar_mapeo_balance
+from app.services.balance_jerarquico_service import detectar_columnas_balance_terceros, parsear_balance_terceros_jerarquico
 
 router = APIRouter(prefix="/empresas/{empresa_id}/historial", tags=["historial"])
 
@@ -22,26 +25,57 @@ async def importar_balance_automatico(
 ):
     """
     Balance de prueba por tercero — el usuario NO mapea nada, solo sube
-    el archivo. Se detectan las columnas (NIT, cuenta, nombre de cuenta)
-    por palabras clave, y si se identifican con confianza, se importa
-    directo. Un balance por tercero no trae contrapartida/control
-    mezclada como un auxiliar completo, así que no requiere excluir
-    cuentas — cada fila ya es una asociación NIT↔cuenta útil de aprender.
+    el archivo. Prueba dos formas automáticamente:
+    1) El "Balance de Prueba por Terceros" real de Siigo Nube (código de
+       cuenta jerárquico en columnas GRUPO/CUENTA/SUBCUENTA/AUXILIAR,
+       detalle por NIT heredando el código más profundo vigente).
+    2) Un balance plano genérico (NIT y cuenta en la misma fila).
+    Si ninguna de las dos formas se reconoce con confianza, se rechaza
+    con un mensaje claro en vez de adivinar.
     """
     contenido = await archivo.read()
     try:
-        columnas = leer_columnas_excel(contenido, archivo.filename or "balance.xlsx")
+        df = leer_dataframe_excel(contenido, archivo.filename or "balance.xlsx")
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"No se pudo leer el archivo: {e}")
+    columnas = list(df.columns)
+
+    columnas_jerarquicas = detectar_columnas_balance_terceros(columnas)
+    if columnas_jerarquicas:
+        registros_crudos = parsear_balance_terceros_jerarquico(df, columnas_jerarquicas)
+        if not registros_crudos:
+            raise HTTPException(
+                status_code=422,
+                detail="Se reconoció la forma de 'Balance de Prueba por Terceros' de Siigo Nube, pero no se "
+                       "encontró ninguna fila de detalle con NIT y cuenta. Revisa que el archivo tenga datos.",
+            )
+        registros = [
+            {"nit": r["nit"], "cuenta_codigo": r["cuenta_codigo"], "nombre": r["nombre_tercero"],
+             "nombre_cuenta": r["nombre_cuenta"], "fecha": None, "numero": None, "tipo": None,
+             "desc": None, "valor": r["valor"]}
+            for r in registros_crudos
+        ]
+        importacion = importacion_service.importar_registros_historico(
+            db, empresa_id, archivo.filename, registros,
+            {"formato": "balance_terceros_siigo_nube", **columnas_jerarquicas}, usuario, len(registros),
+        )
+        db.commit()
+        return ImportacionResumen(
+            id=importacion.id, archivo_nombre=importacion.archivo_nombre,
+            total_registros=importacion.total_registros, registros_validos=importacion.registros_validos,
+            registros_rechazados=importacion.registros_rechazados,
+            detalle_rechazos=json.loads(importacion.detalle_rechazos_json or "[]"),
+            importado_en=importacion.importado_en,
+        )
 
     deteccion = detectar_mapeo_balance(columnas)
     if deteccion["faltantes"]:
         raise HTTPException(
             status_code=422,
             detail=f"No se pudieron identificar automáticamente las columnas: {', '.join(deteccion['faltantes'])}. "
-                   f"Este archivo no tiene la forma esperada de un balance por tercero simple — usa la sección "
-                   f"'Auxiliar / Movimiento contable' de más abajo, donde sí puedes mapear las columnas a mano. "
-                   f"Columnas detectadas en tu archivo: {columnas}",
+                   f"Este archivo no tiene la forma esperada de un balance por tercero (ni el formato jerárquico "
+                   f"de Siigo Nube, ni uno plano simple) — usa la sección 'Auxiliar / Movimiento contable' de más "
+                   f"abajo, donde sí puedes mapear las columnas a mano. Columnas detectadas: {columnas}",
         )
 
     try:
@@ -51,6 +85,20 @@ async def importar_balance_automatico(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(e))
+
+    if importacion.registros_validos == 0 and importacion.total_registros > 0:
+        # Las columnas SE reconocieron por nombre, pero ninguna fila tenía
+        # NIT y cuenta en la misma fila a la vez — típico de un archivo con
+        # estructura jerárquica que el detector plano no supo leer (nunca
+        # se debe reportar como "éxito" si no aprendió nada realmente).
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail="Se reconocieron columnas con nombre de NIT y de cuenta, pero ninguna fila del archivo tenía "
+                   "ambos datos juntos — esto pasa cuando el código de cuenta viene repartido en varias columnas "
+                   "(jerárquico) en vez de en una sola. Prueba con la sección 'Auxiliar / Movimiento contable' de "
+                   "más abajo, donde puedes mapear las columnas a mano.",
+        )
     db.commit()
     return ImportacionResumen(
         id=importacion.id,
@@ -159,7 +207,8 @@ async def importar_historico(
 @router.get("/importaciones")
 def listar_importaciones(empresa_id: str, db: Session = Depends(get_db),
                           empresa: Empresa = Depends(get_empresa_activa)):
-    """Historial de cargas ya hechas (sección 12) — nunca se borran ni se modifican."""
+    """Historial de cargas ya hechas (sección 12) — el sistema nunca las borra ni modifica
+    por su cuenta; el usuario sí puede borrar una explícitamente con DELETE .../{id}."""
     filas = (
         db.query(ImportacionHistorico)
         .filter(ImportacionHistorico.empresa_id == empresa_id)
@@ -174,6 +223,37 @@ def listar_importaciones(empresa_id: str, db: Session = Depends(get_db),
         }
         for f in filas
     ]
+
+
+@router.delete("/importaciones/{importacion_id}")
+def eliminar_importacion(empresa_id: str, importacion_id: str, db: Session = Depends(get_db),
+                          empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
+    """
+    Borra una carga de historial que se hizo por error (archivo
+    equivocado, empresa equivocada, etc.) — junto con TODAS las
+    decisiones de aprendizaje que trajo esa carga en particular (las
+    filas de HistorialContable con ese importacion_id). Nunca borra los
+    proveedores ni las cuentas contables en sí: pueden seguir usándose
+    por otras importaciones o por partidas ya generadas — solo se
+    olvida el "esto se usó para ese NIT" que trajo esta carga.
+    """
+    importacion = db.query(ImportacionHistorico).filter(
+        ImportacionHistorico.empresa_id == empresa_id, ImportacionHistorico.id == importacion_id
+    ).first()
+    if not importacion:
+        raise HTTPException(status_code=404, detail="Importación no encontrada en esta empresa.")
+
+    from app.models.models import HistorialContable
+    decisiones_borradas = db.query(HistorialContable).filter(
+        HistorialContable.empresa_id == empresa_id, HistorialContable.importacion_id == importacion_id
+    ).delete()
+
+    nombre_archivo = importacion.archivo_nombre
+    db.delete(importacion)
+    auditoria_registrar(db, empresa_id, "ImportacionHistorico", importacion_id, "importacion_eliminada",
+                         {"archivo": nombre_archivo, "decisiones_borradas": decisiones_borradas}, usuario)
+    db.commit()
+    return {"eliminada": True, "id": importacion_id, "decisiones_borradas": decisiones_borradas}
 
 
 @router.get("/sugerencia", response_model=SugerenciaCuenta)

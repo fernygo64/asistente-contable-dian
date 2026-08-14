@@ -148,6 +148,72 @@ async def cargar_documentos(
     )
 
 
+@router.get("/panel-clasificacion")
+def panel_clasificacion(empresa_id: str, db: Session = Depends(get_db),
+                         empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Agrupa las facturas pendientes de acción en tres bloques, para que
+    el usuario no tenga que abrir una por una para saber qué hacer con
+    cada una — pero SIN saltarse nunca la aprobación humana final
+    (sección pedida: "más automatizado... igual sí dejarlo para
+    revisión de un humano y aprobación"):
+
+    - "listas": ya tienen partida generada y balanceada — solo falta
+      un clic de "Contabilizar" para aprobarlas.
+    - "con_sugerencia": no tienen partida generada todavía, pero el
+      historial (o las cuentas propias con nombre reconocible) da una
+      sugerencia confiable — se puede generar la propuesta en bloque,
+      pero igual queda como "lista" (no contabilizada) hasta que el
+      humano la apruebe.
+    - "necesita_revision": no hay sugerencia confiable (proveedor nuevo,
+      o solo candidatos genéricos del PUC) — requiere criterio humano,
+      nunca se le inventa una cuenta.
+
+    La nómina nunca entra en "con_sugerencia" (no se contabiliza
+    automáticamente, sección ya existente).
+    """
+    facturas = db.query(Factura).filter(
+        Factura.empresa_id == empresa_id,
+        Factura.estado.in_([
+            EstadoFactura.pendiente_revision, EstadoFactura.pendiente_clasificacion,
+            EstadoFactura.extraida, EstadoFactura.clasificada, EstadoFactura.lista_para_contabilizar,
+        ]),
+        Factura.es_posible_duplicado.is_(False),
+    ).order_by(Factura.creado_en.desc()).all()
+
+    listas, con_sugerencia, necesita_revision = [], [], []
+
+    for f in facturas:
+        if f.estado == EstadoFactura.lista_para_contabilizar:
+            listas.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
+                            "numero_factura": f.numero_factura, "total": f.total,
+                            "concepto_resumen": f.concepto_resumen})
+            continue
+
+        if f.naturaleza_documento == "nomina" or not f.tercero_nit:
+            necesita_revision.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
+                                       "numero_factura": f.numero_factura, "total": f.total,
+                                       "concepto_resumen": f.concepto_resumen,
+                                       "motivo": "Nómina electrónica — requiere registro manual." if f.naturaleza_documento == "nomina"
+                                                 else "Sin NIT de tercero identificado."})
+            continue
+
+        sug = historial_service.sugerir_cuenta(db, empresa_id, f.tercero_nit, f.concepto_resumen)
+        if sug["fuente"] in ("historial", "historial_nit_concepto", "cuentas_propias") and sug["cuenta_sugerida"]:
+            con_sugerencia.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
+                                    "numero_factura": f.numero_factura, "total": f.total,
+                                    "concepto_resumen": f.concepto_resumen,
+                                    "cuenta_sugerida": sug["cuenta_sugerida"], "motivo_sugerencia": sug["motivo"],
+                                    "fuente_sugerencia": sug["fuente"]})
+        else:
+            necesita_revision.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
+                                       "numero_factura": f.numero_factura, "total": f.total,
+                                       "concepto_resumen": f.concepto_resumen,
+                                       "motivo": sug["motivo"]})
+
+    return {"listas": listas, "con_sugerencia": con_sugerencia, "necesita_revision": necesita_revision}
+
+
 @router.get("", response_model=list[FacturaOut])
 def listar_facturas(
     empresa_id: str, estado: str | None = None, nit_emisor: str | None = None,

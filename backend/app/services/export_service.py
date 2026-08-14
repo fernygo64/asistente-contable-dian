@@ -36,6 +36,25 @@ def _tipo_comprobante_para_factura(empresa: Empresa, factura: Factura) -> str:
     return empresa.comprobante_factura_recibida or ""
 
 
+def _formatear_codigo_cuenta(codigo: str, empresa: Optional[Empresa]) -> str:
+    """
+    Regla real de Siigo Pyme (confirmada por el usuario y visible en su
+    archivo de "Movimiento Contable" real: códigos como "5120950000",
+    "2205010000"): la cuenta contable SIEMPRE se exporta con exactamente
+    10 dígitos, rellenando con CEROS A LA DERECHA si el código propio es
+    más corto (ej. "110505" -> "1105050000"). Nunca se rellena por la
+    izquierda (eso cambiaría el significado del código) ni se recorta un
+    código que ya sea de 10 o más dígitos.
+    """
+    if not empresa or empresa.sistema_contable != "siigo_pyme":
+        return codigo
+    if not codigo.isdigit():
+        return codigo  # un código no numérico no sigue esta regla; se deja tal cual
+    if len(codigo) >= 10:
+        return codigo
+    return codigo.ljust(10, "0")
+
+
 def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
                     equivalencias: dict, formato_fecha: str, empresa: Optional[Empresa] = None) -> str:
     source = columna.get("source")
@@ -56,7 +75,8 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
         return str(factura.fecha_emision.day) if factura.fecha_emision else fijo
     if source == "cuenta":
         codigo = movimiento.cuenta.codigo
-        return equivalencias.get(codigo, codigo)
+        codigo = equivalencias.get(codigo, codigo)
+        return _formatear_codigo_cuenta(codigo, empresa)
     if source == "nombre_cuenta":
         return movimiento.cuenta.nombre
     if source == "nit":

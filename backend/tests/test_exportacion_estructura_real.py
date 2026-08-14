@@ -79,8 +79,9 @@ def test_exportar_siigo_genera_indicador_debito_credito_correcto(client, empresa
     valores_dc = {f[idx_dc] for f in filas}
     assert valores_dc == {"D", "C"}  # una línea debito, una credito — nunca las dos columnas viejas
 
-    # el gasto (519530) debe quedar como "D" con el valor completo
-    fila_gasto = next(f for f in filas if f[idx_cuenta] == "519530")
+    # el gasto (519530) debe quedar como "D" con el valor completo — con
+    # 10 dígitos, regla real de Siigo Pyme (rellena con ceros a la derecha)
+    fila_gasto = next(f for f in filas if f[idx_cuenta] == "5195300000")
     assert fila_gasto[idx_dc] == "D"
     assert float(fila_gasto[idx_valor]) == 150000.0
 
