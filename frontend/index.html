@@ -265,7 +265,7 @@
 
     <div class="card">
       <h2>Importaciones anteriores</h2>
-      <table><thead><tr><th>Archivo</th><th>Registros</th><th>Válidos</th><th>Rechazados</th><th>Fecha</th></tr></thead>
+      <table><thead><tr><th>Archivo</th><th>Registros</th><th>Válidos</th><th>Rechazados</th><th>Fecha</th><th></th></tr></thead>
         <tbody id="tablaImportacionesHistorial"></tbody></table>
     </div>
 
@@ -902,9 +902,19 @@ async function cargarImportacionesHistorial(){
     document.getElementById('tablaImportacionesHistorial').innerHTML = importaciones.map(i=>`
       <tr><td>${i.archivo_nombre}</td><td>${i.total_registros}</td>
       <td>${i.registros_validos}</td><td>${i.registros_rechazados}</td>
-      <td>${new Date(i.importado_en).toLocaleString('es-CO')}</td></tr>
-    `).join('') || '<tr><td colspan="5" class="muted">Sin importaciones todavía.</td></tr>';
+      <td>${new Date(i.importado_en).toLocaleString('es-CO')}</td>
+      <td><button class="btn danger" onclick="eliminarImportacionHistorial('${i.id}','${i.archivo_nombre.replace(/'/g,"\\'")}')">Eliminar</button></td></tr>
+    `).join('') || '<tr><td colspan="6" class="muted">Sin importaciones todavía.</td></tr>';
   }catch(e){ /* silencioso */ }
+}
+
+async function eliminarImportacionHistorial(id, nombreArchivo){
+  if(!confirm(`¿Eliminar la carga de "${nombreArchivo}"? Se olvidan todas las decisiones de aprendizaje que trajo esta carga en particular (no borra las cuentas ni los proveedores, solo esta asociación). No se puede deshacer.`)) return;
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/historial/importaciones/${id}`, {method:'DELETE'});
+    toast(`Carga eliminada — ${r.decisiones_borradas} decisión(es) de aprendizaje olvidadas`);
+    cargarImportacionesHistorial();
+  }catch(e){ toast(e.message, true); }
 }
 
 // ---------- facturas ----------
