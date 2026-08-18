@@ -1,6 +1,7 @@
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -211,7 +212,8 @@ async def cargar_documentos(
 
 
 @router.get("/panel-clasificacion")
-def panel_clasificacion(empresa_id: str, db: Session = Depends(get_db),
+def panel_clasificacion(empresa_id: str, modulo: str | None = None,
+                         db: Session = Depends(get_db),
                          empresa: Empresa = Depends(get_empresa_activa)):
     """
     Agrupa las facturas pendientes de acción en tres bloques, para que
@@ -234,14 +236,19 @@ def panel_clasificacion(empresa_id: str, db: Session = Depends(get_db),
     La nómina nunca entra en "con_sugerencia" (no se contabiliza
     automáticamente, sección ya existente).
     """
-    facturas = db.query(Factura).filter(
+    q = db.query(Factura).filter(
         Factura.empresa_id == empresa_id,
         Factura.estado.in_([
             EstadoFactura.pendiente_revision, EstadoFactura.pendiente_clasificacion,
             EstadoFactura.extraida, EstadoFactura.clasificada, EstadoFactura.lista_para_contabilizar,
         ]),
         Factura.es_posible_duplicado.is_(False),
-    ).order_by(Factura.creado_en.desc()).all()
+    )
+    if modulo == "recibidas":
+        q = q.filter(or_(Factura.naturaleza_documento == "nomina", Factura.direccion_documento == "recibida"))
+    elif modulo == "emitidas":
+        q = q.filter(Factura.direccion_documento == "emitida", Factura.naturaleza_documento != "nomina")
+    facturas = q.order_by(Factura.creado_en.desc()).all()
 
     listas, con_sugerencia, necesita_revision = [], [], []
 
@@ -281,9 +288,17 @@ def listar_facturas(
     empresa_id: str, estado: str | None = None, nit_emisor: str | None = None,
     numero_factura: str | None = None, confianza_max: float | None = None,
     naturaleza: str | None = None, direccion: str | None = None,
+    modulo: str | None = None,
     db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa),
 ):
-    """Filtros de la sección 29."""
+    """
+    Filtros de la sección 29. `modulo` ("recibidas" | "emitidas") aplica
+    la regla de negocio pedida por el usuario para separar los dos
+    módulos de Facturas: la nómina SIEMPRE cae del lado de "recibidas"
+    (porque contablemente siempre es un gasto), sin importar cómo la
+    haya etiquetado la DIAN — nunca aparece en "emitidas", aunque su
+    dirección cruda diga "emitida".
+    """
     q = db.query(Factura).filter(Factura.empresa_id == empresa_id)
     if estado:
         q = q.filter(Factura.estado == estado)
@@ -297,6 +312,10 @@ def listar_facturas(
         q = q.filter(Factura.naturaleza_documento == naturaleza)
     if direccion:
         q = q.filter(Factura.direccion_documento == direccion)
+    if modulo == "recibidas":
+        q = q.filter(or_(Factura.naturaleza_documento == "nomina", Factura.direccion_documento == "recibida"))
+    elif modulo == "emitidas":
+        q = q.filter(Factura.direccion_documento == "emitida", Factura.naturaleza_documento != "nomina")
     return q.order_by(Factura.creado_en.desc()).all()
 
 
