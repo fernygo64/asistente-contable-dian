@@ -343,11 +343,13 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
     # Contrapartida: si no se indicó explícitamente, se deriva de lo que
     # la empresa ya parametrizó (sección 38) — no hay que volver a
     # elegirla en cada factura. Recibida -> proveedores; emitida ->
-    # clientes; en modo "solo_gastos" siempre proveedores, aunque la
-    # DIAN haya marcado el documento como emitido.
+    # clientes; en modo "solo_gastos" se usa la que la empresa SÍ tenga
+    # configurada (proveedores, si no caja, si no banco) — nunca se
+    # asume "proveedores" a ciegas si esa empresa no la maneja.
     if not contrapartida:
         if empresa.modo_contable == "solo_gastos":
-            contrapartida = "proveedores"
+            contrapartida = partida_doble_service._elegir_contrapartida_configurada(
+                empresa, ("proveedores", "caja", "banco")) or "proveedores"
         elif f.direccion_documento == "emitida":
             contrapartida = "clientes"
         else:
@@ -491,7 +493,8 @@ def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends
         if contrapartida_fija:
             contrapartida = contrapartida_fija
         elif empresa.modo_contable == "solo_gastos":
-            contrapartida = "proveedores"
+            contrapartida = partida_doble_service._elegir_contrapartida_configurada(
+                empresa, ("proveedores", "caja", "banco")) or "proveedores"
         else:
             contrapartida = "clientes" if f.direccion_documento == "emitida" else "proveedores"
 

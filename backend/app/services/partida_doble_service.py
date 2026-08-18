@@ -301,6 +301,26 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
                              balanceado=balanceado, errores=errores)
 
 
+def _elegir_contrapartida_configurada(empresa: Empresa, orden: tuple[str, ...]) -> Optional[str]:
+    """
+    Devuelve la primera opción de `orden` que la empresa realmente tiene
+    configurada en "Cuentas base" — nunca asume ciegamente "proveedores"
+    (una empresa en modo "solo_gastos" puede no manejar proveedores en
+    absoluto y usar solo caja/banco, caso real reportado). Si ninguna
+    está configurada, devuelve None y quien llama deja la contrapartida
+    tal cual venía, para que el error de "cuenta no configurada" sea
+    claro sobre cuál falta.
+    """
+    mapa = {
+        "proveedores": empresa.cuenta_proveedores_id, "caja": empresa.cuenta_caja_id,
+        "banco": empresa.cuenta_banco_id, "clientes": empresa.cuenta_clientes_id,
+    }
+    for opcion in orden:
+        if mapa.get(opcion):
+            return opcion
+    return None
+
+
 def generar_partida(db: Session, empresa: Empresa, factura: Factura,
                      cuenta_gasto_id: str, contrapartida: str = "proveedores",
                      centro_costo=None) -> ResultadoPartida:
@@ -313,21 +333,29 @@ def generar_partida(db: Session, empresa: Empresa, factura: Factura,
     gasto/ingreso (nunca a IVA, retenciones ni contrapartida).
     """
     if factura.naturaleza_documento == "nomina":
-        return ResultadoPartida(errores=[
-            "Este es un documento de nómina electrónica individual, con un esquema XML distinto al "
-            "de facturas — la extracción automática de conceptos de nómina no está soportada todavía. "
-            "Regístralo manualmente con las cuentas de nómina correspondientes."
-        ])
+        # No hay extracción automática de conceptos de nómina (esquema
+        # XML distinto) — pero SÍ se permite que el usuario la registre
+        # manualmente, eligiendo su propia cuenta y contrapartida, igual
+        # que cualquier otro gasto. Nunca se sugiere sola ni entra en el
+        # "usar sugerencia" masivo (eso sigue excluyendo nómina aparte).
+        resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
+        total_debito, total_credito = _totales(resultado.lineas)
+        return ResultadoPartida(lineas=resultado.lineas, total_debito=total_debito,
+                                 total_credito=total_credito, balanceado=resultado.balanceado,
+                                 errores=resultado.errores)
 
     # En modo "solo_gastos" (persona natural que solo lleva sus propios
     # gastos), TODO se contabiliza por el lado de gasto sin importar lo
     # que diga la clasificación Emitido/Recibido de la DIAN — evita
     # exigir cuentas de ingresos/clientes que esta empresa no necesita.
     if empresa.modo_contable == "solo_gastos":
-        # Si la contrapartida sugerida fue "clientes" (porque la DIAN
-        # marcó el documento como emitido), no aplica aquí — se usa
-        # proveedores en su lugar, ya que este modo no maneja clientes.
-        contrapartida_efectiva = "proveedores" if contrapartida == "clientes" else contrapartida
+        contrapartida_efectiva = contrapartida
+        if contrapartida == "clientes":
+            # "Clientes" no aplica en este modo — se usa lo que la
+            # empresa SÍ tenga configurado (proveedores, si no caja, si
+            # no banco), nunca se asume "proveedores" a ciegas.
+            contrapartida_efectiva = _elegir_contrapartida_configurada(
+                empresa, ("proveedores", "caja", "banco")) or "proveedores"
         resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida_efectiva, centro_costo)
     elif factura.direccion_documento == "emitida":
         resultado = _generar_partida_venta(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)

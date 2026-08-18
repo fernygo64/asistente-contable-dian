@@ -148,17 +148,29 @@ def test_nomina_se_marca_pendiente_clasificacion_y_no_se_trata_como_compra(clien
     assert facturas[0]["naturaleza_documento"] == "nomina"
 
 
-def test_generar_partida_rechaza_documento_de_nomina(client, empresa_a):
+def test_nomina_permite_registro_manual_con_valor_indicado(client, empresa_a):
+    """
+    La nómina no tiene extracción automática de conceptos (esquema XML
+    distinto), pero SÍ se puede registrar manualmente con el valor y la
+    cuenta que el usuario indique — antes el sistema decía "regístralo
+    manualmente" y a la vez lo bloqueaba por completo, contradicción
+    real reportada por el usuario.
+    """
     zip_contenido = _zip_bytes({"nomina2.xml": NOMINA_TEMPLATE.encode()})
     client.post(f"/empresas/{empresa_a['id']}/documentos/cargar",
                 files=[("documentos", ("d.zip", zip_contenido, "application/zip"))])
     factura = client.get(f"/empresas/{empresa_a['id']}/documentos", params={"naturaleza": "nomina"}).json()[0]
 
+    client.patch(f"/empresas/{empresa_a['id']}/documentos/{factura['id']}/corregir",
+                 json={"subtotal": 2500000, "total": 2500000})
+    client.post(f"/empresas/{empresa_a['id']}/cuentas", json={"codigo": "510506", "nombre": "Salarios"})
+    client.patch(f"/empresas/{empresa_a['id']}/cuentas-base", json={"cuenta_banco": "111005"})
+
     r = client.post(f"/empresas/{empresa_a['id']}/documentos/{factura['id']}/partida/generar",
-                     json={"cuenta_gasto_codigo": "519530", "contrapartida": "proveedores"})
+                     json={"cuenta_gasto_codigo": "510506", "contrapartida": "banco"})
     body = r.json()
-    assert body["balanceado"] is False
-    assert any("nómina" in e.lower() for e in body["errores"])
+    assert body["balanceado"] is True, body
+    assert any(l["cuenta_codigo"] == "510506" and l["valor"] == 2500000 for l in body["lineas"])
 
 
 # ------------------------------------------------------ Emitida vs recibida

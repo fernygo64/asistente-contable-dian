@@ -275,3 +275,28 @@ def listar_exportaciones(empresa_id: str, db: Session = Depends(get_db),
         )
         for e in filas
     ]
+
+
+@router.delete("/exportaciones/{exportacion_id}")
+def eliminar_exportacion(empresa_id: str, exportacion_id: str, db: Session = Depends(get_db),
+                          empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
+    """
+    Borra un registro del historial de exportaciones — útil sobre todo
+    para poder luego borrar una PLANTILLA que quedó bloqueada por
+    haberse usado en una exportación (ej. una plantilla que se creó mal
+    y necesita reemplazarse). Las facturas que se hayan marcado como
+    "exportadas" NO vuelven atrás de estado solas — esto solo borra el
+    registro de auditoría de esa exportación puntual, no deshace nada
+    contable.
+    """
+    exportacion = db.query(Exportacion).filter(
+        Exportacion.empresa_id == empresa_id, Exportacion.id == exportacion_id
+    ).first()
+    if not exportacion:
+        raise HTTPException(status_code=404, detail="Exportación no encontrada en esta empresa.")
+
+    detalle = {"archivo": exportacion.archivo_nombre, "plantilla_id": exportacion.plantilla_id}
+    db.delete(exportacion)
+    auditoria_registrar(db, empresa_id, "Exportacion", exportacion_id, "exportacion_eliminada", detalle, usuario)
+    db.commit()
+    return {"eliminada": True, "id": exportacion_id}
