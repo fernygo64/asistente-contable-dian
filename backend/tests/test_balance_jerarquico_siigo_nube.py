@@ -79,6 +79,8 @@ def test_endpoint_importar_balance_reconoce_formato_siigo_nube_automaticamente(c
     nombres = {c["codigo"]: c["nombre"] for c in cuentas}
     assert nombres["130506"] == "CLIENTES"
     assert nombres["2408050208"] == "IVA DESCONTABLE COMPRAS 19%"
-
-    sug = client.get(f"/empresas/{empresa_a['id']}/historial/sugerencia", params={"nit": "900100100"}).json()
-    assert sug["cuenta_sugerida"] == "130506"
+    # Nota: "130506" (CLIENTES) y "2408050208" (IVA) son cuentas de
+    # BALANCE, no de resultado — nunca deben salir como "cuenta
+    # sugerida" para clasificar una factura (eso se filtra aparte,
+    # ver test_filtro_cuentas_de_resultado.py). Este test solo verifica
+    # que el parser jerárquico de Siigo Nube importó bien los nombres.

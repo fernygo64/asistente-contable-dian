@@ -52,23 +52,25 @@ def test_no_pisa_un_nombre_real_que_el_usuario_ya_habia_puesto_a_mano(client, em
     assert cuenta["nombre"] == "Mi nombre elegido"
 
 
-def test_sugerencia_distingue_iva_19_de_iva_5_por_nombre_de_cuenta_propia(client, empresa_a):
+def test_iva_nunca_aparece_como_candidato_de_cuenta_de_gasto(client, empresa_a):
+    """
+    Pedido explícito del usuario: el IVA (y cualquier cuenta de balance)
+    nunca debe mostrarse como opción para "la cuenta de gasto" — esa
+    selección se resuelve sola, automáticamente, según la tasa real de
+    cada factura (ver test_iva_por_tasa.py), nunca a mano desde aquí.
+    """
     _importar_balance(client, empresa_a["id"], {
         "NIT": ["900400400", "900400400"],
         "CUENTA": ["240802019", "240802005"],
         "NOMBRE CUENTA": ["IVA Descontable Compras 19%", "IVA Descontable Compras 5%"],
     })
 
-    sug_19 = client.get(f"/empresas/{empresa_a['id']}/historial/sugerencia",
-                         params={"nit": "900999888", "descripcion": "compras con IVA 19%"}).json()
-    assert sug_19["fuente"] == "cuentas_propias"
-    codigos_19 = [o["cuenta_codigo"] for o in sug_19["opciones"]]
-    assert "240802019" in codigos_19
-
-    sug_5 = client.get(f"/empresas/{empresa_a['id']}/historial/sugerencia",
-                        params={"nit": "900999888", "descripcion": "compras con IVA 5%"}).json()
-    codigos_5 = [o["cuenta_codigo"] for o in sug_5["opciones"]]
-    assert "240802005" in codigos_5
+    sug = client.get(f"/empresas/{empresa_a['id']}/historial/sugerencia",
+                      params={"nit": "900999888", "descripcion": "compras con IVA 19%"}).json()
+    codigos = [o["cuenta_codigo"] for o in sug["opciones"]]
+    assert "240802019" not in codigos
+    assert "240802005" not in codigos
+    assert sug["fuente"] != "cuentas_propias"  # sin candidatos válidos, cae al siguiente nivel
 
 
 def test_sugerencia_distingue_servicio_de_compra_por_nombre_de_cuenta_propia(client, empresa_a):

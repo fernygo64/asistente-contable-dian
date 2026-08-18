@@ -109,6 +109,21 @@ def _palabras_clave(t: str, largo_minimo: int = 4) -> set:
     return {p for p in _normalizar_texto(t).split() if len(p) >= largo_minimo}
 
 
+def _es_cuenta_de_resultado(codigo: str) -> bool:
+    """
+    Solo cuentas de INGRESO (clase 4), GASTO (clase 5), COSTO DE VENTAS
+    (clase 6) o COSTO DE PRODUCCIÓN (clase 7) del PUC colombiano pueden
+    sugerirse como "cuenta de gasto/ingreso" de una factura — nunca una
+    cuenta de balance (activo 1, pasivo 2, patrimonio 3), donde caen
+    IVA, retenciones, proveedores, clientes, caja y bancos. Esas se
+    resuelven aparte (automáticamente, o como contrapartida explícita),
+    nunca deberían aparecer como opción para "la cuenta del gasto" —
+    pedido explícito del usuario tras ver "RETEFUENTE" e IVA como
+    candidatos ahí, lo cual no tiene sentido contable.
+    """
+    return bool(codigo) and codigo[0] in ("4", "5", "6", "7")
+
+
 def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
                     descripcion: Optional[str] = None) -> dict:
     """
@@ -129,6 +144,12 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
             .filter(HistorialContable.empresa_id == empresa_id, HistorialContable.proveedor_id == proveedor.id)
             .all()
         )
+        # Solo cuentas de resultado (ingreso/gasto/costo) pueden salir
+        # como sugerencia de "cuenta de gasto" — un historial importado
+        # de un movimiento contable completo trae TODAS las líneas del
+        # comprobante (incluida la contrapartida, el IVA, las
+        # retenciones), y esas nunca deben aparecer aquí como opción.
+        registros = [r for r in registros if _es_cuenta_de_resultado(db.get(CuentaContable, r.cuenta_id).codigo)]
         if registros:
             total = len(registros)
             fuente = "historial"
@@ -224,7 +245,10 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
                 .filter(CuentaContable.empresa_id == empresa_id, CuentaContable.nombre != CuentaContable.codigo)
                 .all()
             )
-            candidatos_propios = [c for c in cuentas_propias if _palabras_clave(c.nombre) & claves]
+            candidatos_propios = [
+                c for c in cuentas_propias
+                if (_palabras_clave(c.nombre) & claves) and _es_cuenta_de_resultado(c.codigo)
+            ]
             if candidatos_propios:
                 return {
                     "proveedor_nit": nit,
@@ -251,6 +275,8 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
         if claves:
             candidatos = []
             for cta in db.query(PucCuenta).all():
+                if not _es_cuenta_de_resultado(cta.codigo):
+                    continue
                 claves_cuenta = _palabras_clave(cta.nombre)
                 if claves_cuenta & claves:
                     candidatos.append(cta)

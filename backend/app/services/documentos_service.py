@@ -164,8 +164,20 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
             numero = _norm(excel_fila.get("numero_factura"))
         if not fecha_emision:
             fecha_emision = _parse_fecha(excel_fila.get("fecha"))
-        if total is None:
-            total = _parse_valor(excel_fila.get("valor_total"))
+    if total is None:
+        total = _parse_valor(excel_fila.get("valor_total")) if excel_fila else None
+
+    # Si no se pudo extraer un SUBTOTAL (pasa siempre con nómina — su
+    # esquema XML no trae desglose de IVA — y a veces con facturas que
+    # solo vinieron acompañadas de la fila del Excel), pero SÍ se tiene
+    # el TOTAL, se usa el total como subtotal cuando no hay IVA/INC
+    # registrado — evita generar una línea de partida en $0 mientras la
+    # lista muestra el total correcto (bug real: el total se veía bien
+    # en Facturas pero la partida generada quedaba en $0 porque la
+    # partida doble siempre se calcula sobre el subtotal, no el total).
+    subtotal_valor = c.get("subtotal")
+    if subtotal_valor in (None, 0) and total not in (None, 0) and not c.get("iva") and not c.get("inc"):
+        subtotal_valor = total
 
     duplicado = _buscar_duplicado(db, empresa_id, cufe, numero, nit_emisor, fecha_emision, total)
 
@@ -212,7 +224,7 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
         direccion_emisor=_norm(c.get("direccion_emisor")) or None,
         nit_receptor=nit_receptor or None,
         nombre_receptor=nombre_receptor or None,
-        subtotal=c.get("subtotal"),
+        subtotal=subtotal_valor,
         base_gravable=c.get("base_gravable"),
         iva=c.get("iva"),
         inc=c.get("inc"),
