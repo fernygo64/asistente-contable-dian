@@ -68,7 +68,8 @@
   <button data-tab="empresas" class="active">Empresas</button>
   <button data-tab="cargar">Cargar documentos</button>
   <button data-tab="historial">Historial contable</button>
-  <button data-tab="facturas">Facturas</button>
+  <button data-tab="facturas-recibidas">Facturas Recibidas</button>
+  <button data-tab="facturas-emitidas">Facturas Emitidas</button>
   <button data-tab="plantillas">Plantillas / Exportar</button>
   <button data-tab="auditoria">Auditoría</button>
 </nav>
@@ -309,9 +310,14 @@
       <div id="panelClasificacion"><p class="muted">Cargando…</p></div>
     </div>
 
+    <div class="card" id="tituloModuloCard" style="background:var(--accent-soft); border-color:var(--accent);">
+      <h2 id="tituloModuloFacturas" style="margin:0 0 4px;">Facturas Recibidas (compras)</h2>
+      <p class="muted" id="avisoModuloFacturas" style="color:var(--accent-dark); margin:0;">Este módulo incluye la nómina electrónica (siempre se contabiliza como gasto, sin importar cómo la haya marcado la DIAN).</p>
+    </div>
+
     <div class="card">
       <div class="flex-between">
-        <h2>Facturas</h2>
+        <h2>Listado</h2>
         <div class="row" style="margin:0;">
           <div><select id="filtroEstado" onchange="cargarFacturas()">
             <option value="">Todos los estados</option>
@@ -332,18 +338,7 @@
             <option value="documento_equivalente">Documento equivalente</option>
             <option value="nomina">Nómina</option>
           </select></div>
-          <div><select id="filtroDireccion" onchange="cargarFacturas()">
-            <option value="">Emitidas y recibidas</option>
-            <option value="recibida">Solo recibidas (compras)</option>
-            <option value="emitida">Solo emitidas (ventas)</option>
-          </select></div>
           <div><button class="btn ghost" onclick="cargarFacturas()">Actualizar</button></div>
-        </div>
-        <div class="row" style="margin-top:6px;">
-          <span class="muted" style="font-size:12px; align-self:center;">Acceso rápido:</span>
-          <div><button class="btn ghost" style="font-size:12px; padding:4px 10px;" onclick="document.getElementById('filtroDireccion').value=''; cargarFacturas();">Todas</button></div>
-          <div><button class="btn ghost" style="font-size:12px; padding:4px 10px;" onclick="document.getElementById('filtroDireccion').value='recibida'; cargarFacturas();">Solo recibidas (compras)</button></div>
-          <div><button class="btn ghost" style="font-size:12px; padding:4px 10px;" onclick="document.getElementById('filtroDireccion').value='emitida'; cargarFacturas();">Solo emitidas (ventas)</button></div>
         </div>
       </div>
       <div class="flex-between" style="background:#fef3e2; border:1px solid var(--warn); border-radius:8px; padding:10px 14px; margin:12px 0 0;">
@@ -513,15 +508,29 @@ async function req(path, options){
 }
 
 // ---------- navegación ----------
+let moduloFacturasActivo = 'recibidas';
 document.getElementById('tabs').addEventListener('click', e=>{
   if(e.target.tagName !== 'BUTTON') return;
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.remove('active'));
   e.target.classList.add('active');
   document.querySelectorAll('main > section').forEach(s=>s.classList.add('hidden'));
-  document.getElementById('tab-' + e.target.dataset.tab).classList.remove('hidden');
+
+  const esFacturas = e.target.dataset.tab === 'facturas-recibidas' || e.target.dataset.tab === 'facturas-emitidas';
+  const idSeccion = esFacturas ? 'tab-facturas' : ('tab-' + e.target.dataset.tab);
+  document.getElementById(idSeccion).classList.remove('hidden');
+
   if(e.target.dataset.tab === 'cargar') cargarResumenPorTipo();
   if(e.target.dataset.tab === 'historial') cargarImportacionesHistorial();
-  if(e.target.dataset.tab === 'facturas') { cargarFacturas(); cargarPanelClasificacion(); }
+  if(esFacturas){
+    moduloFacturasActivo = e.target.dataset.tab === 'facturas-recibidas' ? 'recibidas' : 'emitidas';
+    document.getElementById('tituloModuloFacturas').textContent =
+      moduloFacturasActivo === 'recibidas' ? 'Facturas Recibidas (compras)' : 'Facturas Emitidas (ventas)';
+    document.getElementById('avisoModuloFacturas').textContent = moduloFacturasActivo === 'recibidas'
+      ? 'Este módulo incluye la nómina electrónica (siempre se contabiliza como gasto, sin importar cómo la haya marcado la DIAN).'
+      : 'Este módulo nunca incluye nómina (aunque la DIAN la marque "Emitido") — la nómina siempre aparece en Facturas Recibidas.';
+    cargarFacturas();
+    cargarPanelClasificacion();
+  }
   if(e.target.dataset.tab === 'plantillas') { cargarPlantillas(); cargarExportaciones(); }
   if(e.target.dataset.tab === 'auditoria') cargarAuditoria();
 });
@@ -840,7 +849,7 @@ function irAPestana(nombrePestana, alLlegar){
 }
 
 function irARevisarFacturas(){
-  irAPestana('facturas', () => {
+  irAPestana('facturas-recibidas', () => {
     document.getElementById('filtroEstado').value = '';
     cargarFacturas();
     cargarPanelClasificacion();
@@ -1000,7 +1009,7 @@ async function cargarPanelClasificacion(){
   if(!empresaActivaId) return;
   const el = document.getElementById('panelClasificacion');
   try{
-    const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion`);
+    const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?modulo=${moduloFacturasActivo}`);
     const filaFactura = (f, extra) => `
       <div class="row" style="align-items:center; padding:4px 0; border-bottom:1px solid var(--border);">
         <span style="flex:2;"><strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}
@@ -1040,7 +1049,7 @@ async function cargarPanelClasificacion(){
 }
 
 async function contabilizarBloque(bloque){
-  const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion`);
+  const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?modulo=${moduloFacturasActivo}`);
   const ids = panel[bloque].map(f=>f.id);
   if(ids.length === 0) return;
   try{
@@ -1055,7 +1064,7 @@ async function contabilizarBloque(bloque){
 }
 
 async function generarPropuestasBloque(){
-  const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion`);
+  const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?modulo=${moduloFacturasActivo}`);
   const ids = panel.con_sugerencia.map(f=>f.id);
   if(ids.length === 0) return;
   if(!confirm(`Se generará la propuesta de partida para ${ids.length} factura(s) usando la sugerencia del historial de cada una. Quedan pendientes de tu aprobación (Contabilizar), no se contabilizan solas. ¿Continuar?`)) return;
@@ -1074,11 +1083,10 @@ async function cargarFacturas(){
   if(!empresaActivaId){ document.getElementById('listaFacturas').innerHTML = '<p class="muted">Selecciona una empresa primero.</p>'; return; }
   const estado = document.getElementById('filtroEstado').value;
   const naturaleza = document.getElementById('filtroNaturaleza').value;
-  const direccion = document.getElementById('filtroDireccion').value;
   const params = new URLSearchParams();
   if(estado) params.set('estado', estado);
   if(naturaleza) params.set('naturaleza', naturaleza);
-  if(direccion) params.set('direccion', direccion);
+  params.set('modulo', moduloFacturasActivo);
   const qs = params.toString() ? `?${params.toString()}` : '';
   try{
     const facturas = await req(`/empresas/${empresaActivaId}/documentos${qs}`);
@@ -1122,7 +1130,7 @@ async function cargarFacturas(){
           ` : ''}
 
           <div class="row">
-            <div><label>${f.direccion_documento === 'emitida' ? 'Cuenta de ingreso' : 'Cuenta de gasto'}</label><input id="cuenta-${f.id}" placeholder="${f.direccion_documento === 'emitida' ? '413595' : '513595'}"></div>
+            <div><label>${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? 'Cuenta de ingreso' : 'Cuenta de gasto'}</label><input id="cuenta-${f.id}" placeholder="${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? '413595' : '513595'}"></div>
             <div><label>Centro de costo (opcional)</label><input id="cc-${f.id}" placeholder="CC01"></div>
             <div><button class="btn" onclick="generarPartida('${f.id}')">Generar partida doble</button></div>
             <div><button class="btn ghost" onclick="contabilizar('${f.id}')">Contabilizar</button></div>
