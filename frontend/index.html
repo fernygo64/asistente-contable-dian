@@ -195,6 +195,7 @@
       <div class="row">
         <div><label>Columna CUFE</label><select id="mapCufe"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Número factura</label><select id="mapNumero"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Prefijo</label><select id="mapPrefijo"><option value="">— no aplica —</option></select></div>
         <div><label>Columna NIT emisor</label><select id="mapNit"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Nombre emisor</label><select id="mapNombre"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Fecha</label><select id="mapFecha"><option value="">— no aplica —</option></select></div>
@@ -210,6 +211,15 @@
       <p class="muted">Si tu Excel trae "Tipo de documento" y "Grupo" (como el de la DIAN), selecciónalas — el sistema descarta automáticamente los "Application response" y clasifica correctamente facturas emitidas, recibidas, nómina y documentos equivalentes usando la propia clasificación de la DIAN, que es más confiable que adivinarlo.
       <button class="btn" onclick="cargarDocumentos()">Cargar y relacionar</button>
       <div id="resultadoCarga" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Control de gastos e ingresos por tipo de documento</h2>
+        <button class="btn ghost" onclick="cargarResumenPorTipo()">Actualizar</button>
+      </div>
+      <p class="muted">Todo lo cargado hasta ahora en esta empresa (sin contar duplicados), agrupado por tipo — para ver de un vistazo cuánto llevas en gastos vs. ingresos, sin sumar en Excel.</p>
+      <div id="resumenPorTipo"><p class="muted">Cargando…</p></div>
     </div>
   </section>
 
@@ -328,6 +338,12 @@
             <option value="emitida">Solo emitidas (ventas)</option>
           </select></div>
           <div><button class="btn ghost" onclick="cargarFacturas()">Actualizar</button></div>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <span class="muted" style="font-size:12px; align-self:center;">Acceso rápido:</span>
+          <div><button class="btn ghost" style="font-size:12px; padding:4px 10px;" onclick="document.getElementById('filtroDireccion').value=''; cargarFacturas();">Todas</button></div>
+          <div><button class="btn ghost" style="font-size:12px; padding:4px 10px;" onclick="document.getElementById('filtroDireccion').value='recibida'; cargarFacturas();">Solo recibidas (compras)</button></div>
+          <div><button class="btn ghost" style="font-size:12px; padding:4px 10px;" onclick="document.getElementById('filtroDireccion').value='emitida'; cargarFacturas();">Solo emitidas (ventas)</button></div>
         </div>
       </div>
       <div class="flex-between" style="background:#fef3e2; border:1px solid var(--warn); border-radius:8px; padding:10px 14px; margin:12px 0 0;">
@@ -503,6 +519,7 @@ document.getElementById('tabs').addEventListener('click', e=>{
   e.target.classList.add('active');
   document.querySelectorAll('main > section').forEach(s=>s.classList.add('hidden'));
   document.getElementById('tab-' + e.target.dataset.tab).classList.remove('hidden');
+  if(e.target.dataset.tab === 'cargar') cargarResumenPorTipo();
   if(e.target.dataset.tab === 'historial') cargarImportacionesHistorial();
   if(e.target.dataset.tab === 'facturas') { cargarFacturas(); cargarPanelClasificacion(); }
   if(e.target.dataset.tab === 'plantillas') { cargarPlantillas(); cargarExportaciones(); }
@@ -706,7 +723,7 @@ async function cargarCuentasBase(){
 
 // ---------- cargar documentos ----------
 document.getElementById('excelInput').addEventListener('change', async e=>{
-  const selects = ['mapCufe','mapNumero','mapNit','mapNombre','mapNitReceptor','mapNombreReceptor','mapFecha','mapTotal','mapTipo','mapGrupo'].map(id=>document.getElementById(id));
+  const selects = ['mapCufe','mapNumero','mapPrefijo','mapNit','mapNombre','mapNitReceptor','mapNombreReceptor','mapFecha','mapTotal','mapTipo','mapGrupo'].map(id=>document.getElementById(id));
   const excelFile = e.target.files[0];
   if(!excelFile){
     selects.forEach(s=> s.innerHTML = '<option value="">— no aplica —</option>');
@@ -716,19 +733,58 @@ document.getElementById('excelInput').addEventListener('change', async e=>{
   const fd = new FormData();
   fd.append('archivo', excelFile);
   try{
-    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-columnas`, {
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-sugerir-mapeo`, {
       method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
     const opciones = '<option value="">— no aplica —</option>' + body.columnas.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
     selects.forEach(s=> s.innerHTML = opciones);
-    document.getElementById('mapeoAyuda').textContent = `Columnas detectadas en tu Excel (${body.columnas.length}): elige la que corresponde a cada campo.`;
-    toast('Columnas del Excel detectadas — selecciónalas abajo');
+
+    const campoASelect = {cufe:'mapCufe', numero_factura:'mapNumero', prefijo:'mapPrefijo', nit_emisor:'mapNit',
+      nombre_emisor:'mapNombre', nit_receptor:'mapNitReceptor', nombre_receptor:'mapNombreReceptor',
+      fecha:'mapFecha', valor_total:'mapTotal', tipo_documento:'mapTipo', grupo:'mapGrupo'};
+    for(const [campo, columna] of Object.entries(body.mapeo || {})){
+      const sel = document.getElementById(campoASelect[campo]);
+      if(sel) sel.value = columna;
+    }
+
+    document.getElementById('mapeoAyuda').textContent = body.reconocidas.length
+      ? `Columnas del Excel de la DIAN reconocidas automáticamente (${body.reconocidas.length} de ${body.columnas.length}) — revísalas antes de cargar.`
+      : `No se reconoció el formato típico del Excel de la DIAN — elige las columnas a mano abajo (${body.columnas.length} detectadas).`;
+    toast(body.reconocidas.length ? 'Columnas detectadas y preseleccionadas automáticamente' : 'Columnas detectadas — selecciónalas abajo');
   }catch(err){
     toast('No se pudo leer las columnas del Excel: ' + err.message, true);
   }
 });
+
+async function cargarResumenPorTipo(){
+  if(!empresaActivaId) return;
+  const el = document.getElementById('resumenPorTipo');
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/documentos/resumen-por-tipo`);
+    if(!r.grupos.length){ el.innerHTML = '<p class="muted">Todavía no hay documentos cargados.</p>'; return; }
+    const maxTotal = Math.max(...r.grupos.map(g=>g.total), 1);
+    const filas = r.grupos.map(g => `
+      <div style="margin-bottom:8px;">
+        <div class="row" style="margin:0 0 2px; justify-content:space-between;">
+          <span style="font-size:13px;">${g.tipo} <span class="muted">(${g.cantidad})</span></span>
+          <span class="mono" style="font-size:13px;">$${g.total.toLocaleString('es-CO')}</span>
+        </div>
+        <div style="background:var(--border); border-radius:4px; height:10px; overflow:hidden;">
+          <div style="width:${Math.max(2, g.total/maxTotal*100)}%; height:100%; background:${g.es_gasto ? '#e07a5f' : '#3a9d6b'};"></div>
+        </div>
+      </div>
+    `).join('');
+    el.innerHTML = `
+      <div class="row" style="margin-bottom:10px;">
+        <div class="pill err">Total gastos: $${r.total_gastos.toLocaleString('es-CO')}</div>
+        <div class="pill ok">Total ingresos: $${r.total_ingresos.toLocaleString('es-CO')}</div>
+      </div>
+      ${filas}
+    `;
+  }catch(e){ el.innerHTML = `<p class="muted">No se pudo cargar el resumen: ${e.message}</p>`; }
+}
 
 async function cargarDocumentos(){
   if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
@@ -739,7 +795,7 @@ async function cargarDocumentos(){
   const excelFile = document.getElementById('excelInput').files[0];
   if(excelFile){
     fd.append('excel', excelFile);
-    const mapeos = {mapCufe:'mapeo_cufe', mapNumero:'mapeo_numero_factura', mapNit:'mapeo_nit_emisor',
+    const mapeos = {mapCufe:'mapeo_cufe', mapNumero:'mapeo_numero_factura', mapPrefijo:'mapeo_prefijo', mapNit:'mapeo_nit_emisor',
       mapNombre:'mapeo_nombre_emisor', mapNitReceptor:'mapeo_nit_receptor', mapNombreReceptor:'mapeo_nombre_receptor',
       mapFecha:'mapeo_fecha', mapTotal:'mapeo_valor_total',
       mapTipo:'mapeo_tipo_documento', mapGrupo:'mapeo_grupo'};
@@ -774,6 +830,7 @@ async function cargarDocumentos(){
       <div style="margin-top:12px;"><button class="btn" onclick="irARevisarFacturas()">Ir a revisar estas facturas →</button></div>
     `;
     toast('Carga procesada');
+    cargarResumenPorTipo();
   }catch(e){ toast(e.message, true); }
 }
 
@@ -1053,7 +1110,7 @@ async function cargarFacturas(){
             <button class="btn ghost" onclick="resolverDuplicado('${f.id}', false)">No es duplicado</button>` : ''}
 
           <div class="row" style="margin-top:10px;">
-            <div><button class="btn ghost" onclick="verSugerencia('${f.id}', '${f.tercero_nit||''}')">Ver sugerencia de cuenta</button></div>
+            <div><button class="btn ghost" onclick="verSugerencia('${f.id}', '${f.tercero_nit||''}', '${f.direccion_documento||''}', '${f.naturaleza_documento||''}')">Ver sugerencia de cuenta</button></div>
           </div>
           <div id="sugerencia-${f.id}"></div>
 
@@ -1126,7 +1183,7 @@ function toggleSeleccionarTodas(marcarTodas){
   });
 }
 
-async function verSugerencia(facturaId, nit){
+async function verSugerencia(facturaId, nit, direccion, naturaleza){
   if(!nit){ toast('Esta factura no tiene NIT de tercero', true); return; }
   try{
     let descripcion = '';
@@ -1137,8 +1194,13 @@ async function verSugerencia(facturaId, nit){
       }
     }catch(e){ /* si falla, se sigue sin concepto */ }
 
+    // La nómina siempre se trata como gasto (aunque la DIAN la marque
+    // emitida) — igual que en la generación de partida.
+    const direccionEfectiva = naturaleza === 'nomina' ? 'recibida' : direccion;
+
     const qs = new URLSearchParams({nit});
     if(descripcion) qs.set('descripcion', descripcion);
+    if(direccionEfectiva) qs.set('direccion', direccionEfectiva);
     const sug = await req(`/empresas/${empresaActivaId}/historial/sugerencia?${qs.toString()}`);
     const div = document.getElementById('sugerencia-'+facturaId);
     if(sug.cuenta_sugerida){
