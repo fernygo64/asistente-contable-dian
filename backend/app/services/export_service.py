@@ -153,9 +153,94 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
     return errores
 
 
+_ORDEN_TIPO_DOCUMENTO = {
+    ("recibida", "factura"): 1,
+    ("recibida", "documento_equivalente"): 2,
+    ("recibida", "nota_credito"): 3,
+    ("recibida", "nota_debito"): 4,
+    ("emitida", "factura"): 5,
+    ("emitida", "documento_equivalente"): 6,
+    ("emitida", "nota_credito"): 7,
+    ("emitida", "nota_debito"): 8,
+    ("no_aplica", "nomina"): 9,
+}
+
+
+def _clave_tipo_documento(f: Factura) -> tuple:
+    direccion = f.direccion_documento or "no_aplica"
+    naturaleza = f.naturaleza_documento or "factura"
+    return _ORDEN_TIPO_DOCUMENTO.get((direccion, naturaleza), 99)
+
+
+def agrupar_y_ordenar_facturas(facturas: list[Factura]) -> list[Factura]:
+    """
+    Agrupa las facturas por tipo de documento (recibidas, emitidas,
+    notas crédito/débito, nómina — en ese orden) para que el archivo
+    plano no salga "todo mezclado" (pedido explícito del usuario: antes
+    tocaba organizarlo a mano después de exportar). Dentro de cada
+    grupo, ordena según los mismos títulos que usa el Excel de la DIAN,
+    en el orden exacto pedido por el usuario:
+    1. Fecha Emisión (por día) Z-A
+    2. Prefijo Z-A
+    3. Folio Z-A
+    4. Nombre Emisor Z-A
+    5. Nit Emisor Z-A
+    "Z-A" = descendente. Un valor vacío/None siempre queda al final de
+    su grupo (nunca se inventa un valor para ordenar).
+    """
+    return sorted(
+        facturas,
+        key=lambda f: (
+            _clave_tipo_documento(f),
+            f.fecha_emision is None, _NegarFecha(f.fecha_emision),
+            f.prefijo is None or f.prefijo == "", _NegarTexto(f.prefijo),
+            f.numero_factura is None or f.numero_factura == "", _NegarTexto(f.numero_factura),
+            f.nombre_emisor is None or f.nombre_emisor == "", _NegarTexto(f.nombre_emisor),
+            f.nit_emisor is None or f.nit_emisor == "", _NegarTexto(f.nit_emisor),
+        ),
+    )
+
+
+class _NegarTexto:
+    """Envoltorio para poder ordenar texto de forma descendente (Z-A) dentro de sorted()."""
+    __slots__ = ("valor",)
+
+    def __init__(self, valor):
+        self.valor = valor or ""
+
+    def __lt__(self, otro):
+        return self.valor > otro.valor
+
+    def __eq__(self, otro):
+        return self.valor == otro.valor
+
+
+class _NegarFecha:
+    """Igual que _NegarTexto, pero para fechas (más reciente primero)."""
+    __slots__ = ("valor",)
+
+    def __init__(self, valor):
+        self.valor = valor
+
+    def __lt__(self, otro):
+        a = self.valor.date() if self.valor else None
+        b = otro.valor.date() if otro.valor else None
+        if a is None:
+            return False
+        if b is None:
+            return True
+        return a > b
+
+    def __eq__(self, otro):
+        a = self.valor.date() if self.valor else None
+        b = otro.valor.date() if otro.valor else None
+        return a == b
+
+
 def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
                      facturas: list[Factura]) -> tuple[bytes, int]:
     """Devuelve (contenido_bytes, cantidad_de_filas). Se asume ya validado."""
+    facturas = agrupar_y_ordenar_facturas(facturas)
     columnas = json.loads(plantilla.columnas_json)
     equivalencias = json.loads(plantilla.equivalencias_cuentas_json or "{}")
     delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador

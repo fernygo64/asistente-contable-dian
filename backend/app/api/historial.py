@@ -257,9 +257,9 @@ def eliminar_importacion(empresa_id: str, importacion_id: str, db: Session = Dep
 
 
 @router.get("/sugerencia", response_model=SugerenciaCuenta)
-def sugerir(empresa_id: str, nit: str, descripcion: str | None = None,
+def sugerir(empresa_id: str, nit: str, descripcion: str | None = None, direccion: str | None = None,
             db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa)):
-    resultado = historial_service.sugerir_cuenta(db, empresa_id, nit, descripcion)
+    resultado = historial_service.sugerir_cuenta(db, empresa_id, nit, descripcion, direccion)
     return SugerenciaCuenta(**resultado)
 
 

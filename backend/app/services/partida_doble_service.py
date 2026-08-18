@@ -82,10 +82,13 @@ _PALABRAS_SERVICIO = re.compile(
 _PALABRAS_COMPRA = re.compile(
     r"compra|mercanc[ií]a|art[ií]culo|producto|materia\s*prima|insumo|repuesto|"
     r"equipo|inventario|suministro", re.IGNORECASE)
+_PALABRA_GENERADO = re.compile(r"generad[oa]", re.IGNORECASE)
+_PALABRA_DESCONTABLE = re.compile(r"descontable", re.IGNORECASE)
 
 
 def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: float, iva: float,
-                                      concepto: Optional[str] = None) -> Optional[CuentaContable]:
+                                      concepto: Optional[str] = None,
+                                      tipo_iva: str = "descontable") -> Optional[CuentaContable]:
     """
     En vez de usar siempre LA MISMA cuenta de IVA configurada en
     "Cuentas base" (que solo admite una), busca entre las cuentas
@@ -95,13 +98,16 @@ def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: fl
     haber cargado un balance por tercero con los nombres reales de esas
     cuentas (sección pedida por el usuario). Si no encuentra una
     coincidencia específica, devuelve None y quien llama usa la cuenta
-    de IVA descontable única configurada, como antes.
+    única configurada, como antes.
 
-    Un plan de cuentas real puede tener VARIAS cuentas para la misma
-    tasa (ej. "IVA Descontable Compras 19%" y "IVA Descontable
-    Servicios 19%" a la vez — confirmado con un balance real) — cuando
-    pasa eso, se usa el concepto de la factura para desempatar entre
-    "servicio" y "compra"; si sigue sin ser claro, no se arriesga.
+    tipo_iva ("descontable" para compras, "generado" para ventas): con
+    varias cuentas 2408 a la vez (compras y ventas, o distintas tasas),
+    primero se filtra por esta polaridad — nunca se debe usar una
+    cuenta de "IVA Descontable" para una VENTA ni viceversa, error real
+    encontrado (una venta terminó usando "IVA Descontable Compras 19%").
+    Si sigue habiendo más de una coincidencia, se usa el concepto de la
+    factura para desempatar entre "servicio" y "compra"; si continúa
+    sin ser claro, no se arriesga.
     """
     if subtotal <= 0 or iva <= 0:
         return None
@@ -116,6 +122,13 @@ def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: fl
     ).all()
     patron = re.compile(rf"\b{tasa}\b")
     coincidencias = [c for c in candidatas if patron.search(c.nombre)]
+
+    if len(coincidencias) > 1:
+        patron_polaridad = _PALABRA_GENERADO if tipo_iva == "generado" else _PALABRA_DESCONTABLE
+        con_polaridad = [c for c in coincidencias if patron_polaridad.search(c.nombre)]
+        if con_polaridad:
+            coincidencias = con_polaridad
+
     if len(coincidencias) == 1:
         return coincidencias[0]
 
@@ -143,6 +156,17 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
     cuenta_gasto = db.get(CuentaContable, cuenta_gasto_id) if cuenta_gasto_id else None
     if not cuenta_gasto:
         errores.append("No se indicó (o no existe) la cuenta de gasto/costo para esta factura.")
+    elif cuenta_gasto.codigo and cuenta_gasto.codigo[0] == "4":
+        # Caso real detectado: una venta terminó procesándose por este
+        # camino (compra) usando su propia cuenta de INGRESO como si
+        # fuera de gasto — quedó debitada en vez de acreditada. Nunca
+        # se genera una partida así; se avisa con el motivo exacto.
+        errores.append(
+            f"La cuenta {cuenta_gasto.codigo} ({cuenta_gasto.nombre}) es una cuenta de INGRESO (empieza por 4), "
+            f"no de gasto — no se puede usar aquí. Si esta factura es en realidad una VENTA, revisa el modo "
+            f"contable de la empresa (Empresas → Modo contable): en 'solo_gastos' todo se procesa como gasto, "
+            f"lo cual invierte una venta real. Cambia a 'mixto' si esta empresa sí tiene ventas."
+        )
 
     subtotal = float(factura.subtotal or 0)
     iva = float(factura.iva or 0)
@@ -168,7 +192,8 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
 
     if iva > 0:
         if empresa.responsable_iva:
-            cta_por_tasa = _seleccionar_cuenta_iva_por_tasa(db, empresa, subtotal, iva, factura.concepto_resumen)
+            cta_por_tasa = _seleccionar_cuenta_iva_por_tasa(db, empresa, subtotal, iva, factura.concepto_resumen,
+                                                              tipo_iva="descontable")
             if cta_por_tasa:
                 tasa_detectada = round(iva / subtotal * 100) if subtotal > 0 else None
                 lineas.append(LineaPartida(cta_por_tasa.id, cta_por_tasa.codigo, cta_por_tasa.nombre,
@@ -246,6 +271,11 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
     cuenta_ingreso = db.get(CuentaContable, cuenta_ingreso_id) if cuenta_ingreso_id else None
     if not cuenta_ingreso:
         errores.append("No se indicó (o no existe) la cuenta de ingreso para esta factura emitida.")
+    elif cuenta_ingreso.codigo and cuenta_ingreso.codigo[0] in ("5", "6", "7"):
+        errores.append(
+            f"La cuenta {cuenta_ingreso.codigo} ({cuenta_ingreso.nombre}) es una cuenta de GASTO/COSTO "
+            f"(empieza por {cuenta_ingreso.codigo[0]}), no de ingreso — no se puede usar aquí para una venta."
+        )
 
     subtotal = float(factura.subtotal or 0)
     iva = float(factura.iva or 0)
@@ -260,9 +290,15 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
 
     if iva > 0:
         if empresa.responsable_iva:
-            if not empresa.cuenta_iva_generado_id:
+            cta_por_tasa = _seleccionar_cuenta_iva_por_tasa(db, empresa, subtotal, iva,
+                                                              factura.concepto_resumen, tipo_iva="generado")
+            if cta_por_tasa:
+                tasa_detectada = round(iva / subtotal * 100) if subtotal > 0 else None
+                lineas.append(LineaPartida(cta_por_tasa.id, cta_por_tasa.codigo, cta_por_tasa.nombre,
+                                            "credito", iva, f"IVA generado {tasa_detectada}% (detectado automáticamente)"))
+            elif not empresa.cuenta_iva_generado_id:
                 errores.append("La factura tiene IVA pero la empresa no tiene configurada la "
-                                "cuenta de IVA generado.")
+                                "cuenta de IVA generado (ni una cuenta 2408 propia que mencione la tasa).")
             else:
                 cta = db.get(CuentaContable, empresa.cuenta_iva_generado_id)
                 lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", iva, "IVA generado"))

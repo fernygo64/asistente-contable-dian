@@ -109,7 +109,7 @@ def _palabras_clave(t: str, largo_minimo: int = 4) -> set:
     return {p for p in _normalizar_texto(t).split() if len(p) >= largo_minimo}
 
 
-def _es_cuenta_de_resultado(codigo: str) -> bool:
+def _es_cuenta_de_resultado(codigo: str, clases_permitidas: tuple[str, ...] = ("4", "5", "6", "7")) -> bool:
     """
     Solo cuentas de INGRESO (clase 4), GASTO (clase 5), COSTO DE VENTAS
     (clase 6) o COSTO DE PRODUCCIÓN (clase 7) del PUC colombiano pueden
@@ -120,19 +120,36 @@ def _es_cuenta_de_resultado(codigo: str) -> bool:
     nunca deberían aparecer como opción para "la cuenta del gasto" —
     pedido explícito del usuario tras ver "RETEFUENTE" e IVA como
     candidatos ahí, lo cual no tiene sentido contable.
+
+    Además, cuando se conoce la DIRECCIÓN del documento, se restringe
+    más: una factura RECIBIDA (compra) solo debe sugerir cuentas de
+    GASTO/COSTO (5/6/7), nunca de INGRESO (4) — y viceversa para una
+    EMITIDA (venta) — evita repetir el error real donde una venta usó
+    por error su propia cuenta de ingreso como "cuenta de gasto".
     """
-    return bool(codigo) and codigo[0] in ("4", "5", "6", "7")
+    return bool(codigo) and codigo[0] in clases_permitidas
 
 
 def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
-                    descripcion: Optional[str] = None) -> dict:
+                    descripcion: Optional[str] = None, direccion: Optional[str] = None) -> dict:
     """
     Devuelve un dict serializable con la sugerencia y su explicación,
     siguiendo el orden de prioridad de la sección 37:
     historial de la empresa (afinado por NIT+concepto cuando es posible)
     → reglas de la empresa → catálogo PUC como candidatos (nunca una
     decisión, solo opciones para elegir) → sin información.
+
+    direccion ("recibida" | "emitida"), cuando se conoce, restringe los
+    candidatos a la clase de cuenta correcta (gasto/costo para recibida,
+    ingreso para emitida) — si no se indica, se permiten ambas.
     """
+    if direccion == "emitida":
+        clases_permitidas = ("4",)
+    elif direccion == "recibida":
+        clases_permitidas = ("5", "6", "7")
+    else:
+        clases_permitidas = ("4", "5", "6", "7")
+
     nit = nit.strip()
     proveedor = db.query(Proveedor).filter(
         Proveedor.empresa_id == empresa_id, Proveedor.nit == nit
@@ -149,7 +166,7 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
         # de un movimiento contable completo trae TODAS las líneas del
         # comprobante (incluida la contrapartida, el IVA, las
         # retenciones), y esas nunca deben aparecer aquí como opción.
-        registros = [r for r in registros if _es_cuenta_de_resultado(db.get(CuentaContable, r.cuenta_id).codigo)]
+        registros = [r for r in registros if _es_cuenta_de_resultado(db.get(CuentaContable, r.cuenta_id).codigo, clases_permitidas)]
         if registros:
             total = len(registros)
             fuente = "historial"
@@ -247,7 +264,7 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
             )
             candidatos_propios = [
                 c for c in cuentas_propias
-                if (_palabras_clave(c.nombre) & claves) and _es_cuenta_de_resultado(c.codigo)
+                if (_palabras_clave(c.nombre) & claves) and _es_cuenta_de_resultado(c.codigo, clases_permitidas)
             ]
             if candidatos_propios:
                 return {
@@ -275,7 +292,7 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
         if claves:
             candidatos = []
             for cta in db.query(PucCuenta).all():
-                if not _es_cuenta_de_resultado(cta.codigo):
+                if not _es_cuenta_de_resultado(cta.codigo, clases_permitidas):
                     continue
                 claves_cuenta = _palabras_clave(cta.nombre)
                 if claves_cuenta & claves:

@@ -14,6 +14,7 @@ from app.services.zip_processing_service import procesar_archivos_mixtos
 from app.services import documentos_service, partida_doble_service, historial_service
 from app.services.auditoria_service import registrar as auditoria_registrar
 from app.services.excel_utils import leer_columnas_excel
+from app.services.mapeo_dian_service import detectar_mapeo_excel_dian
 
 router = APIRouter(prefix="/empresas/{empresa_id}/documentos", tags=["documentos"])
 
@@ -36,6 +37,66 @@ async def previsualizar_columnas_excel(empresa_id: str, archivo: UploadFile = Fi
     return {"columnas": columnas}
 
 
+@router.post("/excel-sugerir-mapeo")
+async def sugerir_mapeo_excel_dian(empresa_id: str, archivo: UploadFile = File(...),
+                                    empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    El Excel que la DIAN entrega al descargar el histórico de
+    documentos sigue un formato bastante estable (a diferencia de un
+    auxiliar contable, que varía por software) — se reconocen sus
+    columnas típicas por nombre y se propone el mapeo completo, para
+    que el usuario no tenga que elegir cada campo a mano cada vez que
+    carga un Excel nuevo. Solo sugiere lo que reconoce con confianza;
+    el usuario revisa y ajusta antes de cargar.
+    """
+    contenido = await archivo.read()
+    try:
+        columnas = leer_columnas_excel(contenido, archivo.filename or "archivo.xlsx")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"No se pudo leer el archivo: {e}")
+    resultado = detectar_mapeo_excel_dian(columnas)
+    return {"columnas": columnas, **resultado}
+
+
+@router.get("/resumen-por-tipo")
+def resumen_por_tipo(empresa_id: str, db: Session = Depends(get_db),
+                      empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Totales (cantidad y valor) agrupados por tipo de documento — para
+    tener de un vistazo el control de gastos e ingresos pedido por el
+    usuario, sin tener que sumar manualmente en Excel. Nunca cuenta los
+    duplicados (es_posible_duplicado=True) para no inflar los totales.
+    """
+    facturas = db.query(Factura).filter(
+        Factura.empresa_id == empresa_id, Factura.es_posible_duplicado.is_(False),
+    ).all()
+
+    grupos: dict[str, dict] = {}
+    etiquetas = {
+        ("recibida", "factura"): "Facturas recibidas (compras)",
+        ("recibida", "documento_equivalente"): "Documento equivalente recibido",
+        ("recibida", "nota_credito"): "Notas crédito recibidas",
+        ("recibida", "nota_debito"): "Notas débito recibidas",
+        ("emitida", "factura"): "Facturas emitidas (ventas)",
+        ("emitida", "documento_equivalente"): "Documento equivalente emitido",
+        ("emitida", "nota_credito"): "Notas crédito emitidas",
+        ("emitida", "nota_debito"): "Notas débito emitidas",
+        ("no_aplica", "nomina"): "Nómina electrónica",
+    }
+    for f in facturas:
+        clave = (f.direccion_documento or "no_aplica", f.naturaleza_documento or "factura")
+        etiqueta = etiquetas.get(clave, f"{f.naturaleza_documento or '?'} ({f.direccion_documento or '?'})")
+        g = grupos.setdefault(etiqueta, {"tipo": etiqueta, "cantidad": 0, "total": 0.0,
+                                          "es_gasto": clave[0] == "recibida" or clave[1] == "nomina"})
+        g["cantidad"] += 1
+        g["total"] += float(f.total or 0)
+
+    resultado = sorted(grupos.values(), key=lambda g: -g["total"])
+    total_gastos = sum(g["total"] for g in resultado if g["es_gasto"])
+    total_ingresos = sum(g["total"] for g in resultado if not g["es_gasto"])
+    return {"grupos": resultado, "total_gastos": total_gastos, "total_ingresos": total_ingresos}
+
+
 @router.post("/cargar", response_model=CargaResumen, status_code=201)
 async def cargar_documentos(
     empresa_id: str,
@@ -48,6 +109,7 @@ async def cargar_documentos(
     mapeo_nit_receptor: str | None = Form(default=None, description="Necesario para que las facturas EMITIDAS (ventas) queden con el NIT del cliente cuando no hay XML que las respalde"),
     mapeo_nombre_receptor: str | None = Form(default=None),
     mapeo_fecha: str | None = Form(default=None),
+    mapeo_prefijo: str | None = Form(default=None, description="Columna 'Prefijo' del Excel de la DIAN — usado para ordenar el archivo plano exportado"),
     mapeo_valor_total: str | None = Form(default=None),
     mapeo_tipo_documento: str | None = Form(default=None, description="Columna 'Tipo de documento' del Excel de la DIAN"),
     mapeo_grupo: str | None = Form(default=None, description="Columna 'Grupo' (Emitido/Recibido) del Excel de la DIAN"),
@@ -83,7 +145,7 @@ async def cargar_documentos(
             "cufe": mapeo_cufe, "numero_factura": mapeo_numero_factura,
             "nit_emisor": mapeo_nit_emisor, "nombre_emisor": mapeo_nombre_emisor,
             "nit_receptor": mapeo_nit_receptor, "nombre_receptor": mapeo_nombre_receptor,
-            "fecha": mapeo_fecha, "valor_total": mapeo_valor_total,
+            "fecha": mapeo_fecha, "prefijo": mapeo_prefijo, "valor_total": mapeo_valor_total,
             "tipo_documento": mapeo_tipo_documento, "grupo": mapeo_grupo,
         }
         if not any(mapeo.values()):
@@ -198,7 +260,7 @@ def panel_clasificacion(empresa_id: str, db: Session = Depends(get_db),
                                                  else "Sin NIT de tercero identificado."})
             continue
 
-        sug = historial_service.sugerir_cuenta(db, empresa_id, f.tercero_nit, f.concepto_resumen)
+        sug = historial_service.sugerir_cuenta(db, empresa_id, f.tercero_nit, f.concepto_resumen, f.direccion_documento)
         if sug["fuente"] in ("historial", "historial_nit_concepto", "cuentas_propias") and sug["cuenta_sugerida"]:
             con_sugerencia.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
                                     "numero_factura": f.numero_factura, "total": f.total,
@@ -514,7 +576,7 @@ def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends
                     concepto = "; ".join(i.get("descripcion", "") for i in items if i.get("descripcion"))[:500] or None
                 except (ValueError, TypeError):
                     concepto = None
-            sug = historial_service.sugerir_cuenta(db, empresa_id, f.tercero_nit, concepto)
+            sug = historial_service.sugerir_cuenta(db, empresa_id, f.tercero_nit, concepto, f.direccion_documento)
             if sug["fuente"] not in ("historial", "historial_nit_concepto") or not sug["cuenta_sugerida"]:
                 resultados.append({"factura_id": fid, "estado": "omitida",
                                     "motivo": f"Sin sugerencia confiable del historial (fuente: {sug['fuente']}) "

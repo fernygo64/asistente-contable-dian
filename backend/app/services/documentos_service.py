@@ -130,6 +130,7 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
     c = doc.campos
     cufe = _norm(c.get("cufe"))
     numero = _norm(c.get("numero_factura"))
+    prefijo = _norm(c.get("prefijo"))
     nit_emisor = _norm(c.get("nit_emisor"))
     total = c.get("total")
     try:
@@ -162,6 +163,8 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
             nombre_receptor = _norm(excel_fila.get("nombre_receptor"))
         if not numero:
             numero = _norm(excel_fila.get("numero_factura"))
+        if not prefijo:
+            prefijo = _norm(excel_fila.get("prefijo"))
         if not fecha_emision:
             fecha_emision = _parse_fecha(excel_fila.get("fecha"))
     if total is None:
@@ -216,7 +219,7 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
         carga_id=carga_id,
         cufe=cufe or None,
         numero_factura=numero or None,
-        prefijo=None,
+        prefijo=prefijo or None,
         fecha_emision=fecha_emision,
         hora_emision=_norm(c.get("hora_emision")) or None,
         nit_emisor=nit_emisor or None,
