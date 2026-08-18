@@ -365,6 +365,22 @@
           <div><button class="btn ghost" onclick="generarPartidaMasivoConSugerencia()">Usar sugerencia del historial en seleccionadas</button></div>
           <div><button class="btn" onclick="contabilizarMasivo()">✓ Contabilizar seleccionadas</button></div>
         </div>
+        <div class="row" style="margin:8px 0 0; align-items:flex-end;">
+          <div>
+            <label style="text-transform:none; font-size:12px;">Tipo de comprobante para el archivo plano (Siigo)</label>
+            <select id="masivoTipoComprobante">
+              <option value="">— usar la regla automática de la empresa —</option>
+              <option value="recibida">Factura recibida (compra)</option>
+              <option value="emitida">Factura emitida (venta)</option>
+              <option value="nota_credito">Nota crédito</option>
+              <option value="nota_debito">Nota débito</option>
+              <option value="nomina">Nómina</option>
+              <option value="documento_equivalente">Documento equivalente</option>
+            </select>
+          </div>
+          <div><button class="btn ghost" onclick="aplicarTipoComprobanteMasivo()">Aplicar tipo de comprobante a seleccionadas</button></div>
+          <span class="muted" style="font-size:12px; align-self:center;">No cambia si es gasto o ingreso — solo con qué código de comprobante sale en el archivo de Siigo.</span>
+        </div>
         <div id="resultadoMasivo" style="margin-top:8px;"></div>
       </div>
       <div id="listaFacturas"></div>
@@ -1348,6 +1364,36 @@ async function generarPartidaMasivoConSugerencia(){
     _mostrarResultadoMasivo(body, 'Partidas generadas');
     toast(`${body.aplicadas} partida(s) generada(s) con sugerencia del historial`);
     cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function aplicarTipoComprobanteMasivo(){
+  const ids = Array.from(facturaSeleccionParaExportar);
+  if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
+  const categoria = document.getElementById('masivoTipoComprobante').value;
+
+  let codigo = '';
+  if(categoria){
+    try{
+      const c = await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`);
+      const mapa = {
+        recibida: c.comprobante_factura_recibida, emitida: c.comprobante_factura_emitida,
+        nota_credito: c.comprobante_nota_credito, nota_debito: c.comprobante_nota_debito,
+        nomina: c.comprobante_nomina, documento_equivalente: c.comprobante_documento_equivalente,
+      };
+      codigo = mapa[categoria] || '';
+      if(!codigo){ toast('Esa categoría no tiene un código de comprobante configurado en Empresas → Tipo de comprobante por tipo de documento', true); return; }
+    }catch(e){ toast(e.message, true); return; }
+  }
+
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/tipo-comprobante-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids, tipo_comprobante: codigo}),
+    });
+    toast(categoria
+      ? `${body.aplicadas} factura(s) forzadas a comprobante "${codigo}"`
+      : `${body.aplicadas} factura(s) vueltas a la regla automática`);
   }catch(e){ toast(e.message, true); }
 }
 
