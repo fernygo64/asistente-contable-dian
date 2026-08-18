@@ -289,6 +289,16 @@
         Cuando tengas varias contabilizadas, ve a "Plantillas / Exportar".
       </p>
     </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Panel de clasificación rápida</h2>
+        <button class="btn ghost" onclick="cargarPanelClasificacion()">Actualizar panel</button>
+      </div>
+      <p class="muted">Agrupa automáticamente lo pendiente en tres bloques, para que no tengas que abrir factura por factura a ver qué falta — la aprobación final sigue siendo siempre tuya.</p>
+      <div id="panelClasificacion"><p class="muted">Cargando…</p></div>
+    </div>
+
     <div class="card">
       <div class="flex-between">
         <h2>Facturas</h2>
@@ -409,7 +419,7 @@ Credito=credito</textarea>
 
     <div class="card">
       <h2>Historial de exportaciones</h2>
-      <table><thead><tr><th>Fecha</th><th>Sistema</th><th>Registros</th><th>Estado</th><th>Archivo</th></tr></thead>
+      <table><thead><tr><th>Fecha</th><th>Sistema</th><th>Registros</th><th>Estado</th><th>Archivo</th><th></th></tr></thead>
         <tbody id="tablaExportaciones"></tbody></table>
     </div>
   </section>
@@ -494,7 +504,7 @@ document.getElementById('tabs').addEventListener('click', e=>{
   document.querySelectorAll('main > section').forEach(s=>s.classList.add('hidden'));
   document.getElementById('tab-' + e.target.dataset.tab).classList.remove('hidden');
   if(e.target.dataset.tab === 'historial') cargarImportacionesHistorial();
-  if(e.target.dataset.tab === 'facturas') cargarFacturas();
+  if(e.target.dataset.tab === 'facturas') { cargarFacturas(); cargarPanelClasificacion(); }
   if(e.target.dataset.tab === 'plantillas') { cargarPlantillas(); cargarExportaciones(); }
   if(e.target.dataset.tab === 'auditoria') cargarAuditoria();
 });
@@ -776,6 +786,7 @@ function irARevisarFacturas(){
   irAPestana('facturas', () => {
     document.getElementById('filtroEstado').value = '';
     cargarFacturas();
+    cargarPanelClasificacion();
   });
 }
 
@@ -928,6 +939,80 @@ async function eliminarImportacionHistorial(id, nombreArchivo){
 }
 
 // ---------- facturas ----------
+async function cargarPanelClasificacion(){
+  if(!empresaActivaId) return;
+  const el = document.getElementById('panelClasificacion');
+  try{
+    const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion`);
+    const filaFactura = (f, extra) => `
+      <div class="row" style="align-items:center; padding:4px 0; border-bottom:1px solid var(--border);">
+        <span style="flex:2;"><strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}
+          ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}</span>
+        <span class="mono">$${(f.total||0).toLocaleString('es-CO')}</span>
+        ${extra||''}
+      </div>`;
+
+    el.innerHTML = `
+      <div class="row" style="align-items:flex-start; gap:16px;">
+        <div style="flex:1; min-width:260px;">
+          <h3 style="margin:0 0 4px;">✅ Listas para aprobar (${panel.listas.length})</h3>
+          <p class="muted" style="font-size:12px;">Ya tienen partida generada y balanceada — solo falta contabilizarlas.</p>
+          ${panel.listas.length ? `<button class="btn" onclick="contabilizarBloque('listas')">Contabilizar las ${panel.listas.length}</button>` : ''}
+          <div style="max-height:220px; overflow-y:auto; margin-top:6px;">
+            ${panel.listas.map(f=>filaFactura(f)).join('') || '<p class="muted">Ninguna por ahora.</p>'}
+          </div>
+        </div>
+        <div style="flex:1; min-width:260px;">
+          <h3 style="margin:0 0 4px;">💡 Con sugerencia disponible (${panel.con_sugerencia.length})</h3>
+          <p class="muted" style="font-size:12px;">El historial ya sabe qué cuenta usar para cada una — falta generar la propuesta (sigue quedando pendiente de contabilizar hasta que la apruebes).</p>
+          ${panel.con_sugerencia.length ? `<button class="btn" onclick="generarPropuestasBloque()">Generar las ${panel.con_sugerencia.length} propuestas</button>` : ''}
+          <div style="max-height:220px; overflow-y:auto; margin-top:6px;">
+            ${panel.con_sugerencia.map(f=>filaFactura(f, `<span class="pill ok" style="font-size:11px;">${f.cuenta_sugerida}</span>`)).join('') || '<p class="muted">Ninguna por ahora.</p>'}
+          </div>
+        </div>
+        <div style="flex:1; min-width:260px;">
+          <h3 style="margin:0 0 4px;">⚠️ Necesitan tu criterio (${panel.necesita_revision.length})</h3>
+          <p class="muted" style="font-size:12px;">Sin sugerencia confiable (proveedor nuevo, nómina, o falta el NIT) — ábrelas en la lista de abajo para clasificarlas a mano.</p>
+          <div style="max-height:220px; overflow-y:auto; margin-top:6px;">
+            ${panel.necesita_revision.map(f=>filaFactura(f, `<span class="muted" style="font-size:11px;">${f.motivo||''}</span>`)).join('') || '<p class="muted">Ninguna por ahora.</p>'}
+          </div>
+        </div>
+      </div>
+    `;
+  }catch(e){ el.innerHTML = `<p class="muted">No se pudo cargar el panel: ${e.message}</p>`; }
+}
+
+async function contabilizarBloque(bloque){
+  const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion`);
+  const ids = panel[bloque].map(f=>f.id);
+  if(ids.length === 0) return;
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/contabilizar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids}),
+    });
+    toast(`${body.aplicadas} factura(s) contabilizada(s)`);
+    cargarPanelClasificacion();
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function generarPropuestasBloque(){
+  const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion`);
+  const ids = panel.con_sugerencia.map(f=>f.id);
+  if(ids.length === 0) return;
+  if(!confirm(`Se generará la propuesta de partida para ${ids.length} factura(s) usando la sugerencia del historial de cada una. Quedan pendientes de tu aprobación (Contabilizar), no se contabilizan solas. ¿Continuar?`)) return;
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/partida/generar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids, usar_sugerencia: true}),
+    });
+    toast(`${body.aplicadas} propuesta(s) generada(s) — revísalas y contabilízalas cuando estés de acuerdo`);
+    cargarPanelClasificacion();
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
 async function cargarFacturas(){
   if(!empresaActivaId){ document.getElementById('listaFacturas').innerHTML = '<p class="muted">Selecciona una empresa primero.</p>'; return; }
   const estado = document.getElementById('filtroEstado').value;
@@ -960,7 +1045,7 @@ async function cargarFacturas(){
         <div class="detail-body">
           <p><strong>Fuente:</strong> ${f.fuente_extraccion} · <strong>Relacionada con Excel:</strong> ${f.relacionada_con_excel?'Sí ('+f.metodo_relacion+')':'No'}
           ${f.motivo_no_relacionada ? '<br><span class="muted">'+f.motivo_no_relacionada+'</span>' : ''}</p>
-          ${f.naturaleza_documento === 'nomina' ? '<p class="pill warn">Documento de nómina electrónica — no se contabiliza automáticamente, regístralo manualmente.</p>' : ''}
+          ${f.naturaleza_documento === 'nomina' ? '<p class="pill warn">Documento de nómina electrónica — sin extracción automática de valor (esquema XML distinto). Indica el valor total abajo y regístrala manualmente.</p>' : ''}
           <button class="btn danger" style="margin-bottom:8px;" onclick="eliminarFactura('${f.id}')">Eliminar esta factura</button>
           ${f.direccion_documento === 'emitida' ? '<p class="pill warn">Factura EMITIDA por la empresa (venta) — usa cuentas de ingreso/clientes, no de gasto.</p>' : ''}
           ${f.es_posible_duplicado ? `<p class="pill err">Posible duplicado</p>
@@ -972,15 +1057,19 @@ async function cargarFacturas(){
           </div>
           <div id="sugerencia-${f.id}"></div>
 
+          ${f.naturaleza_documento === 'nomina' ? `
           <div class="row">
-            ${f.naturaleza_documento === 'nomina' ? '' : `
+            <div><label>Valor total de la nómina</label><input id="valor-${f.id}" type="number" step="0.01" placeholder="${f.total || '0'}"></div>
+            <div><button class="btn ghost" onclick="guardarValorNomina('${f.id}')">Guardar valor</button></div>
+          </div>
+          ` : ''}
+
+          <div class="row">
             <div><label>${f.direccion_documento === 'emitida' ? 'Cuenta de ingreso' : 'Cuenta de gasto'}</label><input id="cuenta-${f.id}" placeholder="${f.direccion_documento === 'emitida' ? '413595' : '513595'}"></div>
             <div><label>Centro de costo (opcional)</label><input id="cc-${f.id}" placeholder="CC01"></div>
             <div><button class="btn" onclick="generarPartida('${f.id}')">Generar partida doble</button></div>
             <div><button class="btn ghost" onclick="contabilizar('${f.id}')">Contabilizar</button></div>
-            `}
           </div>
-          ${f.naturaleza_documento === 'nomina' ? '' : `
           <details style="margin-top:4px;">
             <summary class="muted" style="cursor:pointer; font-size:12px;">Cambiar contrapartida (opcional — por defecto usa lo ya configurado en Empresas)</summary>
             <select id="contra-${f.id}" style="margin-top:6px;">
@@ -990,7 +1079,6 @@ async function cargarFacturas(){
               <option value="caja">Caja</option><option value="banco">Banco</option>
             </select>
           </details>
-          `}
           <div id="partida-${f.id}"></div>
         </div>
       </details>
@@ -1105,6 +1193,19 @@ async function resolverDuplicado(facturaId, esDuplicado){
       method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({es_duplicado: esDuplicado}),
     });
     toast('Resuelto');
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function guardarValorNomina(facturaId){
+  const valor = document.getElementById('valor-'+facturaId).value.trim();
+  if(!valor){ toast('Escribe el valor total de la nómina', true); return; }
+  try{
+    await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/corregir`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({subtotal: parseFloat(valor), total: parseFloat(valor)}),
+    });
+    toast('Valor guardado — ya puedes generar la partida');
     cargarFacturas();
   }catch(e){ toast(e.message, true); }
 }
@@ -1348,9 +1449,19 @@ async function cargarExportaciones(){
     document.getElementById('tablaExportaciones').innerHTML = exportaciones.map(ex=>`
       <tr><td>${new Date(ex.creado_en).toLocaleString('es-CO')}</td><td>${ex.sistema_contable}</td>
       <td>${ex.cantidad_registros}</td><td><span class="pill ${ex.estado==='generada'?'ok':'err'}">${ex.estado}</span></td>
-      <td>${ex.archivo_nombre||'—'}</td></tr>
-    `).join('') || '<tr><td colspan="5" class="muted">Sin exportaciones todavía.</td></tr>';
+      <td>${ex.archivo_nombre||'—'}</td>
+      <td><button class="btn danger" onclick="eliminarExportacion('${ex.id}')">Eliminar</button></td></tr>
+    `).join('') || '<tr><td colspan="6" class="muted">Sin exportaciones todavía.</td></tr>';
   }catch(e){ /* silencioso */ }
+}
+
+async function eliminarExportacion(id){
+  if(!confirm('¿Eliminar este registro del historial de exportaciones? No deshace nada contable — solo borra el registro de auditoría, útil sobre todo para poder luego borrar una plantilla que quedó bloqueada por haberse usado aquí.')) return;
+  try{
+    await req(`/empresas/${empresaActivaId}/exportaciones/${id}`, {method:'DELETE'});
+    toast('Exportación eliminada del historial');
+    cargarExportaciones();
+  }catch(e){ toast(e.message, true); }
 }
 
 // ---------- auditoría ----------
