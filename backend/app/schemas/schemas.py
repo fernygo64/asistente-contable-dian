@@ -168,6 +168,7 @@ class FacturaOut(BaseModel):
     cufe: Optional[str] = None
     numero_factura: Optional[str] = None
     prefijo: Optional[str] = None
+    tipo_comprobante_override: Optional[str] = None
     fecha_emision: Optional[datetime] = None
     nit_emisor: Optional[str] = None
     nombre_emisor: Optional[str] = None

@@ -339,6 +339,7 @@ class Factura(Base):
     cufe = Column(String(120), nullable=True, index=True)
     numero_factura = Column(String(60), nullable=True, index=True)
     prefijo = Column(String(20), nullable=True)
+    tipo_comprobante_override = Column(String(20), nullable=True)  # forzado manualmente en bloque (sección pedida: elegir masivamente, no factura por factura)
     fecha_emision = Column(DateTime(timezone=True), nullable=True)
     hora_emision = Column(String(20), nullable=True)
 

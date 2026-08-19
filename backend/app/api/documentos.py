@@ -423,16 +423,15 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
 
     # Contrapartida: si no se indicó explícitamente, se deriva de lo que
     # la empresa ya parametrizó (sección 38) — no hay que volver a
-    # elegirla en cada factura. Recibida -> proveedores; emitida ->
-    # clientes; en modo "solo_gastos" se usa la que la empresa SÍ tenga
-    # configurada (proveedores, si no caja, si no banco) — nunca se
-    # asume "proveedores" a ciegas si esa empresa no la maneja.
+    # elegirla en cada factura. Una EMITIDA real (no nómina) siempre usa
+    # clientes, sin importar el modo contable (misma prioridad que en
+    # generar_partida — una venta real nunca debe ir por "proveedores").
     if not contrapartida:
-        if empresa.modo_contable == "solo_gastos":
+        if f.direccion_documento == "emitida":
+            contrapartida = "clientes"
+        elif empresa.modo_contable == "solo_gastos":
             contrapartida = partida_doble_service._elegir_contrapartida_configurada(
                 empresa, ("proveedores", "caja", "banco")) or "proveedores"
-        elif f.direccion_documento == "emitida":
-            contrapartida = "clientes"
         else:
             contrapartida = "proveedores"
 
@@ -573,11 +572,13 @@ def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends
         cuenta_codigo = cuenta_fija
         if contrapartida_fija:
             contrapartida = contrapartida_fija
+        elif f.direccion_documento == "emitida":
+            contrapartida = "clientes"
         elif empresa.modo_contable == "solo_gastos":
             contrapartida = partida_doble_service._elegir_contrapartida_configurada(
                 empresa, ("proveedores", "caja", "banco")) or "proveedores"
         else:
-            contrapartida = "clientes" if f.direccion_documento == "emitida" else "proveedores"
+            contrapartida = "proveedores"
 
         if usar_sugerencia:
             if f.naturaleza_documento == "nomina":
@@ -664,6 +665,42 @@ def contabilizar_factura(empresa_id: str, factura_id: str, db: Session = Depends
     db.commit()
     db.refresh(f)
     return f
+
+
+@router.post("/tipo-comprobante-masivo")
+def aplicar_tipo_comprobante_masivo(empresa_id: str, payload: dict, db: Session = Depends(get_db),
+                                     empresa: Empresa = Depends(get_empresa_activa),
+                                     usuario: str = Depends(usuario_actual)):
+    """
+    Fuerza manualmente, en bloque, en qué tipo de comprobante de Siigo
+    se va a contabilizar un grupo de facturas seleccionadas — sin tener
+    que hacerlo factura por factura. Si `tipo_comprobante` viene vacío
+    o null, se QUITA el forzado (vuelve a usar la regla automática de
+    la empresa según naturaleza/dirección del documento).
+    """
+    factura_ids = payload.get("factura_ids") or []
+    tipo_comprobante = (payload.get("tipo_comprobante") or "").strip() or None
+    if not factura_ids:
+        raise HTTPException(status_code=422, detail="factura_ids no puede estar vacío.")
+
+    facturas = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id.in_(factura_ids)).all()
+    encontradas = {f.id: f for f in facturas}
+
+    aplicadas = 0
+    resultados = []
+    for fid in factura_ids:
+        f = encontradas.get(fid)
+        if not f:
+            resultados.append({"factura_id": fid, "estado": "no_encontrada"})
+            continue
+        f.tipo_comprobante_override = tipo_comprobante
+        aplicadas += 1
+
+    auditoria_registrar(db, empresa_id, "Factura", None, "tipo_comprobante_masivo_aplicado",
+                         {"factura_ids": factura_ids, "tipo_comprobante": tipo_comprobante, "aplicadas": aplicadas},
+                         usuario)
+    db.commit()
+    return {"aplicadas": aplicadas, "tipo_comprobante": tipo_comprobante, "resultados": resultados}
 
 
 @router.post("/contabilizar-masivo")

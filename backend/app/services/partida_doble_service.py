@@ -380,11 +380,19 @@ def generar_partida(db: Session, empresa: Empresa, factura: Factura,
                                  total_credito=total_credito, balanceado=resultado.balanceado,
                                  errores=resultado.errores)
 
-    # En modo "solo_gastos" (persona natural que solo lleva sus propios
-    # gastos), TODO se contabiliza por el lado de gasto sin importar lo
-    # que diga la clasificación Emitido/Recibido de la DIAN — evita
-    # exigir cuentas de ingresos/clientes que esta empresa no necesita.
-    if empresa.modo_contable == "solo_gastos":
+    # Una factura EMITIDA real (no nómina, ya se descartó arriba) SIEMPRE
+    # va por el camino de venta — sin importar el modo contable. El
+    # módulo "Facturas Emitidas" ya garantiza que solo llegan ventas
+    # genuinas aquí (nunca nómina, eso se maneja aparte arriba); forzar
+    # esto por "solo_gastos" invertía una venta real (bug real reportado:
+    # una cuenta de INGRESO terminaba debitada en vez de acreditada).
+    if factura.direccion_documento == "emitida":
+        resultado = _generar_partida_venta(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
+    elif empresa.modo_contable == "solo_gastos":
+        # En modo "solo_gastos" (persona natural que solo lleva sus
+        # propios gastos), lo que NO sea una venta clara se contabiliza
+        # por el lado de gasto — evita exigir cuentas de ingresos/
+        # clientes que esta empresa no necesita para sus compras.
         contrapartida_efectiva = contrapartida
         if contrapartida == "clientes":
             # "Clientes" no aplica en este modo — se usa lo que la
@@ -393,8 +401,6 @@ def generar_partida(db: Session, empresa: Empresa, factura: Factura,
             contrapartida_efectiva = _elegir_contrapartida_configurada(
                 empresa, ("proveedores", "caja", "banco")) or "proveedores"
         resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida_efectiva, centro_costo)
-    elif factura.direccion_documento == "emitida":
-        resultado = _generar_partida_venta(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
     else:
         resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
 

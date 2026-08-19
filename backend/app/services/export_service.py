@@ -22,7 +22,14 @@ def _tipo_comprobante_para_factura(empresa: Empresa, factura: Factura) -> str:
     clasificación real del documento — nunca el mismo para compras,
     ventas, notas y nómina (sección 19-21, confirmado con archivos
     reales de Siigo/World Office que usan comprobantes distintos).
+
+    Si el usuario forzó manualmente un tipo de comprobante en bloque
+    para esta factura (sección pedida: escoger masivamente en qué tipo
+    de documento se contabiliza, sin hacerlo factura por factura), ese
+    valor manda sobre la regla automática.
     """
+    if factura.tipo_comprobante_override:
+        return factura.tipo_comprobante_override
     if factura.naturaleza_documento == "nota_credito":
         return empresa.comprobante_nota_credito or ""
     if factura.naturaleza_documento == "nota_debito":
