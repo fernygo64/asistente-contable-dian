@@ -148,14 +148,32 @@
 
     <div class="card">
       <h2>Tipo de comprobante por tipo de documento</h2>
-      <p class="muted">En Siigo/World Office, las compras, ventas, notas y nómina normalmente van a comprobantes distintos — configúralo una sola vez aquí y las plantillas de exportación lo usan automáticamente según la clasificación de cada factura. Si dejas alguno vacío, esa columna sale en blanco en el archivo (nunca se inventa un código).</p>
+      <p class="muted">En Siigo/World Office, las compras, ventas, notas y nómina normalmente van a comprobantes distintos — configúralo una sola vez aquí y las plantillas de exportación lo usan automáticamente según la clasificación de cada factura. Si dejas alguno vacío, esa columna sale en blanco en el archivo (nunca se inventa un código). Para Siigo Pyme, cada campo sugiere los códigos reales de "Tipos de Documento" de Siigo (verificado contra la aplicación real) — puedes elegir uno o escribir el tuyo si tu empresa usa otro.</p>
+      <datalist id="siigoTiposComprobante">
+        <option value="A">A — Ajuste</option>
+        <option value="C">C — N.Crédito</option>
+        <option value="D">D — N.Débito</option>
+        <option value="E">E — N.Entrada</option>
+        <option value="F">F — Facturas</option>
+        <option value="G">G — Egresos</option>
+        <option value="H">H — N.Salida</option>
+        <option value="J">J — Devolución Vtas</option>
+        <option value="L">L — Otros</option>
+        <option value="N">N — N.Interna</option>
+        <option value="O">O — N.Producción</option>
+        <option value="P">P — Compras</option>
+        <option value="R">R — Recibos</option>
+        <option value="S">S — N.Remisión</option>
+        <option value="T">T — N.Traslado</option>
+        <option value="U">U — Devolución Compr</option>
+      </datalist>
       <div class="row">
-        <div><label>Facturas recibidas (compras)</label><input id="tcRecibida" placeholder="CC"></div>
-        <div><label>Facturas emitidas (ventas)</label><input id="tcEmitida" placeholder="FV"></div>
-        <div><label>Notas crédito</label><input id="tcNotaCredito" placeholder="NC"></div>
-        <div><label>Notas débito</label><input id="tcNotaDebito" placeholder="ND"></div>
-        <div><label>Nómina</label><input id="tcNomina" placeholder="NI"></div>
-        <div><label>Documento equivalente</label><input id="tcEquivalente" placeholder="DE"></div>
+        <div><label>Facturas recibidas (compras)</label><input id="tcRecibida" list="siigoTiposComprobante" placeholder="P"></div>
+        <div><label>Facturas emitidas (ventas)</label><input id="tcEmitida" list="siigoTiposComprobante" placeholder="F"></div>
+        <div><label>Notas crédito</label><input id="tcNotaCredito" list="siigoTiposComprobante" placeholder="C"></div>
+        <div><label>Notas débito</label><input id="tcNotaDebito" list="siigoTiposComprobante" placeholder="D"></div>
+        <div><label>Nómina</label><input id="tcNomina" list="siigoTiposComprobante" placeholder="N"></div>
+        <div><label>Documento equivalente</label><input id="tcEquivalente" list="siigoTiposComprobante" placeholder="E"></div>
         <div><button class="btn" onclick="guardarComprobantesPorTipo()">Guardar</button></div>
       </div>
     </div>
