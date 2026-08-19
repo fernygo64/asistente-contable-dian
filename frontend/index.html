@@ -149,24 +149,7 @@
     <div class="card">
       <h2>Tipo de comprobante por tipo de documento</h2>
       <p class="muted">En Siigo/World Office, las compras, ventas, notas y nómina normalmente van a comprobantes distintos — configúralo una sola vez aquí y las plantillas de exportación lo usan automáticamente según la clasificación de cada factura. Si dejas alguno vacío, esa columna sale en blanco en el archivo (nunca se inventa un código). Para Siigo Pyme, cada campo sugiere los códigos reales de "Tipos de Documento" de Siigo (verificado contra la aplicación real) — puedes elegir uno o escribir el tuyo si tu empresa usa otro.</p>
-      <datalist id="siigoTiposComprobante">
-        <option value="A">A — Ajuste</option>
-        <option value="C">C — N.Crédito</option>
-        <option value="D">D — N.Débito</option>
-        <option value="E">E — N.Entrada</option>
-        <option value="F">F — Facturas</option>
-        <option value="G">G — Egresos</option>
-        <option value="H">H — N.Salida</option>
-        <option value="J">J — Devolución Vtas</option>
-        <option value="L">L — Otros</option>
-        <option value="N">N — N.Interna</option>
-        <option value="O">O — N.Producción</option>
-        <option value="P">P — Compras</option>
-        <option value="R">R — Recibos</option>
-        <option value="S">S — N.Remisión</option>
-        <option value="T">T — N.Traslado</option>
-        <option value="U">U — Devolución Compr</option>
-      </datalist>
+      <datalist id="siigoTiposComprobante"></datalist>
       <div class="row">
         <div><label>Facturas recibidas (compras)</label><input id="tcRecibida" list="siigoTiposComprobante" placeholder="P"></div>
         <div><label>Facturas emitidas (ventas)</label><input id="tcEmitida" list="siigoTiposComprobante" placeholder="F"></div>
@@ -385,19 +368,13 @@
         </div>
         <div class="row" style="margin:8px 0 0; align-items:flex-end;">
           <div>
-            <label style="text-transform:none; font-size:12px;">Tipo de comprobante para el archivo plano (Siigo)</label>
+            <label style="text-transform:none; font-size:12px;">Tipo de comprobante para el archivo plano</label>
             <select id="masivoTipoComprobante">
-              <option value="">— usar la regla automática de la empresa —</option>
-              <option value="recibida">Factura recibida (compra)</option>
-              <option value="emitida">Factura emitida (venta)</option>
-              <option value="nota_credito">Nota crédito</option>
-              <option value="nota_debito">Nota débito</option>
-              <option value="nomina">Nómina</option>
-              <option value="documento_equivalente">Documento equivalente</option>
+              <option value="">— usar la configurada automáticamente —</option>
             </select>
           </div>
           <div><button class="btn ghost" onclick="aplicarTipoComprobanteMasivo()">Aplicar tipo de comprobante a seleccionadas</button></div>
-          <span class="muted" style="font-size:12px; align-self:center;">No cambia si es gasto o ingreso — solo con qué código de comprobante sale en el archivo de Siigo.</span>
+          <span class="muted" style="font-size:12px; align-self:center;">No cambia si es gasto o ingreso — solo con qué código de comprobante sale en el archivo. Pasa el mouse sobre cada código para ver su nombre completo.</span>
         </div>
         <div id="resultadoMasivo" style="margin-top:8px;"></div>
       </div>
@@ -542,6 +519,41 @@ async function req(path, options){
 }
 
 // ---------- navegación ----------
+// Catálogo real de tipos de comprobante — verificado contra la
+// aplicación real de cada sistema (capturas del usuario). Cambia según
+// el sistema contable de la empresa activa.
+const TIPOS_COMPROBANTE_POR_SISTEMA = {
+  siigo_pyme: [
+    {codigo: 'A', nombre: 'Ajuste'}, {codigo: 'C', nombre: 'N.Crédito'}, {codigo: 'D', nombre: 'N.Débito'},
+    {codigo: 'E', nombre: 'N.Entrada'}, {codigo: 'F', nombre: 'Facturas'}, {codigo: 'G', nombre: 'Egresos'},
+    {codigo: 'H', nombre: 'N.Salida'}, {codigo: 'J', nombre: 'Devolución Vtas'}, {codigo: 'L', nombre: 'Otros'},
+    {codigo: 'N', nombre: 'N.Interna'}, {codigo: 'O', nombre: 'N.Producción'}, {codigo: 'P', nombre: 'Compras'},
+    {codigo: 'R', nombre: 'Recibos'}, {codigo: 'S', nombre: 'N.Remisión'}, {codigo: 'T', nombre: 'N.Traslado'},
+    {codigo: 'U', nombre: 'Devolución Compr'},
+  ],
+  world_office: [
+    {codigo: 'CD', nombre: 'Comprobante de Diario'}, {codigo: 'FV', nombre: 'Factura de Venta'},
+    {codigo: 'FC', nombre: 'Factura de Compra'}, {codigo: 'RC', nombre: 'Recibo de Caja / Comprobante de Ingreso'},
+    {codigo: 'CE', nombre: 'Comprobante de Egreso / Causal de Pago'}, {codigo: 'ND', nombre: 'Nota Débito'},
+    {codigo: 'NC', nombre: 'Nota Crédito'}, {codigo: 'CN', nombre: 'Comprobante de Nómina'},
+    {codigo: 'NA', nombre: 'Nota de Ajuste Contable'}, {codigo: 'TR', nombre: 'Comprobante de Traslado o Transferencia'},
+    {codigo: 'DS', nombre: 'Documento Soporte'},
+  ],
+};
+
+function poblarTiposComprobante(sistemaContable){
+  const lista = TIPOS_COMPROBANTE_POR_SISTEMA[sistemaContable] || [];
+
+  const datalist = document.getElementById('siigoTiposComprobante');
+  if(datalist) datalist.innerHTML = lista.map(t => `<option value="${t.codigo}">${t.codigo} — ${t.nombre}</option>`).join('');
+
+  const selectMasivo = document.getElementById('masivoTipoComprobante');
+  if(selectMasivo){
+    selectMasivo.innerHTML = '<option value="">— usar la configurada automáticamente —</option>'
+      + lista.map(t => `<option value="${t.codigo}" title="${t.nombre}">${t.codigo}</option>`).join('');
+  }
+}
+
 let moduloFacturasActivo = 'recibidas';
 document.getElementById('tabs').addEventListener('click', e=>{
   if(e.target.tagName !== 'BUTTON') return;
@@ -641,6 +653,7 @@ async function seleccionarEmpresa(id){
   const elBoton = document.getElementById('histSistemaNombre'); if(elBoton) elBoton.textContent = nombreSistema;
   const elTexto = document.getElementById('histSistemaNombre2'); if(elTexto) elTexto.textContent = nombreSistema;
   const elModo = document.getElementById('modoContableSelect'); if(elModo) elModo.value = emp.modo_contable || 'mixto';
+  poblarTiposComprobante(emp.sistema_contable);
   await cargarEmpresas();
   await cargarCuentasBase();
   await cargarCentrosCosto();
@@ -1388,28 +1401,14 @@ async function generarPartidaMasivoConSugerencia(){
 async function aplicarTipoComprobanteMasivo(){
   const ids = Array.from(facturaSeleccionParaExportar);
   if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
-  const categoria = document.getElementById('masivoTipoComprobante').value;
-
-  let codigo = '';
-  if(categoria){
-    try{
-      const c = await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`);
-      const mapa = {
-        recibida: c.comprobante_factura_recibida, emitida: c.comprobante_factura_emitida,
-        nota_credito: c.comprobante_nota_credito, nota_debito: c.comprobante_nota_debito,
-        nomina: c.comprobante_nomina, documento_equivalente: c.comprobante_documento_equivalente,
-      };
-      codigo = mapa[categoria] || '';
-      if(!codigo){ toast('Esa categoría no tiene un código de comprobante configurado en Empresas → Tipo de comprobante por tipo de documento', true); return; }
-    }catch(e){ toast(e.message, true); return; }
-  }
+  const codigo = document.getElementById('masivoTipoComprobante').value;
 
   try{
     const body = await req(`/empresas/${empresaActivaId}/documentos/tipo-comprobante-masivo`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({factura_ids: ids, tipo_comprobante: codigo}),
     });
-    toast(categoria
+    toast(codigo
       ? `${body.aplicadas} factura(s) forzadas a comprobante "${codigo}"`
       : `${body.aplicadas} factura(s) vueltas a la regla automática`);
   }catch(e){ toast(e.message, true); }
