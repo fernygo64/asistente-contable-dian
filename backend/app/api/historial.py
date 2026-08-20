@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_empresa_activa, usuario_actual
-from app.models.models import Empresa, OrigenDecision, ImportacionHistorico
+from app.models.models import Empresa, OrigenDecision, ImportacionHistorico, HistorialContable, Proveedor, CuentaContable, Empleado
 from app.schemas.schemas import SugerenciaCuenta, ImportacionResumen, HistorialManualCreate
 from app.services import historial_service, importacion_service
 from app.services.auditoria_service import registrar as auditoria_registrar
@@ -298,3 +298,130 @@ def registrar_decision_manual(empresa_id: str, payload: HistorialManualCreate,
         "cuenta_id": cuenta.id,
         "mensaje": "Decisión registrada. El historial se actualizó sin borrar decisiones anteriores.",
     }
+
+
+@router.get("/detectar-empleados")
+def detectar_empleados_desde_historial(empresa_id: str, db: Session = Depends(get_db),
+                                        empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Busca en el historial YA CARGADO (Auxiliar/Movimiento contable)
+    comprobantes de nómina completos: agrupa las líneas por su mismo
+    "número de documento" y, cuando encuentra que ese comprobante usó
+    la cuenta de "nómina por pagar" configurada en Empresas → Cuentas
+    de nómina, el NIT de esa línea es el candidato a EMPLEADO — y si en
+    el MISMO comprobante también aparecen las cuentas de salud/pensión/
+    ARL/caja de compensación por pagar, sus NIT son las afiliaciones
+    reales de ese empleado (nunca se inventa una afiliación: solo se
+    reporta lo que de verdad coincidió en el mismo comprobante real).
+
+    Nunca crea nada solo — devuelve candidatos para que el usuario
+    confirme cuáles quiere dar de alta en "Empleados".
+    """
+    cuentas_nomina = {
+        "eps": empresa.cuenta_salud_por_pagar_id, "afp": empresa.cuenta_pension_por_pagar_id,
+        "arl": empresa.cuenta_arl_por_pagar_id, "caja": empresa.cuenta_caja_compensacion_por_pagar_id,
+    }
+    if not empresa.cuenta_nomina_por_pagar_id:
+        return {"candidatos": [],
+                "aviso": "Configura primero la cuenta de 'Nómina por pagar' en Empresas → Cuentas de nómina "
+                         "para poder detectar empleados desde el historial."}
+
+    filas = (
+        db.query(HistorialContable)
+        .filter(HistorialContable.empresa_id == empresa_id, HistorialContable.numero_documento.isnot(None))
+        .all()
+    )
+    if not filas:
+        return {"candidatos": [], "aviso": "Todavía no hay historial cargado (Auxiliar/Movimiento contable)."}
+
+    por_documento: dict[str, list[HistorialContable]] = {}
+    for f in filas:
+        por_documento.setdefault(f.numero_documento, []).append(f)
+
+    proveedores_ids = {f.proveedor_id for lista in por_documento.values() for f in lista}
+    proveedores = {p.id: p for p in db.query(Proveedor).filter(Proveedor.id.in_(proveedores_ids)).all()}
+
+    candidatos_por_nit: dict[str, dict] = {}
+    for numero_documento, lineas in por_documento.items():
+        linea_empleado = next((l for l in lineas if l.cuenta_id == empresa.cuenta_nomina_por_pagar_id), None)
+        if not linea_empleado:
+            continue
+        prov_empleado = proveedores.get(linea_empleado.proveedor_id)
+        if not prov_empleado:
+            continue
+
+        candidato = candidatos_por_nit.setdefault(prov_empleado.nit, {
+            "nit": prov_empleado.nit, "nombre": prov_empleado.nombre,
+            "eps_nit": None, "eps_nombre": None, "afp_nit": None, "afp_nombre": None,
+            "arl_nit": None, "arl_nombre": None, "caja_compensacion_nit": None, "caja_compensacion_nombre": None,
+            "comprobantes_detectados": 0,
+        })
+        candidato["comprobantes_detectados"] += 1
+
+        for clave, campo_cuenta_id in cuentas_nomina.items():
+            if not campo_cuenta_id:
+                continue
+            linea_afiliacion = next((l for l in lineas if l.cuenta_id == campo_cuenta_id), None)
+            if not linea_afiliacion:
+                continue
+            prov_afiliacion = proveedores.get(linea_afiliacion.proveedor_id)
+            if not prov_afiliacion:
+                continue
+            campo_nit = {"eps": "eps_nit", "afp": "afp_nit", "arl": "arl_nit", "caja": "caja_compensacion_nit"}[clave]
+            campo_nombre = {"eps": "eps_nombre", "afp": "afp_nombre", "arl": "arl_nombre", "caja": "caja_compensacion_nombre"}[clave]
+            candidato[campo_nit] = prov_afiliacion.nit
+            candidato[campo_nombre] = prov_afiliacion.nombre
+
+    ya_existentes = {e.nit for e in db.query(Empleado).filter_by(empresa_id=empresa_id).all()}
+    candidatos = [c for c in candidatos_por_nit.values() if c["nit"] not in ya_existentes]
+    return {"candidatos": candidatos, "aviso": None}
+
+
+_PALABRAS_CLAVE_CUENTA_NOMINA = {
+    "cuenta_salario": ["salario", "sueldo"],
+    "cuenta_auxilio_transporte": ["auxilio de transporte", "auxilio transporte"],
+    "cuenta_nomina_por_pagar": ["nomina por pagar", "nómina por pagar", "salarios por pagar"],
+    "cuenta_salud_por_pagar": ["salud por pagar", "eps por pagar"],
+    "cuenta_pension_por_pagar": ["pension por pagar", "pensión por pagar", "fondo de pension", "afp por pagar"],
+    "cuenta_cesantias": ["cesantias", "cesantías"],
+    "cuenta_cesantias_por_pagar": ["cesantias por pagar", "cesantías por pagar"],
+    "cuenta_intereses_cesantias": ["intereses sobre cesantias", "intereses cesantias", "intereses sobre cesantías"],
+    "cuenta_intereses_cesantias_por_pagar": ["intereses cesantias por pagar", "intereses sobre cesantias por pagar"],
+    "cuenta_prima": ["prima de servicios", "prima"],
+    "cuenta_prima_por_pagar": ["prima por pagar", "prima de servicios por pagar"],
+    "cuenta_vacaciones": ["vacaciones"],
+    "cuenta_vacaciones_por_pagar": ["vacaciones por pagar"],
+    "cuenta_arl": ["arl", "riesgos laborales"],
+    "cuenta_arl_por_pagar": ["arl por pagar"],
+    "cuenta_caja_compensacion": ["caja de compensacion", "caja de compensación"],
+    "cuenta_caja_compensacion_por_pagar": ["caja de compensacion por pagar", "caja de compensación por pagar"],
+}
+
+
+@router.get("/sugerir-cuentas-nomina")
+def sugerir_cuentas_nomina(empresa_id: str, db: Session = Depends(get_db),
+                            empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Busca en las cuentas propias de la empresa (típicamente con nombres
+    reales ya traídos del historial cargado) coincidencias por palabra
+    clave para cada uno de los 16 conceptos de "Cuentas de nómina" —
+    solo SUGIERE, nunca guarda nada solo; si hay ambigüedad (2+
+    coincidencias para el mismo concepto) no arriesga, deja ese
+    concepto sin sugerencia para que el usuario decida.
+    """
+    from app.services.historial_service import _normalizar_texto
+
+    cuentas = db.query(CuentaContable).filter(
+        CuentaContable.empresa_id == empresa_id, CuentaContable.activa.is_(True)
+    ).all()
+
+    sugerencias = {}
+    for campo, palabras in _PALABRAS_CLAVE_CUENTA_NOMINA.items():
+        coincidencias = [
+            c for c in cuentas
+            if any(p in _normalizar_texto(c.nombre) for p in [_normalizar_texto(pal) for pal in palabras])
+        ]
+        if len(coincidencias) == 1:
+            c = coincidencias[0]
+            sugerencias[campo] = {"codigo": c.codigo, "nombre": c.nombre}
+    return {"sugerencias": sugerencias}

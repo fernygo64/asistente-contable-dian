@@ -59,6 +59,24 @@ async def sugerir_mapeo_excel_dian(empresa_id: str, archivo: UploadFile = File(.
     return {"columnas": columnas, **resultado}
 
 
+@router.get("/cargas")
+def listar_cargas(empresa_id: str, db: Session = Depends(get_db),
+                   empresa: Empresa = Depends(get_empresa_activa)):
+    """
+    Historial simple de qué se ha cargado hasta ahora — solo el nombre
+    del ZIP y cuándo, para que el usuario sepa de un vistazo qué ya
+    subió (pedido explícito: "solo debe salir el nombre del ZIP y ya,
+    sin mayor información").
+    """
+    cargas = db.query(CargaDocumentosDian).filter(
+        CargaDocumentosDian.empresa_id == empresa_id
+    ).order_by(CargaDocumentosDian.creado_en.desc()).all()
+    return [
+        {"id": c.id, "archivo_zip_nombre": c.archivo_zip_nombre, "creado_en": c.creado_en}
+        for c in cargas
+    ]
+
+
 @router.get("/resumen-por-tipo")
 def resumen_por_tipo(empresa_id: str, db: Session = Depends(get_db),
                       empresa: Empresa = Depends(get_empresa_activa)):
