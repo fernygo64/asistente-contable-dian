@@ -26,7 +26,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.models import Empresa, Factura, Movimiento, TipoMovimiento, CuentaContable
+from app.models.models import Empresa, Factura, Movimiento, TipoMovimiento, CuentaContable, Empleado
 
 
 @dataclass
@@ -39,6 +39,8 @@ class LineaPartida:
     descripcion: str = ""
     centro_costo_id: Optional[str] = None
     centro_costo_codigo: Optional[str] = None
+    tercero_nit_override: Optional[str] = None      # solo cuando el tercero de ESTA línea es distinto al de la factura (nómina: EPS/AFP)
+    tercero_nombre_override: Optional[str] = None
 
 
 @dataclass
@@ -357,6 +359,138 @@ def _elegir_contrapartida_configurada(empresa: Empresa, orden: tuple[str, ...]) 
     return None
 
 
+def _generar_partida_nomina_multilinea(db: Session, empresa: Empresa, factura: Factura,
+                                        centro_costo_id: Optional[str]) -> Optional[ResultadoPartida]:
+    """
+    Asiento multilínea real de nómina, verificado contra un comprobante
+    real de Siigo (pedido explícito del usuario, con dos XML reales de
+    nómina electrónica de la DIAN aportados como referencia):
+
+    - Salario (+ auxilio de transporte si aplica) se debita completo a
+      la cuenta de gasto, y se acredita repartido entre: la EPS del
+      empleado (deducción de salud), su fondo de pensión (deducción de
+      pensión), y la cuenta de nómina por pagar por el NETO restante —
+      exactamente como en el comprobante real (una sola línea de gasto,
+      tres créditos que suman lo mismo).
+    - Cesantías, intereses sobre cesantías, prima de servicios y
+      vacaciones se provisionan aparte, con las fórmulas legales fijas
+      colombianas sobre el salario devengado (8.3333%, 12% anual sobre
+      las cesantías, 8.3333% y 4.1667% respectivamente) — verificadas
+      al peso contra el comprobante real del usuario. Cada una es
+      opcional: si la empresa no configuró esa cuenta, simplemente no
+      se genera esa línea (nunca bloquea el resto).
+    - ARL y caja de compensación NO se calculan automáticamente (varían
+      por empresa/clase de riesgo, no hay un porcentaje único de ley) —
+      quedan para que el usuario las registre aparte si las necesita.
+
+    Devuelve None si faltan los prerrequisitos mínimos (sin desglose
+    real extraído del XML, sin ficha de empleado con NIT, o sin las
+    cuentas base de salario/nómina por pagar configuradas) — en ese
+    caso quien llama cae al camino simple de un solo gasto+contrapartida
+    elegido a mano, como antes.
+    """
+    if not factura.nomina_detalle_json or not factura.tercero_nit:
+        return None
+    try:
+        detalle = json.loads(factura.nomina_detalle_json)
+    except (ValueError, TypeError):
+        return None
+
+    empleado = db.query(Empleado).filter(
+        Empleado.empresa_id == empresa.id, Empleado.nit == factura.tercero_nit
+    ).first()
+    if not empleado or not empresa.cuenta_salario_id or not empresa.cuenta_nomina_por_pagar_id:
+        return None
+
+    def cta(cuenta_id):
+        return db.get(CuentaContable, cuenta_id) if cuenta_id else None
+
+    salario = float(detalle.get("devengado_basico") or 0)
+    transporte = float(detalle.get("devengado_transporte") or 0)
+    salud = float(detalle.get("deduccion_salud") or 0)
+    pension = float(detalle.get("deduccion_pension") or 0)
+    neto_a_pagar = round((salario + transporte) - (salud + pension), 2)
+    nombre_empleado = empleado.nombre or empleado.nit
+
+    errores: list[str] = []
+    lineas: list[LineaPartida] = []
+
+    cta_salario = cta(empresa.cuenta_salario_id)
+    if salario > 0:
+        if cta_salario:
+            lineas.append(LineaPartida(cta_salario.id, cta_salario.codigo, cta_salario.nombre, "debito", salario,
+                                        f"Nómina {factura.numero_factura or ''} — salario — {nombre_empleado}".strip(),
+                                        centro_costo_id))
+        else:
+            errores.append("Falta configurar la cuenta de Salario en Empresas → Cuentas de nómina.")
+
+    if transporte > 0:
+        cta_transporte = cta(empresa.cuenta_auxilio_transporte_id)
+        if cta_transporte:
+            lineas.append(LineaPartida(cta_transporte.id, cta_transporte.codigo, cta_transporte.nombre, "debito",
+                                        transporte, f"Nómina {factura.numero_factura or ''} — auxilio de transporte — {nombre_empleado}".strip(),
+                                        centro_costo_id))
+        else:
+            errores.append("Falta configurar la cuenta de Auxilio de transporte en Empresas → Cuentas de nómina.")
+
+    if salud > 0:
+        cta_salud = cta(empresa.cuenta_salud_por_pagar_id)
+        if not cta_salud:
+            errores.append("Falta configurar la cuenta de Salud por pagar en Empresas → Cuentas de nómina.")
+        elif not empleado.eps_nit:
+            errores.append(f"Falta el NIT de la EPS en la ficha del empleado {nombre_empleado} (módulo Empleados).")
+        else:
+            lineas.append(LineaPartida(cta_salud.id, cta_salud.codigo, cta_salud.nombre, "credito", salud,
+                                        f"Salud por pagar — {empleado.eps_nombre or empleado.eps_nit}",
+                                        tercero_nit_override=empleado.eps_nit, tercero_nombre_override=empleado.eps_nombre))
+
+    if pension > 0:
+        cta_pension = cta(empresa.cuenta_pension_por_pagar_id)
+        if not cta_pension:
+            errores.append("Falta configurar la cuenta de Pensión por pagar en Empresas → Cuentas de nómina.")
+        elif not empleado.afp_nit:
+            errores.append(f"Falta el NIT del fondo de pensión en la ficha del empleado {nombre_empleado} (módulo Empleados).")
+        else:
+            lineas.append(LineaPartida(cta_pension.id, cta_pension.codigo, cta_pension.nombre, "credito", pension,
+                                        f"Pensión por pagar — {empleado.afp_nombre or empleado.afp_nit}",
+                                        tercero_nit_override=empleado.afp_nit, tercero_nombre_override=empleado.afp_nombre))
+
+    if neto_a_pagar > 0:
+        cta_nomina_pagar = cta(empresa.cuenta_nomina_por_pagar_id)
+        if cta_nomina_pagar:
+            lineas.append(LineaPartida(cta_nomina_pagar.id, cta_nomina_pagar.codigo, cta_nomina_pagar.nombre,
+                                        "credito", neto_a_pagar, f"Nómina por pagar — {nombre_empleado}"))
+        else:
+            errores.append("Falta configurar la cuenta de Nómina por pagar en Empresas → Cuentas de nómina.")
+
+    def _provision(valor: float, cuenta_gasto_id, cuenta_pagar_id, nombre_concepto: str):
+        if valor <= 0:
+            return
+        cg, cp = cta(cuenta_gasto_id), cta(cuenta_pagar_id)
+        if not cg or not cp:
+            return  # provisión opcional: si no está configurada, no se genera (no bloquea el resto)
+        lineas.append(LineaPartida(cg.id, cg.codigo, cg.nombre, "debito", valor,
+                                    f"{nombre_concepto} — {nombre_empleado}", centro_costo_id))
+        lineas.append(LineaPartida(cp.id, cp.codigo, cp.nombre, "credito", valor,
+                                    f"{nombre_concepto} por pagar — {nombre_empleado}"))
+
+    cesantias = round(salario * 0.0833333, 2)
+    intereses_cesantias = round(cesantias * 0.12, 2)
+    prima = round(salario * 0.0833333, 2)
+    vacaciones = round(salario * 0.0416667, 2)
+
+    _provision(cesantias, empresa.cuenta_cesantias_id, empresa.cuenta_cesantias_por_pagar_id, "Cesantías")
+    _provision(intereses_cesantias, empresa.cuenta_intereses_cesantias_id,
+               empresa.cuenta_intereses_cesantias_por_pagar_id, "Intereses sobre cesantías")
+    _provision(prima, empresa.cuenta_prima_id, empresa.cuenta_prima_por_pagar_id, "Prima de servicios")
+    _provision(vacaciones, empresa.cuenta_vacaciones_id, empresa.cuenta_vacaciones_por_pagar_id, "Vacaciones")
+
+    total_debito, total_credito = _totales(lineas)
+    balanceado = abs(total_debito - total_credito) < 0.01 and not errores
+    return ResultadoPartida(lineas=lineas, total_debito=total_debito, total_credito=total_credito,
+                             balanceado=balanceado, errores=errores)
+
+
 def generar_partida(db: Session, empresa: Empresa, factura: Factura,
                      cuenta_gasto_id: str, contrapartida: str = "proveedores",
                      centro_costo=None) -> ResultadoPartida:
@@ -369,11 +503,13 @@ def generar_partida(db: Session, empresa: Empresa, factura: Factura,
     gasto/ingreso (nunca a IVA, retenciones ni contrapartida).
     """
     if factura.naturaleza_documento == "nomina":
-        # No hay extracción automática de conceptos de nómina (esquema
-        # XML distinto) — pero SÍ se permite que el usuario la registre
-        # manualmente, eligiendo su propia cuenta y contrapartida, igual
-        # que cualquier otro gasto. Nunca se sugiere sola ni entra en el
-        # "usar sugerencia" masivo (eso sigue excluyendo nómina aparte).
+        resultado_multilinea = _generar_partida_nomina_multilinea(db, empresa, factura, centro_costo)
+        if resultado_multilinea is not None:
+            return resultado_multilinea
+        # Sin los prerrequisitos del asiento multilínea (falta ficha de
+        # empleado, cuentas de nómina configuradas, o desglose real del
+        # XML) — se sigue permitiendo el registro manual simple de
+        # siempre, con la cuenta y contrapartida que el usuario elija.
         resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
         total_debito, total_credito = _totales(resultado.lineas)
         return ResultadoPartida(lineas=resultado.lineas, total_debito=total_debito,
@@ -434,6 +570,8 @@ def persistir_partida(db: Session, empresa_id: str, factura: Factura,
             centro_costo_id=linea.centro_costo_id,
             tipo=TipoMovimiento(linea.tipo), valor=linea.valor,
             descripcion=linea.descripcion, orden=i,
+            tercero_nit_override=linea.tercero_nit_override,
+            tercero_nombre_override=linea.tercero_nombre_override,
         )
         db.add(mov)
         movimientos.append(mov)

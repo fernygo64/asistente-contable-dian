@@ -27,6 +27,58 @@ class EmpresaCuentasBase(BaseModel):
     cuenta_clientes: Optional[str] = None
     cuenta_iva_generado: Optional[str] = None
     cuenta_nomina: Optional[str] = None
+    # Cuentas de nómina y provisiones (asiento multilínea, sección
+    # verificada contra comprobante real de Siigo) — todas opcionales,
+    # cada empresa configura las que use.
+    cuenta_salario: Optional[str] = None
+    cuenta_auxilio_transporte: Optional[str] = None
+    cuenta_nomina_por_pagar: Optional[str] = None
+    cuenta_salud_por_pagar: Optional[str] = None
+    cuenta_pension_por_pagar: Optional[str] = None
+    cuenta_cesantias: Optional[str] = None
+    cuenta_cesantias_por_pagar: Optional[str] = None
+    cuenta_intereses_cesantias: Optional[str] = None
+    cuenta_intereses_cesantias_por_pagar: Optional[str] = None
+    cuenta_prima: Optional[str] = None
+    cuenta_prima_por_pagar: Optional[str] = None
+    cuenta_vacaciones: Optional[str] = None
+    cuenta_vacaciones_por_pagar: Optional[str] = None
+    cuenta_arl: Optional[str] = None
+    cuenta_arl_por_pagar: Optional[str] = None
+    cuenta_caja_compensacion: Optional[str] = None
+    cuenta_caja_compensacion_por_pagar: Optional[str] = None
+
+
+class EmpleadoCreate(BaseModel):
+    """Ficha de empleado — sus afiliaciones determinan a quién se le acredita cada línea del pasivo de nómina."""
+    nit: str
+    nombre: Optional[str] = None
+    eps_nit: Optional[str] = None
+    eps_nombre: Optional[str] = None
+    afp_nit: Optional[str] = None
+    afp_nombre: Optional[str] = None
+    arl_nit: Optional[str] = None
+    arl_nombre: Optional[str] = None
+    caja_compensacion_nit: Optional[str] = None
+    caja_compensacion_nombre: Optional[str] = None
+
+
+class EmpleadoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    empresa_id: str
+    nit: str
+    nombre: Optional[str] = None
+    eps_nit: Optional[str] = None
+    eps_nombre: Optional[str] = None
+    afp_nit: Optional[str] = None
+    afp_nombre: Optional[str] = None
+    arl_nit: Optional[str] = None
+    arl_nombre: Optional[str] = None
+    caja_compensacion_nit: Optional[str] = None
+    caja_compensacion_nombre: Optional[str] = None
+    activo: bool
+    creado_en: datetime
 
 
 class EmpresaComprobantesPorTipo(BaseModel):
@@ -235,7 +287,7 @@ class ResolucionDuplicado(BaseModel):
 
 # --------------------------------------------------------------- Partida doble
 class GenerarPartidaRequest(BaseModel):
-    cuenta_gasto_codigo: str
+    cuenta_gasto_codigo: Optional[str] = None  # no hace falta para nómina si hay ficha de empleado + cuentas de nómina configuradas (asiento multilínea automático)
     contrapartida: Optional[str] = None   # si no se indica, se deriva de la dirección del documento (sección 38)
     origen_decision: str = "manual"      # "manual" | "sugerencia_aceptada"
     centro_costo_codigo: Optional[str] = None

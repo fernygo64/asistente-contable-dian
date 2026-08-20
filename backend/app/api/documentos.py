@@ -406,20 +406,24 @@ def resolver_duplicado(empresa_id: str, factura_id: str, payload: ResolucionDupl
 
 # --------------------------------------------------------------- Partida doble
 def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f: Factura,
-                                cuenta_gasto_codigo: str, contrapartida: str, origen_decision: str,
+                                cuenta_gasto_codigo: Optional[str], contrapartida: str, origen_decision: str,
                                 centro_costo_codigo: Optional[str], usuario: str):
     """
     Lógica compartida entre el endpoint individual y el masivo — genera
     la partida, la persiste si cuadra, y alimenta el historial. Devuelve
     (resultado_partida, error_o_None). Nunca decide una cuenta por su
-    cuenta: cuenta_gasto_codigo siempre viene explícito de quien llama.
+    cuenta: cuenta_gasto_codigo siempre viene explícito de quien llama,
+    salvo para nómina con el asiento multilínea automático (ahí no hace
+    falta — las cuentas ya están configuradas en la empresa).
     """
     if f.estado == EstadoFactura.duplicada:
         return None, "Factura marcada como duplicada."
     if origen_decision not in ("manual", "sugerencia_aceptada"):
         return None, "origen_decision debe ser 'manual' o 'sugerencia_aceptada'."
 
-    cuenta_gasto = historial_service.get_or_create_cuenta(db, empresa_id, cuenta_gasto_codigo)
+    cuenta_gasto = historial_service.get_or_create_cuenta(db, empresa_id, cuenta_gasto_codigo) if cuenta_gasto_codigo else None
+    if not cuenta_gasto and f.naturaleza_documento != "nomina":
+        return None, "Debes indicar la cuenta de gasto/ingreso."
 
     # Contrapartida: si no se indicó explícitamente, se deriva de lo que
     # la empresa ya parametrizó (sección 38) — no hay que volver a
@@ -445,14 +449,18 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
             return None, f"El centro de costo '{centro_costo_codigo}' no existe en esta empresa."
 
     resultado = partida_doble_service.generar_partida(
-        db, empresa, f, cuenta_gasto.id, contrapartida, centro_costo
+        db, empresa, f, cuenta_gasto.id if cuenta_gasto else None, contrapartida, centro_costo
     )
 
     if resultado.balanceado:
         partida_doble_service.persistir_partida(db, empresa_id, f, resultado)
         f.estado = EstadoFactura.lista_para_contabilizar
 
-        if f.tercero_nit:
+        if f.tercero_nit and cuenta_gasto:
+            # Solo se alimenta el historial cuando el usuario SÍ eligió
+            # una cuenta a mano — el asiento multilínea de nómina no
+            # tiene "una" cuenta de gasto única que aprender, ya está
+            # todo resuelto por configuración de la empresa.
             proveedor = historial_service.get_or_create_proveedor(db, empresa_id, f.tercero_nit, f.tercero_nombre)
             concepto_factura = None
             if f.conceptos_json:
@@ -470,8 +478,8 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
             )
 
         auditoria_registrar(db, empresa_id, "Factura", f.id, "partida_generada",
-                             {"cuenta_gasto": cuenta_gasto.codigo, "contrapartida": contrapartida,
-                              "total_debito": resultado.total_debito},
+                             {"cuenta_gasto": cuenta_gasto.codigo if cuenta_gasto else "(asiento multilínea de nómina)",
+                              "contrapartida": contrapartida, "total_debito": resultado.total_debito},
                              usuario)
         return resultado, None
     else:

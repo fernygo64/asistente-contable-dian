@@ -96,6 +96,32 @@ class Empresa(Base):
     cuenta_iva_generado_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_iva_generado"), nullable=True)
     cuenta_nomina_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_nomina"), nullable=True)
 
+    # Cuentas de nómina y provisiones (asiento multilínea, verificado
+    # contra comprobante real de Siigo). Cada empresa configura las
+    # suyas — nunca se asume un código fijo. Cada concepto tiene su
+    # cuenta de GASTO y, cuando aplica, su cuenta de PASIVO por pagar
+    # (a quien corresponda: al propio empleado, a la EPS, al fondo de
+    # pensión/cesantías, a la ARL o a la caja de compensación — el
+    # tercero exacto de cada línea lo determina el empleado, no la
+    # cuenta).
+    cuenta_salario_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_salario"), nullable=True)
+    cuenta_auxilio_transporte_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_auxtte"), nullable=True)
+    cuenta_nomina_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_nom_pagar"), nullable=True)
+    cuenta_salud_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_salud_pagar"), nullable=True)
+    cuenta_pension_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_pension_pagar"), nullable=True)
+    cuenta_cesantias_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_cesantias"), nullable=True)
+    cuenta_cesantias_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_cesantias_pagar"), nullable=True)
+    cuenta_intereses_cesantias_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_intcesantias"), nullable=True)
+    cuenta_intereses_cesantias_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_intcesantias_pagar"), nullable=True)
+    cuenta_prima_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_prima"), nullable=True)
+    cuenta_prima_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_prima_pagar"), nullable=True)
+    cuenta_vacaciones_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_vacaciones"), nullable=True)
+    cuenta_vacaciones_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_vacaciones_pagar"), nullable=True)
+    cuenta_arl_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_arl"), nullable=True)
+    cuenta_arl_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_arl_pagar"), nullable=True)
+    cuenta_caja_compensacion_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_caja"), nullable=True)
+    cuenta_caja_compensacion_por_pagar_id = Column(String(36), ForeignKey("cuentas_contables.id", use_alter=True, name="fk_empresa_cuenta_caja_pagar"), nullable=True)
+
     # Modo contable (reportado por el usuario): una empresa "mixta" (la
     # mayoría de personas jurídicas) contabiliza sus facturas RECIBIDAS
     # como gasto y las EMITIDAS como ingreso, cada una con sus propias
@@ -195,6 +221,44 @@ class Proveedor(Base):
     __table_args__ = (
         UniqueConstraint("empresa_id", "nit", name="uq_proveedor_empresa_nit"),
         Index("ix_proveedor_empresa_nit", "empresa_id", "nit"),
+    )
+
+
+# --------------------------------------------------------------- Empleados --
+class Empleado(Base):
+    """
+    Empleado de una empresa, con sus afiliaciones (EPS, fondo de pensión/
+    cesantías, ARL, caja de compensación) — cada una con su propio NIT.
+    Esto es lo que permite armar el asiento multilínea real de nómina
+    (verificado contra un comprobante real de Siigo): las cuentas de
+    gasto/pasivo se configuran una sola vez por empresa en "Cuentas de
+    nómina", pero el TERCERO de cada línea de pasivo varía por empleado
+    — ahí es donde entra esta ficha. Ningún dato aquí es fijo ni supuesto
+    por el sistema: si un campo de afiliación queda vacío, esa línea del
+    asiento simplemente no se genera (nunca se inventa un NIT).
+    """
+    __tablename__ = "empleados"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    empresa_id = Column(String(36), ForeignKey("empresas.id"), nullable=False, index=True)
+    nit = Column(String(30), nullable=False)
+    nombre = Column(String(200), nullable=True)
+    eps_nit = Column(String(30), nullable=True)
+    eps_nombre = Column(String(200), nullable=True)
+    afp_nit = Column(String(30), nullable=True)
+    afp_nombre = Column(String(200), nullable=True)
+    arl_nit = Column(String(30), nullable=True)
+    arl_nombre = Column(String(200), nullable=True)
+    caja_compensacion_nit = Column(String(30), nullable=True)
+    caja_compensacion_nombre = Column(String(200), nullable=True)
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    empresa = relationship("Empresa")
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "nit", name="uq_empleado_empresa_nit"),
+        Index("ix_empleado_empresa_nit", "empresa_id", "nit"),
     )
 
 
@@ -360,6 +424,7 @@ class Factura(Base):
     forma_pago = Column(String(60), nullable=True)
     medio_pago = Column(String(60), nullable=True)
     conceptos_json = Column(Text, nullable=True)         # lista de líneas (código, descripción, cantidad, valor)
+    nomina_detalle_json = Column(Text, nullable=True)     # devengados/deducciones reales extraídos del XML de nómina (asiento multilínea)
 
     # Trazabilidad de archivos originales (sección 27) — rutas dentro de
     # storage/<empresa_id>/..., nunca mezcladas entre empresas.
@@ -472,6 +537,8 @@ class Movimiento(Base):
     valor = Column(Numeric(18, 2), nullable=False)
     descripcion = Column(String(300), nullable=True)
     orden = Column(Integer, nullable=False, default=0)
+    tercero_nit_override = Column(String(30), nullable=True)      # solo cuando el tercero de ESTA línea es distinto al de la factura (ej. nómina: EPS/AFP en vez del empleado)
+    tercero_nombre_override = Column(String(200), nullable=True)
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
 
     cuenta = relationship("CuentaContable")

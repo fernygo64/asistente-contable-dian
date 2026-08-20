@@ -39,6 +39,7 @@ from typing import Optional
 
 from app.services.xml_extraction_service import extraer_factura_xml, clasificar_documento_xml
 from app.services.pdf_extraction_service import extraer_factura_pdf
+from app.services.nomina_extraction_service import extraer_nomina_xml
 
 
 @dataclass
@@ -136,10 +137,13 @@ def agrupar_documentos(pares: list[tuple[str, bytes]], nit_empresa: Optional[str
             continue
 
         if naturaleza_raiz == "nomina":
+            resultado_nomina = extraer_nomina_xml(contenido)
             documentos[clave_archivo] = DocumentoExtraido(
                 clave_agrupacion=clave_archivo, nombre_xml=nombre_xml, xml_bytes=contenido,
-                fuente_extraccion="xml", confianza=100.0, naturaleza="nomina", direccion="no_aplica",
-                campos={"numero_factura": clave_archivo, "nombre_emisor": "(Nómina electrónica — revisar manualmente)"},
+                fuente_extraccion="xml", confianza=resultado_nomina["confianza"], naturaleza="nomina", direccion="no_aplica",
+                campos=resultado_nomina["campos"] if resultado_nomina["ok"] else {
+                    "numero_factura": clave_archivo, "nombre_emisor": "(Nómina electrónica — revisar manualmente)",
+                },
             )
             continue
 

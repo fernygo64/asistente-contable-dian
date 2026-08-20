@@ -63,15 +63,33 @@ def _formatear_codigo_cuenta(codigo: str, empresa: Optional[Empresa]) -> str:
 
 
 def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
-                    equivalencias: dict, formato_fecha: str, empresa: Optional[Empresa] = None) -> str:
+                    equivalencias: dict, formato_fecha: str, empresa: Optional[Empresa] = None,
+                    numero_documento_calculado: Optional[str] = None) -> str:
     source = columna.get("source")
     fijo = columna.get("valor_fijo", "")
 
     if source == "fijo":
-        return fijo
+        return str(fijo) if fijo is not None else ""
+    if source == "fecha_generacion":
+        # Fecha en que se genera ESTE archivo (no la de la factura) —
+        # columna real de Siigo Pyme "FECHA ACTUALIZACIÓN DEL DOCUMENTO",
+        # formato YYYYMMDD confirmado contra archivo real.
+        return datetime.now().strftime("%Y%m%d")
+    if source == "hora_generacion":
+        # Misma idea, columna "HORA DE ACTUALIZACIÓN DEL DOCUMENTO",
+        # formato HHMMSS confirmado contra archivo real.
+        return datetime.now().strftime("%H%M%S")
     if source == "tipo_comprobante":
         valor = _tipo_comprobante_para_factura(empresa, factura) if empresa else ""
         return valor or fijo
+    if source == "numero_documento":
+        # El consecutivo INTERNO de Siigo que agrupa las líneas de un
+        # mismo comprobante (verificado contra archivo real del
+        # usuario: 1,1,1 -> 2,2,2,2 -> 3,3... reinicia en 1 por cada
+        # tipo de comprobante) — NUNCA es el número real de la factura,
+        # salvo para ventas emitidas (tipo "F"), donde Siigo sí usa el
+        # número real. Ver _calcular_numeros_documento().
+        return numero_documento_calculado or fijo
     if source == "fecha":
         return factura.fecha_emision.strftime(formato_fecha) if factura.fecha_emision else fijo
     if source == "anio":
@@ -87,9 +105,9 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
     if source == "nombre_cuenta":
         return movimiento.cuenta.nombre
     if source == "nit":
-        return factura.tercero_nit or fijo
+        return movimiento.tercero_nit_override or factura.tercero_nit or fijo
     if source == "tercero":
-        return factura.tercero_nombre or fijo
+        return movimiento.tercero_nombre_override or factura.tercero_nombre or fijo
     if source == "numero_factura":
         return factura.numero_factura or fijo
     if source == "cufe":
@@ -108,6 +126,16 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
         return f"{float(movimiento.valor):.2f}" if movimiento.tipo == "debito" else ""
     if source == "credito":
         return f"{float(movimiento.valor):.2f}" if movimiento.tipo == "credito" else ""
+    if source == "centro_costo":
+        # Código real del centro de costo de ESTA línea, o "0" cuando no
+        # aplica — confirmado contra archivo real de Siigo Pyme (columna
+        # "CENTRO DE COSTO" usa 0 para las líneas sin centro de costo).
+        return movimiento.centro_costo.codigo if movimiento.centro_costo else (str(fijo) if fijo else "0")
+    if source == "secuencia_linea":
+        # Posición de esta línea dentro de su propio comprobante (1, 2,
+        # 3...) — columna real "SECUENCIA" de Siigo Pyme, ya se rastrea
+        # como Movimiento.orden (0-indexado, aquí se muestra 1-indexado).
+        return str((movimiento.orden or 0) + 1)
     return fijo
 
 
@@ -244,6 +272,36 @@ class _NegarFecha:
         return a == b
 
 
+def _calcular_numeros_documento(empresa: Optional[Empresa], facturas: list[Factura]) -> dict[str, str]:
+    """
+    El "NÚMERO DE DOCUMENTO" de Siigo NO es el número real de la
+    factura — es un consecutivo INTERNO que agrupa las líneas de un
+    mismo comprobante, y reinicia en 1 por cada tipo de comprobante
+    (verificado al detalle contra un archivo real de ejemplo del
+    usuario: G iba 1,1,1 -> 2,2,2,2,2 -> 3,3...; R reiniciaba en 1 por
+    su cuenta; N -aunque tuviera 10 líneas- usaba un solo consecutivo
+    para toda la nómina). La ÚNICA excepción real observada: las
+    facturas EMITIDAS que no son nómina (tipo "F" = ventas) sí usan el
+    número real de la factura tal cual, no un consecutivo.
+
+    Devuelve {factura_id: "numero_a_usar"} — se calcula UNA vez por
+    archivo completo, en el mismo orden ya agrupado/ordenado que
+    generar_archivo() usa para las filas, para que el agrupamiento por
+    tipo de comprobante coincida con lo que el usuario ve en el archivo.
+    """
+    contadores: dict[str, int] = {}
+    resultado: dict[str, str] = {}
+    for f in facturas:
+        es_venta_real = f.direccion_documento == "emitida" and f.naturaleza_documento != "nomina"
+        if es_venta_real:
+            resultado[f.id] = f.numero_factura or ""
+            continue
+        tipo = _tipo_comprobante_para_factura(empresa, f) if empresa else ""
+        contadores[tipo] = contadores.get(tipo, 0) + 1
+        resultado[f.id] = str(contadores[tipo])
+    return resultado
+
+
 def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
                      facturas: list[Factura]) -> tuple[bytes, int]:
     """Devuelve (contenido_bytes, cantidad_de_filas). Se asume ya validado."""
@@ -251,6 +309,7 @@ def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportaci
     columnas = json.loads(plantilla.columnas_json)
     equivalencias = json.loads(plantilla.equivalencias_cuentas_json or "{}")
     delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
+    numeros_documento = _calcular_numeros_documento(empresa, facturas)
 
     lineas = []
     if plantilla.incluir_encabezado:
@@ -261,7 +320,8 @@ def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportaci
         movimientos = db.query(Movimiento).filter(Movimiento.factura_id == f.id).order_by(Movimiento.orden).all()
         for m in movimientos:
             valores = [
-                _valor_columna(c, f, m, equivalencias, plantilla.formato_fecha, empresa).replace(delimitador, " ")
+                _valor_columna(c, f, m, equivalencias, plantilla.formato_fecha, empresa,
+                                numeros_documento.get(f.id)).replace(delimitador, " ")
                 for c in columnas
             ]
             lineas.append(delimitador.join(valores))

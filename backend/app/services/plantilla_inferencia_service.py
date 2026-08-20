@@ -25,6 +25,7 @@ _PALABRAS_CLAVE_ORIGEN = [
     (re.compile(r"\bmes\b", re.IGNORECASE), "mes"),
     (re.compile(r"\bd[ií]a\b", re.IGNORECASE), "dia"),
     (re.compile(r"d[eé]bito.*cr[eé]dito|cr[eé]dito.*d[eé]bito", re.IGNORECASE), "debito_credito"),
+    (re.compile(r"tipo.*comprobante", re.IGNORECASE), "tipo_comprobante"),
     (re.compile(r"fecha", re.IGNORECASE), "fecha"),
     (re.compile(r"cuenta", re.IGNORECASE), "cuenta"),
     (re.compile(r"nit|identificaci[oó]n|documento.*tercero", re.IGNORECASE), "nit"),
@@ -33,6 +34,7 @@ _PALABRAS_CLAVE_ORIGEN = [
     (re.compile(r"cr[eé]dito|haber", re.IGNORECASE), "credito"),
     (re.compile(r"valor", re.IGNORECASE), "valor"),
     (re.compile(r"concepto|detalle|descripci[oó]n|glosa|nota", re.IGNORECASE), "concepto"),
+    (re.compile(r"^(?!.*factura).*n[uú]mero.*documento|^(?!.*factura).*documento.*n[uú]mero", re.IGNORECASE), "numero_documento"),
     (re.compile(r"factura|n[uú]mero.*documento|documento.*n[uú]mero", re.IGNORECASE), "numero_factura"),
     (re.compile(r"cufe|cude", re.IGNORECASE), "cufe"),
 ]
@@ -46,6 +48,28 @@ def _detectar_delimitador(primera_linea: str) -> str:
     conteos = {d: primera_linea.count(d) for d in _DELIMITADORES_CANDIDATOS}
     mejor = max(conteos, key=conteos.get)
     return mejor if conteos[mejor] > 0 else "|"
+
+
+from app.services.siigo_pyme_extendido import DEFAULTS_SIIGO_PYME_EXTENDIDO, DEFAULTS_SIIGO_PYME_A_R
+
+
+def _sugerir_origen_y_valor(nombre_columna: str) -> tuple[str, object]:
+    """
+    Primero intenta un calce EXACTO contra las columnas de Siigo Pyme
+    reconocidas con certeza contra un archivo real de producción — las
+    S en adelante (siempre deben llevar el mismo valor por defecto que
+    trae el propio Siigo, nunca quedar vacías) y algunas del rango A:R
+    que también se pudieron determinar sin inventar datos (secuencia
+    de línea, centro de costo, y tres campos que fueron siempre el
+    mismo valor). Si no calza exacto, cae al reconocimiento por
+    palabras clave de siempre.
+    """
+    titulo = (nombre_columna or "").strip()
+    if titulo in DEFAULTS_SIIGO_PYME_EXTENDIDO:
+        return DEFAULTS_SIIGO_PYME_EXTENDIDO[titulo]
+    if titulo in DEFAULTS_SIIGO_PYME_A_R:
+        return DEFAULTS_SIIGO_PYME_A_R[titulo]
+    return _sugerir_origen(nombre_columna), None
 
 
 def _sugerir_origen(nombre_columna: str) -> str:
@@ -86,7 +110,11 @@ def _detectar_desde_excel(contenido: bytes) -> dict:
     columnas = []
     for i, valor in enumerate(encabezados):
         label = str(valor).strip() if valor is not None and str(valor).strip() and str(valor) != "nan" else f"Columna {i + 1}"
-        columnas.append({"label": label, "source": _sugerir_origen(label)})
+        origen, valor_fijo = _sugerir_origen_y_valor(label)
+        columna = {"label": label, "source": origen}
+        if valor_fijo is not None:
+            columna["valor_fijo"] = valor_fijo
+        columnas.append(columna)
     return {"delimitador": "|", "columnas": columnas}
 
 
@@ -116,6 +144,10 @@ def detectar_estructura_archivo_plano(contenido: bytes) -> dict:
     columnas = []
     for i, parte in enumerate(partes):
         label = parte if parte else f"Columna {i + 1}"
-        columnas.append({"label": label, "source": _sugerir_origen(label)})
+        origen, valor_fijo = _sugerir_origen_y_valor(label)
+        columna = {"label": label, "source": origen}
+        if valor_fijo is not None:
+            columna["valor_fijo"] = valor_fijo
+        columnas.append(columna)
 
     return {"delimitador": delimitador, "columnas": columnas}

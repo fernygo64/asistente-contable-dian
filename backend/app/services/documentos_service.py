@@ -132,13 +132,32 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
     numero = _norm(c.get("numero_factura"))
     prefijo = _norm(c.get("prefijo"))
     nit_emisor = _norm(c.get("nit_emisor"))
+    nombre_emisor = _norm(c.get("nombre_emisor"))
+    nomina_detalle = None
+    if doc.naturaleza == "nomina" and c.get("nit_trabajador"):
+        # El "tercero" de una nómina debe ser el EMPLEADO (para poder
+        # cruzarlo con su ficha en el módulo de Empleados y armar el
+        # asiento multilínea), no el empleador — la propia empresa. El
+        # NIT/nombre del empleador se conserva en nomina_detalle_json
+        # por si se necesita más adelante; nit_emisor/nombre_emisor (de
+        # donde sale "tercero_nit"/"tercero_nombre") pasan a ser los
+        # del trabajador.
+        nomina_detalle = {
+            "empleador_nit": nit_emisor, "empleador_nombre": nombre_emisor,
+            "devengado_basico": c.get("devengado_basico", 0.0),
+            "devengado_transporte": c.get("devengado_transporte", 0.0),
+            "deduccion_salud": c.get("deduccion_salud", 0.0),
+            "deduccion_pension": c.get("deduccion_pension", 0.0),
+            "sueldo_base": c.get("sueldo_base", 0.0),
+        }
+        nit_emisor = _norm(c.get("nit_trabajador"))
+        nombre_emisor = _norm(c.get("nombre_trabajador"))
     total = c.get("total")
     try:
         total = float(total) if total not in (None, "") else None
     except (ValueError, TypeError):
         total = None
     fecha_emision = _parse_fecha(c.get("fecha_emision"))
-    nombre_emisor = _norm(c.get("nombre_emisor"))
     nit_receptor = _norm(c.get("nit_receptor"))
     nombre_receptor = _norm(c.get("nombre_receptor"))
 
@@ -236,6 +255,7 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
         moneda=_norm(c.get("moneda")) or "COP",
         forma_pago=_norm(c.get("forma_pago")) or None,
         conceptos_json=json.dumps(c.get("conceptos", []), ensure_ascii=False, default=str),
+        nomina_detalle_json=json.dumps(nomina_detalle, ensure_ascii=False, default=str) if nomina_detalle else None,
         archivo_xml_path=doc.nombre_xml,
         archivo_pdf_path=doc.nombre_pdf,
         excel_fila_json=json.dumps(excel_fila, ensure_ascii=False, default=str) if excel_fila else None,
