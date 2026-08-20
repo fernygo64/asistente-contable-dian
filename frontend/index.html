@@ -147,6 +147,69 @@
     </div>
 
     <div class="card">
+      <h2>Cuentas de nómina y provisiones</h2>
+      <p class="muted">Opcional — solo hace falta si procesas nómina electrónica. Con estas cuentas configuradas y una ficha en el módulo "Empleados" (con sus afiliaciones), el sistema arma automáticamente el asiento completo: salario repartido entre EPS/fondo de pensión/neto al empleado, más las provisiones de cesantías, intereses, prima y vacaciones (fórmulas legales fijas colombianas, calculadas sobre el salario real). ARL y caja de compensación no se calculan solas — varían por empresa, regístralas aparte si las necesitas.</p>
+      <div class="row">
+        <div><label>Salario (gasto)</label><input id="cnSalario" list="dl-cnSalario" placeholder="510506" oninput="buscarPuc(this)"><datalist id="dl-cnSalario"></datalist></div>
+        <div><label>Auxilio de transporte (gasto)</label><input id="cnAuxTte" list="dl-cnAuxTte" placeholder="510527" oninput="buscarPuc(this)"><datalist id="dl-cnAuxTte"></datalist></div>
+        <div><label>Nómina por pagar (al empleado)</label><input id="cnNominaPagar" list="dl-cnNominaPagar" placeholder="250505" oninput="buscarPuc(this)"><datalist id="dl-cnNominaPagar"></datalist></div>
+      </div>
+      <div class="row">
+        <div><label>Salud por pagar (a la EPS)</label><input id="cnSaludPagar" list="dl-cnSaludPagar" placeholder="237005" oninput="buscarPuc(this)"><datalist id="dl-cnSaludPagar"></datalist></div>
+        <div><label>Pensión por pagar (al fondo)</label><input id="cnPensionPagar" list="dl-cnPensionPagar" placeholder="238030" oninput="buscarPuc(this)"><datalist id="dl-cnPensionPagar"></datalist></div>
+      </div>
+      <p class="muted" style="font-weight:600; color:var(--ink-soft); margin-bottom:2px; margin-top:10px;">Provisiones (cada una opcional — si no la configuras, simplemente no se genera esa línea)</p>
+      <div class="row">
+        <div><label>Cesantías (gasto)</label><input id="cnCesantias" list="dl-cnCesantias" placeholder="510530" oninput="buscarPuc(this)"><datalist id="dl-cnCesantias"></datalist></div>
+        <div><label>Cesantías por pagar</label><input id="cnCesantiasPagar" list="dl-cnCesantiasPagar" placeholder="261005" oninput="buscarPuc(this)"><datalist id="dl-cnCesantiasPagar"></datalist></div>
+        <div><label>Intereses s/cesantías (gasto)</label><input id="cnIntCesantias" list="dl-cnIntCesantias" placeholder="510533" oninput="buscarPuc(this)"><datalist id="dl-cnIntCesantias"></datalist></div>
+        <div><label>Intereses s/cesantías por pagar</label><input id="cnIntCesantiasPagar" list="dl-cnIntCesantiasPagar" placeholder="261010" oninput="buscarPuc(this)"><datalist id="dl-cnIntCesantiasPagar"></datalist></div>
+      </div>
+      <div class="row">
+        <div><label>Prima de servicios (gasto)</label><input id="cnPrima" list="dl-cnPrima" placeholder="510536" oninput="buscarPuc(this)"><datalist id="dl-cnPrima"></datalist></div>
+        <div><label>Prima por pagar</label><input id="cnPrimaPagar" list="dl-cnPrimaPagar" placeholder="261020" oninput="buscarPuc(this)"><datalist id="dl-cnPrimaPagar"></datalist></div>
+        <div><label>Vacaciones (gasto)</label><input id="cnVacaciones" list="dl-cnVacaciones" placeholder="510539" oninput="buscarPuc(this)"><datalist id="dl-cnVacaciones"></datalist></div>
+        <div><label>Vacaciones por pagar</label><input id="cnVacacionesPagar" list="dl-cnVacacionesPagar" placeholder="261015" oninput="buscarPuc(this)"><datalist id="dl-cnVacacionesPagar"></datalist></div>
+      </div>
+      <div class="row">
+        <div><label>ARL (gasto, opcional)</label><input id="cnArl" list="dl-cnArl" placeholder="510568" oninput="buscarPuc(this)"><datalist id="dl-cnArl"></datalist></div>
+        <div><label>ARL por pagar</label><input id="cnArlPagar" list="dl-cnArlPagar" placeholder="237006" oninput="buscarPuc(this)"><datalist id="dl-cnArlPagar"></datalist></div>
+        <div><label>Caja de compensación (gasto, opcional)</label><input id="cnCaja" list="dl-cnCaja" placeholder="510572" oninput="buscarPuc(this)"><datalist id="dl-cnCaja"></datalist></div>
+        <div><label>Caja de compensación por pagar</label><input id="cnCajaPagar" list="dl-cnCajaPagar" placeholder="237010" oninput="buscarPuc(this)"><datalist id="dl-cnCajaPagar"></datalist></div>
+        <div><button class="btn" onclick="guardarCuentasNomina()">Guardar cuentas de nómina</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Empleados</h2>
+        <button class="btn ghost" onclick="cargarEmpleados()">Actualizar</button>
+      </div>
+      <p class="muted">Solo el NIT es obligatorio — las afiliaciones (EPS, fondo de pensión/cesantías, ARL, caja de compensación) determinan a quién se le acredita cada línea del asiento de nómina. Si faltan, esa línea específica simplemente no se genera y el sistema te avisa cuál falta.</p>
+      <div class="row">
+        <div><label>NIT</label><input id="empNit" placeholder="1093216007"></div>
+        <div><label>Nombre</label><input id="empNombre" placeholder="Nombre completo"></div>
+      </div>
+      <div class="row">
+        <div><label>NIT EPS</label><input id="empEpsNit" placeholder="860066942"></div>
+        <div><label>Nombre EPS</label><input id="empEpsNombre" placeholder="EPS Sura"></div>
+        <div><label>NIT fondo de pensión</label><input id="empAfpNit" placeholder="800229739"></div>
+        <div><label>Nombre fondo de pensión</label><input id="empAfpNombre" placeholder="Porvenir"></div>
+      </div>
+      <div class="row">
+        <div><label>NIT ARL</label><input id="empArlNit" placeholder="860011153"></div>
+        <div><label>Nombre ARL</label><input id="empArlNombre" placeholder="ARL Sura"></div>
+        <div><label>NIT caja de compensación</label><input id="empCajaNit" placeholder="891480000"></div>
+        <div><label>Nombre caja de compensación</label><input id="empCajaNombre" placeholder="Compensar"></div>
+      </div>
+      <div class="row">
+        <div><button class="btn" onclick="guardarEmpleado()">Agregar empleado</button></div>
+      </div>
+      <table><thead><tr><th>NIT</th><th>Nombre</th><th>EPS</th><th>Fondo pensión</th><th>ARL</th><th>Caja compensación</th><th></th></tr></thead>
+        <tbody id="tablaEmpleados"></tbody></table>
+    </div>
+
+    <div class="card">
       <h2>Tipo de comprobante por tipo de documento</h2>
       <p class="muted">En Siigo/World Office, las compras, ventas, notas y nómina normalmente van a comprobantes distintos — configúralo una sola vez aquí y las plantillas de exportación lo usan automáticamente según la clasificación de cada factura. Si dejas alguno vacío, esa columna sale en blanco en el archivo (nunca se inventa un código). Para Siigo Pyme, cada campo sugiere los códigos reales de "Tipos de Documento" de Siigo (verificado contra la aplicación real) — puedes elegir uno o escribir el tuyo si tu empresa usa otro.</p>
       <datalist id="siigoTiposComprobante"></datalist>
@@ -658,6 +721,7 @@ async function seleccionarEmpresa(id){
   await cargarCuentasBase();
   await cargarCentrosCosto();
   await cargarComprobantesPorTipo();
+  await cargarEmpleados();
 }
 
 let _pucBuscarTimeout = null;
@@ -755,6 +819,81 @@ async function guardarCuentasBase(){
   }catch(e){ toast(e.message, true); }
 }
 
+async function guardarCuentasNomina(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const payload = {};
+  const campos = {
+    cnSalario:'cuenta_salario', cnAuxTte:'cuenta_auxilio_transporte', cnNominaPagar:'cuenta_nomina_por_pagar',
+    cnSaludPagar:'cuenta_salud_por_pagar', cnPensionPagar:'cuenta_pension_por_pagar',
+    cnCesantias:'cuenta_cesantias', cnCesantiasPagar:'cuenta_cesantias_por_pagar',
+    cnIntCesantias:'cuenta_intereses_cesantias', cnIntCesantiasPagar:'cuenta_intereses_cesantias_por_pagar',
+    cnPrima:'cuenta_prima', cnPrimaPagar:'cuenta_prima_por_pagar',
+    cnVacaciones:'cuenta_vacaciones', cnVacacionesPagar:'cuenta_vacaciones_por_pagar',
+    cnArl:'cuenta_arl', cnArlPagar:'cuenta_arl_por_pagar',
+    cnCaja:'cuenta_caja_compensacion', cnCajaPagar:'cuenta_caja_compensacion_por_pagar',
+  };
+  for(const [id, campo] of Object.entries(campos)){
+    const v = document.getElementById(id).value.trim();
+    if(v) payload[campo] = v;
+  }
+  try{
+    await req(`/empresas/${empresaActivaId}/cuentas-base`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Cuentas de nómina guardadas');
+    await cargarCuentasBase();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarEmpleados(){
+  if(!empresaActivaId) return;
+  try{
+    const empleados = await req(`/empresas/${empresaActivaId}/empleados`);
+    document.getElementById('tablaEmpleados').innerHTML = empleados.map(e => `
+      <tr>
+        <td>${e.nit}</td><td>${e.nombre||'—'}</td>
+        <td>${e.eps_nombre||e.eps_nit||'—'}</td>
+        <td>${e.afp_nombre||e.afp_nit||'—'}</td>
+        <td>${e.arl_nombre||e.arl_nit||'—'}</td>
+        <td>${e.caja_compensacion_nombre||e.caja_compensacion_nit||'—'}</td>
+        <td><button class="btn danger" onclick="eliminarEmpleado('${e.id}')">Eliminar</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="muted">Sin empleados registrados todavía.</td></tr>';
+  }catch(e){ /* silencioso */ }
+}
+
+async function guardarEmpleado(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const nit = document.getElementById('empNit').value.trim();
+  if(!nit){ toast('El NIT del empleado es obligatorio', true); return; }
+  const payload = {
+    nit,
+    nombre: document.getElementById('empNombre').value.trim() || null,
+    eps_nit: document.getElementById('empEpsNit').value.trim() || null,
+    eps_nombre: document.getElementById('empEpsNombre').value.trim() || null,
+    afp_nit: document.getElementById('empAfpNit').value.trim() || null,
+    afp_nombre: document.getElementById('empAfpNombre').value.trim() || null,
+    arl_nit: document.getElementById('empArlNit').value.trim() || null,
+    arl_nombre: document.getElementById('empArlNombre').value.trim() || null,
+    caja_compensacion_nit: document.getElementById('empCajaNit').value.trim() || null,
+    caja_compensacion_nombre: document.getElementById('empCajaNombre').value.trim() || null,
+  };
+  try{
+    await req(`/empresas/${empresaActivaId}/empleados`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Empleado agregado');
+    ['empNit','empNombre','empEpsNit','empEpsNombre','empAfpNit','empAfpNombre','empArlNit','empArlNombre','empCajaNit','empCajaNombre']
+      .forEach(id => document.getElementById(id).value = '');
+    await cargarEmpleados();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function eliminarEmpleado(empleadoId){
+  if(!confirm('¿Eliminar este empleado? Las facturas de nómina ya contabilizadas no se ven afectadas.')) return;
+  try{
+    await req(`/empresas/${empresaActivaId}/empleados/${empleadoId}`, {method:'DELETE'});
+    toast('Empleado eliminado');
+    await cargarEmpleados();
+  }catch(e){ toast(e.message, true); }
+}
+
 async function cargarCuentasBase(){
   if(!empresaActivaId) return;
   try{
@@ -769,6 +908,14 @@ async function cargarCuentasBase(){
       cuenta_reteiva:'cbReteiva', cuenta_inc:'cbInc',
       cuenta_ingresos:'cbIngresos', cuenta_clientes:'cbClientes', cuenta_iva_generado:'cbIvaGenerado',
       cuenta_nomina:'cbNomina',
+      cuenta_salario:'cnSalario', cuenta_auxilio_transporte:'cnAuxTte', cuenta_nomina_por_pagar:'cnNominaPagar',
+      cuenta_salud_por_pagar:'cnSaludPagar', cuenta_pension_por_pagar:'cnPensionPagar',
+      cuenta_cesantias:'cnCesantias', cuenta_cesantias_por_pagar:'cnCesantiasPagar',
+      cuenta_intereses_cesantias:'cnIntCesantias', cuenta_intereses_cesantias_por_pagar:'cnIntCesantiasPagar',
+      cuenta_prima:'cnPrima', cuenta_prima_por_pagar:'cnPrimaPagar',
+      cuenta_vacaciones:'cnVacaciones', cuenta_vacaciones_por_pagar:'cnVacacionesPagar',
+      cuenta_arl:'cnArl', cuenta_arl_por_pagar:'cnArlPagar',
+      cuenta_caja_compensacion:'cnCaja', cuenta_caja_compensacion_por_pagar:'cnCajaPagar',
     };
     for(const [campo, inputId] of Object.entries(campoAInput)){
       const el = document.getElementById(inputId);
