@@ -83,10 +83,40 @@ def test_sugiere_origen_por_palabra_clave():
 
 
 def test_columna_no_reconocida_queda_como_fijo():
-    contenido = b"Tipo Comprobante|Fecha|Cuenta"
+    contenido = b"Sucursal Origen|Fecha|Cuenta"
     r = detectar_estructura_archivo_plano(contenido)
     origenes = {c["label"]: c["source"] for c in r["columnas"]}
-    assert origenes["Tipo Comprobante"] == "fijo"  # no se inventa a qué campo corresponde
+    assert origenes["Sucursal Origen"] == "fijo"  # no se inventa a qué campo corresponde
+
+
+def test_columna_tipo_de_comprobante_se_reconoce():
+    """
+    Bug real reportado: el detector automático de plantillas nunca
+    reconocía "TIPO DE COMPROBANTE (OBLIGATORIO)" (columna real de
+    Siigo Pyme) — la dejaba como "fijo" (vacía), así que el CSV
+    exportado nunca traía ese dato aunque estuviera bien configurado.
+    """
+    contenido = b"TIPO DE COMPROBANTE (OBLIGATORIO)|CODIGO COMPROBANTE  (OBLIGATORIO)|CUENTA CONTABLE   (OBLIGATORIO)|Fecha"
+    r = detectar_estructura_archivo_plano(contenido)
+    origenes = {c["label"]: c["source"] for c in r["columnas"]}
+    assert origenes["TIPO DE COMPROBANTE (OBLIGATORIO)"] == "tipo_comprobante"
+    assert origenes["CODIGO COMPROBANTE  (OBLIGATORIO)"] == "fijo"  # campo distinto, no se confunde
+    assert origenes["CUENTA CONTABLE   (OBLIGATORIO)"] == "cuenta"
+
+
+def test_columna_numero_de_documento_no_se_confunde_con_numero_de_factura():
+    """
+    Segundo bug real encontrado con un archivo de ejemplo real de
+    Siigo: "NÚMERO DE DOCUMENTO" es un consecutivo interno (no el
+    número real de la factura), mientras que "NÚMERO DE FACTURA
+    ELECTRÓNICA..." sí es el número real — son cosas distintas y antes
+    ambas se detectaban igual (numero_factura), lo cual estaba mal.
+    """
+    contenido = b"NUMERO DE DOCUMENTO|NUMERO DE FACTURA ELECTRONICA A DEBITAR/ACREDITAR|Cuenta"
+    r = detectar_estructura_archivo_plano(contenido)
+    origenes = {c["label"]: c["source"] for c in r["columnas"]}
+    assert origenes["NUMERO DE DOCUMENTO"] == "numero_documento"
+    assert origenes["NUMERO DE FACTURA ELECTRONICA A DEBITAR/ACREDITAR"] == "numero_factura"
 
 
 def test_endpoint_inferir_plantilla(client, empresa_a):
