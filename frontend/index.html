@@ -66,8 +66,8 @@
 
 <nav id="tabs">
   <button data-tab="empresas" class="active">Empresas</button>
-  <button data-tab="cargar">Cargar documentos</button>
   <button data-tab="historial">Historial contable</button>
+  <button data-tab="cargar">Cargar documentos</button>
   <button data-tab="facturas-recibidas">Facturas Recibidas</button>
   <button data-tab="facturas-emitidas">Facturas Emitidas</button>
   <button data-tab="plantillas">Plantillas / Exportar</button>
@@ -147,7 +147,10 @@
     </div>
 
     <div class="card">
-      <h2>Cuentas de nómina y provisiones</h2>
+      <div class="flex-between">
+        <h2>Cuentas de nómina y provisiones</h2>
+        <button class="btn ghost" onclick="sugerirCuentasNominaDesdeHistorial()">Sugerir desde el historial</button>
+      </div>
       <p class="muted">Opcional — solo hace falta si procesas nómina electrónica. Con estas cuentas configuradas y una ficha en el módulo "Empleados" (con sus afiliaciones), el sistema arma automáticamente el asiento completo: salario repartido entre EPS/fondo de pensión/neto al empleado, más las provisiones de cesantías, intereses, prima y vacaciones (fórmulas legales fijas colombianas, calculadas sobre el salario real). ARL y caja de compensación no se calculan solas — varían por empresa, regístralas aparte si las necesitas.</p>
       <div class="row">
         <div><label>Salario (gasto)</label><input id="cnSalario" list="dl-cnSalario" placeholder="510506" oninput="buscarPuc(this)"><datalist id="dl-cnSalario"></datalist></div>
@@ -205,6 +208,16 @@
       <div class="row">
         <div><button class="btn" onclick="guardarEmpleado()">Agregar empleado</button></div>
       </div>
+
+      <div style="background:var(--accent-soft); border:1px solid var(--accent); border-radius:8px; padding:12px; margin:14px 0;">
+        <div class="flex-between">
+          <strong style="color:var(--accent-dark); font-size:13px;">Detectar empleados automáticamente desde el Historial contable</strong>
+          <button class="btn ghost" onclick="detectarEmpleadosDesdeHistorial()">Detectar</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:4px 0 0;">Si ya cargaste el Auxiliar/Movimiento contable con nómina, busca comprobantes reales donde coincidan el empleado y sus afiliaciones (EPS/AFP/ARL/Caja) — nunca inventa una afiliación que no haya aparecido junto en el mismo comprobante.</p>
+        <div id="candidatosEmpleados" style="margin-top:8px;"></div>
+      </div>
+
       <table><thead><tr><th>NIT</th><th>Nombre</th><th>EPS</th><th>Fondo pensión</th><th>ARL</th><th>Caja compensación</th><th></th></tr></thead>
         <tbody id="tablaEmpleados"></tbody></table>
     </div>
@@ -236,7 +249,7 @@
     </div>
 
     <div class="card" style="text-align:right;">
-      <button class="btn" onclick="irAPestana('cargar')">Ir a cargar documentos →</button>
+      <button class="btn" onclick="irAPestana('historial')">Ir a Historial contable →</button>
     </div>
   </section>
 
@@ -285,6 +298,16 @@
       </div>
       <p class="muted">Todo lo cargado hasta ahora en esta empresa (sin contar duplicados), agrupado por tipo — para ver de un vistazo cuánto llevas en gastos vs. ingresos, sin sumar en Excel.</p>
       <div id="resumenPorTipo"><p class="muted">Cargando…</p></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Documentos cargados</h2>
+        <button class="btn ghost" onclick="cargarListadoCargas()">Actualizar</button>
+      </div>
+      <p class="muted">Lo que se ha subido hasta ahora en esta empresa, para saber de un vistazo qué ya cargaste.</p>
+      <table><thead><tr><th>Archivo</th><th>Fecha</th></tr></thead>
+        <tbody id="tablaCargas"></tbody></table>
     </div>
   </section>
 
@@ -350,7 +373,7 @@
     </div>
 
     <div class="card" style="text-align:right;">
-      <button class="btn" onclick="irARevisarFacturas()">Ir a revisar facturas →</button>
+      <button class="btn" onclick="irAPestana('cargar')">Ir a cargar documentos →</button>
     </div>
   </section>
 
@@ -444,7 +467,7 @@
       <div id="listaFacturas"></div>
     </div>
     <div class="card" style="text-align:right;">
-      <button class="btn" onclick="irAPestana('plantillas', () => { cargarPlantillas(); cargarExportaciones(); })">Ir a Plantillas / Exportar →</button>
+      <button class="btn" onclick="irAPestana('plantillas', () => { cargarPlantillas(); cargarExportaciones(); cargarFacturasContabilizadas(); })">Ir a Plantillas / Exportar →</button>
     </div>
   </section>
 
@@ -491,13 +514,22 @@ Credito=credito</textarea>
 
     <div class="card">
       <h2>Generar exportación</h2>
-      <p class="muted">Selecciona una plantilla y las facturas "lista_para_contabilizar" o "contabilizada" a incluir (marca los checkboxes en la pestaña Facturas primero, o pega los IDs abajo separados por coma).</p>
+      <p class="muted">Elige una plantilla — automáticamente se incluyen todas las facturas ya "Contabilizadas" (aprobadas en Facturas) que todavía no se han exportado. No hace falta escribir nada.</p>
       <div class="row">
-        <div><label>Plantilla</label><select id="expPlantilla"></select></div>
-        <div style="flex:2;"><label>IDs de factura (coma)</label><input id="expFacturaIds"></div>
+        <div><label>Plantilla</label><select id="expPlantilla" onchange="cargarFacturasContabilizadas()"></select></div>
+        <div><button class="btn ghost" onclick="cargarFacturasContabilizadas()">Actualizar</button></div>
+      </div>
+      <div id="resumenContabilizadasExportar" class="muted" style="margin:8px 0;"></div>
+      <div class="row">
         <div><button class="btn ghost" onclick="validarExportacion()">Validar</button></div>
         <div><button class="btn ghost" onclick="previsualizarExportacion()">Ver vista previa</button></div>
       </div>
+      <details style="margin-top:10px;">
+        <summary class="muted" style="cursor:pointer; font-size:12px;">Avanzado: exportar solo IDs específicos (opcional)</summary>
+        <div class="row" style="margin-top:6px;">
+          <div style="flex:2;"><label>IDs de factura (coma) — si lo llenas, se usa esto en vez de las contabilizadas automáticas</label><input id="expFacturaIds"></div>
+        </div>
+      </details>
       <div id="resultadoExportacion"></div>
       <div id="previsualizacionExportacion" style="margin-top:12px;"></div>
     </div>
@@ -628,7 +660,7 @@ document.getElementById('tabs').addEventListener('click', e=>{
   const idSeccion = esFacturas ? 'tab-facturas' : ('tab-' + e.target.dataset.tab);
   document.getElementById(idSeccion).classList.remove('hidden');
 
-  if(e.target.dataset.tab === 'cargar') cargarResumenPorTipo();
+  if(e.target.dataset.tab === 'cargar') { cargarResumenPorTipo(); cargarListadoCargas(); }
   if(e.target.dataset.tab === 'historial') cargarImportacionesHistorial();
   if(esFacturas){
     moduloFacturasActivo = e.target.dataset.tab === 'facturas-recibidas' ? 'recibidas' : 'emitidas';
@@ -640,7 +672,7 @@ document.getElementById('tabs').addEventListener('click', e=>{
     cargarFacturas();
     cargarPanelClasificacion();
   }
-  if(e.target.dataset.tab === 'plantillas') { cargarPlantillas(); cargarExportaciones(); }
+  if(e.target.dataset.tab === 'plantillas') { cargarPlantillas(); cargarExportaciones(); cargarFacturasContabilizadas(); }
   if(e.target.dataset.tab === 'auditoria') cargarAuditoria();
 });
 
@@ -800,6 +832,30 @@ async function cargarCentrosCosto(){
   }catch(e){ /* silencioso */ }
 }
 
+async function sugerirCuentasNominaDesdeHistorial(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/historial/sugerir-cuentas-nomina`);
+    const campoAInput = {
+      cuenta_salario:'cnSalario', cuenta_auxilio_transporte:'cnAuxTte', cuenta_nomina_por_pagar:'cnNominaPagar',
+      cuenta_salud_por_pagar:'cnSaludPagar', cuenta_pension_por_pagar:'cnPensionPagar',
+      cuenta_cesantias:'cnCesantias', cuenta_cesantias_por_pagar:'cnCesantiasPagar',
+      cuenta_intereses_cesantias:'cnIntCesantias', cuenta_intereses_cesantias_por_pagar:'cnIntCesantiasPagar',
+      cuenta_prima:'cnPrima', cuenta_prima_por_pagar:'cnPrimaPagar',
+      cuenta_vacaciones:'cnVacaciones', cuenta_vacaciones_por_pagar:'cnVacacionesPagar',
+      cuenta_arl:'cnArl', cuenta_arl_por_pagar:'cnArlPagar',
+      cuenta_caja_compensacion:'cnCaja', cuenta_caja_compensacion_por_pagar:'cnCajaPagar',
+    };
+    let n = 0;
+    for(const [campo, sugerencia] of Object.entries(r.sugerencias)){
+      const inputId = campoAInput[campo];
+      const el = inputId && document.getElementById(inputId);
+      if(el && !el.value){ el.value = sugerencia.codigo; n++; }
+    }
+    toast(n ? `${n} cuenta(s) sugerida(s) — revisa y da clic en "Guardar cuentas de nómina"` : 'No se encontraron coincidencias claras en el historial cargado');
+  }catch(e){ toast(e.message, true); }
+}
+
 async function guardarCuentasBase(){
   if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
   const payload = {};
@@ -892,6 +948,59 @@ async function eliminarEmpleado(empleadoId){
     toast('Empleado eliminado');
     await cargarEmpleados();
   }catch(e){ toast(e.message, true); }
+}
+
+let _candidatosEmpleadosDetectados = [];
+
+async function detectarEmpleadosDesdeHistorial(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const div = document.getElementById('candidatosEmpleados');
+  div.innerHTML = '<p class="muted">Buscando…</p>';
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/historial/detectar-empleados`);
+    if(r.aviso){ div.innerHTML = `<p class="muted">${r.aviso}</p>`; return; }
+    if(!r.candidatos.length){ div.innerHTML = '<p class="muted">No se encontraron empleados nuevos en el historial (o ya están todos creados).</p>'; return; }
+    _candidatosEmpleadosDetectados = r.candidatos;
+    div.innerHTML = `
+      <table style="margin-top:6px;"><thead><tr><th></th><th>NIT</th><th>Nombre</th><th>EPS</th><th>Fondo pensión</th><th>ARL</th><th>Caja</th></tr></thead>
+        <tbody>
+          ${r.candidatos.map((c, i) => `
+            <tr>
+              <td><input type="checkbox" class="chk-candidato-empleado" data-i="${i}" checked></td>
+              <td class="mono">${c.nit}</td><td>${c.nombre||'—'}</td>
+              <td>${c.eps_nombre||c.eps_nit||'—'}</td>
+              <td>${c.afp_nombre||c.afp_nit||'—'}</td>
+              <td>${c.arl_nombre||c.arl_nit||'—'}</td>
+              <td>${c.caja_compensacion_nombre||c.caja_compensacion_nit||'—'}</td>
+            </tr>
+          `).join('')}
+        </tbody></table>
+      <button class="btn" style="margin-top:8px;" onclick="crearEmpleadosDetectados()">Crear los seleccionados</button>
+    `;
+  }catch(e){ div.innerHTML = `<p class="muted">No se pudo detectar: ${e.message}</p>`; }
+}
+
+async function crearEmpleadosDetectados(){
+  const marcados = Array.from(document.querySelectorAll('.chk-candidato-empleado:checked')).map(el => parseInt(el.dataset.i));
+  if(!marcados.length){ toast('Marca al menos uno', true); return; }
+  let creados = 0;
+  for(const i of marcados){
+    const c = _candidatosEmpleadosDetectados[i];
+    try{
+      await req(`/empresas/${empresaActivaId}/empleados`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          nit: c.nit, nombre: c.nombre, eps_nit: c.eps_nit, eps_nombre: c.eps_nombre,
+          afp_nit: c.afp_nit, afp_nombre: c.afp_nombre, arl_nit: c.arl_nit, arl_nombre: c.arl_nombre,
+          caja_compensacion_nit: c.caja_compensacion_nit, caja_compensacion_nombre: c.caja_compensacion_nombre,
+        }),
+      });
+      creados++;
+    }catch(e){ /* si uno falla (ej. ya existe), sigue con los demás */ }
+  }
+  toast(`${creados} empleado(s) creado(s)`);
+  document.getElementById('candidatosEmpleados').innerHTML = '';
+  cargarEmpleados();
 }
 
 async function cargarCuentasBase(){
@@ -989,6 +1098,16 @@ async function cargarResumenPorTipo(){
   }catch(e){ el.innerHTML = `<p class="muted">No se pudo cargar el resumen: ${e.message}</p>`; }
 }
 
+async function cargarListadoCargas(){
+  if(!empresaActivaId) return;
+  try{
+    const cargas = await req(`/empresas/${empresaActivaId}/documentos/cargas`);
+    document.getElementById('tablaCargas').innerHTML = cargas.map(c => `
+      <tr><td>${c.archivo_zip_nombre || '—'}</td><td>${new Date(c.creado_en).toLocaleString('es-CO')}</td></tr>
+    `).join('') || '<tr><td colspan="2" class="muted">Sin cargas todavía.</td></tr>';
+  }catch(e){ /* silencioso */ }
+}
+
 async function cargarDocumentos(){
   if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
   const archivos = document.getElementById('zipInput').files;
@@ -1034,6 +1153,7 @@ async function cargarDocumentos(){
     `;
     toast('Carga procesada');
     cargarResumenPorTipo();
+    cargarListadoCargas();
   }catch(e){ toast(e.message, true); }
 }
 
@@ -1321,14 +1441,16 @@ async function cargarFacturas(){
             <div><label>Valor total de la nómina</label><input id="valor-${f.id}" type="number" step="0.01" placeholder="${f.total || '0'}"></div>
             <div><button class="btn ghost" onclick="guardarValorNomina('${f.id}')">Guardar valor</button></div>
           </div>
+          <p class="muted" style="font-size:12px;">Al generar la partida, primero se intenta el asiento automático completo (necesita una ficha en "Empleados" con sus afiliaciones y las "Cuentas de nómina" configuradas en Empresas). Si no aplica, se registra manualmente con la cuenta de abajo — la contrapartida se deriva sola, no hace falta elegirla.</p>
           ` : ''}
 
           <div class="row">
-            <div><label>${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? 'Cuenta de ingreso' : 'Cuenta de gasto'}</label><input id="cuenta-${f.id}" placeholder="${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? '413595' : '513595'}"></div>
+            <div><label>${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? 'Cuenta de ingreso' : 'Cuenta de gasto'}${f.naturaleza_documento === 'nomina' ? ' (solo si no aplica el asiento automático)' : ''}</label><input id="cuenta-${f.id}" placeholder="${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? '413595' : '513595'}"></div>
             <div><label>Centro de costo (opcional)</label><input id="cc-${f.id}" placeholder="CC01"></div>
-            <div><button class="btn" onclick="generarPartida('${f.id}')">Generar partida doble</button></div>
+            <div><button class="btn" onclick="generarPartida('${f.id}', '${f.naturaleza_documento||''}')">Generar partida doble</button></div>
             <div><button class="btn ghost" onclick="contabilizar('${f.id}')">Contabilizar</button></div>
           </div>
+          ${f.naturaleza_documento === 'nomina' ? '' : `
           <details style="margin-top:4px;">
             <summary class="muted" style="cursor:pointer; font-size:12px;">Cambiar contrapartida (opcional — por defecto usa lo ya configurado en Empresas)</summary>
             <select id="contra-${f.id}" style="margin-top:6px;">
@@ -1338,6 +1460,7 @@ async function cargarFacturas(){
               <option value="caja">Caja</option><option value="banco">Banco</option>
             </select>
           </details>
+          `}
           <div id="partida-${f.id}"></div>
         </div>
       </details>
@@ -1418,15 +1541,16 @@ async function verSugerencia(facturaId, nit, direccion, naturaleza){
   }catch(e){ toast(e.message, true); }
 }
 
-async function generarPartida(facturaId){
+async function generarPartida(facturaId, naturaleza){
   const cuenta = document.getElementById('cuenta-'+facturaId).value.trim();
-  const contra = document.getElementById('contra-'+facturaId).value;
+  const elContra = document.getElementById('contra-'+facturaId);
+  const contra = elContra ? elContra.value : '';
   const centroCosto = document.getElementById('cc-'+facturaId).value.trim();
-  if(!cuenta){ toast('Indica la cuenta de gasto', true); return; }
+  if(!cuenta && naturaleza !== 'nomina'){ toast('Indica la cuenta de gasto', true); return; }
   try{
     const r = await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/partida/generar`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({cuenta_gasto_codigo: cuenta, contrapartida: contra || null, origen_decision: 'manual',
+      body: JSON.stringify({cuenta_gasto_codigo: cuenta || null, contrapartida: contra || null, origen_decision: 'manual',
         centro_costo_codigo: centroCosto || null}),
     });
     const div = document.getElementById('partida-'+facturaId);
@@ -1668,11 +1792,30 @@ async function eliminarPlantilla(id, nombre){
   }catch(e){ toast(e.message, true); }
 }
 
+let _idsContabilizadasParaExportar = [];
+
+async function cargarFacturasContabilizadas(){
+  if(!empresaActivaId) return;
+  const div = document.getElementById('resumenContabilizadasExportar');
+  try{
+    const facturas = await req(`/empresas/${empresaActivaId}/documentos?estado=contabilizada`);
+    _idsContabilizadasParaExportar = facturas.map(f=>f.id);
+    div.innerHTML = facturas.length
+      ? `<span class="pill ok">${facturas.length} factura(s) contabilizada(s) lista(s) para exportar</span>`
+      : '<span class="muted">No hay facturas contabilizadas pendientes de exportar todavía — ve a Facturas, aprueba las que correspondan, y vuelve aquí.</span>';
+  }catch(e){ div.innerHTML = `<span class="muted">No se pudo consultar: ${e.message}</span>`; }
+}
+
+function _idsParaExportar(){
+  const manual = document.getElementById('expFacturaIds').value.split(',').map(s=>s.trim()).filter(Boolean);
+  return manual.length ? manual : _idsContabilizadasParaExportar;
+}
+
 async function validarExportacion(){
   if(!empresaActivaId){ toast('Selecciona una empresa', true); return; }
   const plantillaId = document.getElementById('expPlantilla').value;
-  const ids = document.getElementById('expFacturaIds').value.split(',').map(s=>s.trim()).filter(Boolean);
-  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y al menos una factura', true); return; }
+  const ids = _idsParaExportar();
+  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y asegúrate de tener facturas contabilizadas (o escribe IDs manualmente)', true); return; }
   try{
     const r = await req(`/empresas/${empresaActivaId}/exportaciones/validar`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids})});
     document.getElementById('resultadoExportacion').innerHTML = r.valido
@@ -1684,8 +1827,8 @@ async function validarExportacion(){
 async function previsualizarExportacion(){
   if(!empresaActivaId){ toast('Selecciona una empresa', true); return; }
   const plantillaId = document.getElementById('expPlantilla').value;
-  const ids = document.getElementById('expFacturaIds').value.split(',').map(s=>s.trim()).filter(Boolean);
-  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y al menos una factura', true); return; }
+  const ids = _idsParaExportar();
+  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y asegúrate de tener facturas contabilizadas (o escribe IDs manualmente)', true); return; }
   const div = document.getElementById('previsualizacionExportacion');
   try{
     const r = await req(`/empresas/${empresaActivaId}/exportaciones/previsualizar`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids})});
@@ -1705,8 +1848,8 @@ async function previsualizarExportacion(){
 async function generarExportacion(){
   if(!empresaActivaId){ toast('Selecciona una empresa', true); return; }
   const plantillaId = document.getElementById('expPlantilla').value;
-  const ids = document.getElementById('expFacturaIds').value.split(',').map(s=>s.trim()).filter(Boolean);
-  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y al menos una factura', true); return; }
+  const ids = _idsParaExportar();
+  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y asegúrate de tener facturas contabilizadas (o escribe IDs manualmente)', true); return; }
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/exportaciones/generar`, {
       method:'POST', headers:{'Content-Type':'application/json', 'X-User':'contador@app.local'},
@@ -1719,6 +1862,8 @@ async function generarExportacion(){
     toast('Archivo generado y descargado');
     cargarExportaciones();
     cargarFacturas();
+    document.getElementById('expFacturaIds').value = '';
+    cargarFacturasContabilizadas();
   }catch(e){ toast(e.message, true); }
 }
 
