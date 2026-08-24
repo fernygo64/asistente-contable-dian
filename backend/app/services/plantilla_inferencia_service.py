@@ -40,6 +40,22 @@ _PALABRAS_CLAVE_ORIGEN = [
 ]
 
 
+def _decodificar_texto(contenido: bytes) -> str:
+    """
+    Los archivos planos de contabilidad en Windows (Siigo, Excel al
+    "Guardar como CSV") suelen exportarse en Windows-1252 (ANSI), no
+    UTF-8 — con tildes/ñ, una lectura UTF-8 a la fuerza produce texto
+    corrupto silenciosamente (nunca lanza error, así que no basta con
+    "errors=replace"). Se intenta UTF-8 estricto primero (si el archivo
+    de verdad es UTF-8, esto nunca falla); si no es UTF-8 válido, se
+    interpreta como Windows-1252.
+    """
+    try:
+        return contenido.decode("utf-8")
+    except UnicodeDecodeError:
+        return contenido.decode("cp1252", errors="replace")
+
+
 def _es_xlsx(contenido: bytes) -> bool:
     return contenido[:2] == b"PK"  # los .xlsx son en realidad archivos ZIP
 
@@ -107,6 +123,16 @@ def _detectar_desde_excel(contenido: bytes) -> dict:
     fila_encabezado = _fila_encabezado_mas_probable(df_crudo)
     encabezados = df_crudo.iloc[fila_encabezado].tolist()
 
+    # Recortar columnas vacías/fantasma al final — Excel a veces extiende
+    # el "rango usado" del archivo más allá de los datos reales (por
+    # formato que quedó de una columna que se borró), y eso NO debe
+    # convertirse en una columna fantasma sin título real en la
+    # plantilla (causaba un ";" o "|" de más al final de cada fila del
+    # archivo exportado, confirmado con un caso real del usuario).
+    while encabezados and (encabezados[-1] is None or not str(encabezados[-1]).strip()
+                            or str(encabezados[-1]).strip() == "nan"):
+        encabezados.pop()
+
     columnas = []
     for i, valor in enumerate(encabezados):
         label = str(valor).strip() if valor is not None and str(valor).strip() and str(valor) != "nan" else f"Columna {i + 1}"
@@ -132,7 +158,7 @@ def detectar_estructura_archivo_plano(contenido: bytes) -> dict:
     if _es_xlsx(contenido):
         return _detectar_desde_excel(contenido)
 
-    texto = contenido.decode("utf-8", errors="replace")
+    texto = _decodificar_texto(contenido)
     lineas = [l for l in texto.splitlines() if l.strip()]
     if not lineas:
         return {"delimitador": "|", "columnas": []}

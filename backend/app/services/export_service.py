@@ -338,5 +338,12 @@ def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportaci
             lineas.append(delimitador.join(valores))
             total_filas += 1
 
-    contenido = ("\r\n".join(lineas)).encode("utf-8")
+    # Windows-1252 (ANSI) — el importador de escritorio de Siigo Pyme
+    # espera esta codificación, no UTF-8: con UTF-8 cada tilde/ñ ocupa
+    # 2 bytes y Siigo los interpreta mal (ej. "Ó" se ve como "Ã"" en su
+    # ventana de importación), lo cual hace que ni siquiera reconozca
+    # la línea de títulos. errors="replace" evita que un carácter
+    # verdaderamente exótico (fuera de este alfabeto) rompa todo el
+    # archivo — se cambia por "?" en ese caso puntual, en vez de fallar.
+    contenido = ("\r\n".join(lineas)).encode("cp1252", errors="replace")
     return contenido, total_filas
