@@ -75,5 +75,6 @@ def test_exportacion_completa_desde_archivo_real_de_siigo(client, empresa_a):
     assert valores["CENTRO DE COSTO"] == "0"
     assert valores["NÚMERO DE CHEQUE"] == "0"
     assert valores["COMPROBANTE ANULADO"] == "N"
-    assert valores["CÓDIGO COMPROBANTE  (OBLIGATORIO)"] == ""
-    assert valores["CÓDIGO DE LA CIUDAD"] == ""
+    assert valores["CÓDIGO COMPROBANTE  (OBLIGATORIO)"] == "1"
+    assert valores["CÓDIGO DE LA CIUDAD"] == " "  # nunca vacía de verdad — sin dato con certeza, pero con espacio
+    assert valores["CÓDIGO DE LA ZONA"] == "0"
