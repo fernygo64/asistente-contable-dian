@@ -72,3 +72,30 @@ def test_previsualizar_con_errores_no_muestra_filas(client, empresa_a):
     assert body["valido"] is False
     assert body["filas"] == []
     assert len(body["errores"]) > 0
+
+
+def test_previsualizar_con_columnas_y_texto_con_tildes(client, empresa_a):
+    """
+    Bug real reportado por el usuario: 500 Internal Server Error al dar
+    "Ver vista previa". Causa: generar_archivo() codifica el archivo en
+    Windows-1252 (necesario para que Siigo lo acepte), pero este
+    endpoint seguía decodificando como UTF-8 — con texto sin tildes
+    (como en las demás pruebas de este archivo) nunca se notaba, pero
+    con títulos reales de Siigo ("CÓDIGO", "NÚMERO", etc.) sí revienta.
+    """
+    factura = _preparar_factura_lista(client, empresa_a["id"], "FPV900", "cufe-pv-900", "900900900")
+    columnas_con_tildes = [
+        {"label": "CÓDIGO COMPROBANTE  (OBLIGATORIO)", "source": "cuenta", "valor_fijo": ""},
+        {"label": "DÉBITO O CRÉDITO (OBLIGATORIO)", "source": "debito", "valor_fijo": ""},
+        {"label": "AÑO DEL DOCUMENTO", "source": "credito", "valor_fijo": ""},
+    ]
+    r = client.post(f"/empresas/{empresa_a['id']}/plantillas", json={
+        "nombre": "Preview con tildes", "sistema_contable": "siigo_pyme", "columnas": columnas_con_tildes,
+    })
+    resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/previsualizar",
+                        json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["valido"] is True
+    assert body["encabezado"] == [c["label"] for c in columnas_con_tildes]
+    assert len(body["filas"]) == 2
