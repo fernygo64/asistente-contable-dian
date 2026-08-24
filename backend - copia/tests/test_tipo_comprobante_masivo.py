@@ -47,7 +47,7 @@ def test_tipo_comprobante_forzado_manda_sobre_la_regla_automatica_en_exportacion
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
     assert resp.status_code == 200, resp.text
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     tipos = {l.split("|")[0] for l in lineas[1:]}
     assert tipos == {"XYZ"}
 

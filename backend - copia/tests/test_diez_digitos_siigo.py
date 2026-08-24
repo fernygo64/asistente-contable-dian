@@ -27,7 +27,7 @@ def test_codigo_corto_se_rellena_a_10_digitos_en_siigo_pyme(client, empresa_a):
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
     assert resp.status_code == 200, resp.text
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     codigos = [l.split("|")[0] for l in lineas[1:]]
     assert "5135950000" in codigos
     assert "2205010000" in codigos
@@ -40,7 +40,7 @@ def test_codigo_ya_de_10_digitos_no_se_toca(client, empresa_a):
     })
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     codigos = [l.split("|")[0] for l in lineas[1:]]
     assert "5135950000" in codigos
 
@@ -63,7 +63,7 @@ def test_regla_de_10_digitos_es_exclusiva_de_empresas_configuradas_como_siigo_py
     resp = client.post(f"/empresas/{empresa_wo['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
     assert resp.status_code == 200, resp.text
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     codigos = [l.split("|")[0] for l in lineas[1:]]
     assert "513595" in codigos
     assert "5135950000" not in codigos

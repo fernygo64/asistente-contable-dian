@@ -64,7 +64,7 @@ def test_exportacion_completa_desde_archivo_real_de_siigo(client, empresa_a):
     r_export = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                             json={"plantilla_id": plantilla_id, "factura_ids": [factura["id"]]})
     assert r_export.status_code == 200, r_export.text
-    lineas = r_export.content.decode("utf-8").strip().split("\r\n")
+    lineas = r_export.content.decode("cp1252").strip().split("\r\n")
     encabezado_out = lineas[0].split("|")
     fila1 = lineas[1].split("|")
     valores = dict(zip(encabezado_out, fila1))

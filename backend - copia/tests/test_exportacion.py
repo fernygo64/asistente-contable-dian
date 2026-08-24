@@ -111,7 +111,7 @@ def test_generar_exportacion_produce_archivo_real_y_balanceado(client, empresa_a
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": plantilla_id, "factura_ids": [factura["id"]]})
     assert resp.status_code == 200, resp.text
-    contenido = resp.content.decode("utf-8")
+    contenido = resp.content.decode("cp1252")
     lineas = contenido.strip().split("\r\n")
     assert lineas[0] == "Fecha|Cuenta|Nit|Debito|Credito"  # encabezado en el orden configurado
     assert len(lineas) == 3  # encabezado + 2 movimientos (gasto + proveedores)
@@ -148,7 +148,7 @@ def test_equivalencia_de_cuentas_se_aplica_en_el_archivo(client, empresa_a):
     })
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
-    contenido = resp.content.decode("utf-8")
+    contenido = resp.content.decode("cp1252")
     assert "999888" in contenido
     assert "513595" not in contenido  # el código interno no debe filtrarse al archivo final
 

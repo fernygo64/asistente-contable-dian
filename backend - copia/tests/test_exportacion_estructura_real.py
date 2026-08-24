@@ -69,7 +69,7 @@ def test_exportar_siigo_genera_indicador_debito_credito_correcto(client, empresa
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
     assert resp.status_code == 200, resp.text
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     encabezado = lineas[0].split("|")
     idx_dc = encabezado.index("DÉBITO O CRÉDITO")
     idx_valor = encabezado.index("VALOR DE LA SECUENCIA")
@@ -99,7 +99,7 @@ def test_exportar_siigo_fecha_partida_en_anio_mes_dia(client, empresa_a):
     })
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     encabezado = lineas[0].split("|")
     idx_anio = encabezado.index("AÑO DEL DOCUMENTO")
     idx_mes = encabezado.index("MES DEL DOCUMENTO")

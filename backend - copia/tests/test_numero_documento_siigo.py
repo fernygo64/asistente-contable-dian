@@ -43,7 +43,7 @@ def _exportar(client, empresa_id, factura_ids):
     resp = client.post(f"/empresas/{empresa_id}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": factura_ids})
     assert resp.status_code == 200, resp.text
-    return resp.content.decode("utf-8").strip().split("\r\n")[1:]
+    return resp.content.decode("cp1252").strip().split("\r\n")[1:]
 
 
 def test_numero_documento_es_consecutivo_no_el_numero_real_de_la_factura(client, empresa_a):

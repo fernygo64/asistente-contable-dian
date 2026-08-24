@@ -79,7 +79,7 @@ def test_exportacion_usa_comprobante_de_compra_para_factura_recibida(client, emp
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
     assert resp.status_code == 200, resp.text
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     for fila in lineas[1:]:
         assert fila.split("|")[0] == "CC"  # comprobante de compra, no el de venta
 
@@ -105,7 +105,7 @@ def test_exportacion_usa_comprobante_de_venta_para_factura_emitida(client, empre
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
     assert resp.status_code == 200, resp.text
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     for fila in lineas[1:]:
         assert fila.split("|")[0] == "FV"  # comprobante de venta, no el de compra
 
@@ -131,7 +131,7 @@ def test_exportacion_usa_comprobante_de_nota_credito(client, empresa_a):
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
     assert resp.status_code == 200, resp.text
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     for fila in lineas[1:]:
         assert fila.split("|")[0] == "NC"
 
@@ -145,6 +145,6 @@ def test_comprobante_no_configurado_queda_vacio_sin_inventar(client, empresa_a):
     })
     resp = client.post(f"/empresas/{empresa_a['id']}/exportaciones/generar",
                         json={"plantilla_id": r.json()["id"], "factura_ids": [factura["id"]]})
-    lineas = resp.content.decode("utf-8").strip().split("\r\n")
+    lineas = resp.content.decode("cp1252").strip().split("\r\n")
     for fila in lineas[1:]:
         assert fila.split("|")[0] == ""
