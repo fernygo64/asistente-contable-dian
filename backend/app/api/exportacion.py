@@ -190,7 +190,7 @@ def previsualizar_exportacion(empresa_id: str, payload: GenerarExportacionReques
     columnas_plantilla = json.loads(plantilla.columnas_json)
     contenido, total_filas = export_service.generar_archivo(db, empresa, plantilla, facturas)
     delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
-    lineas = contenido.decode("utf-8").split("\r\n")
+    lineas = contenido.decode("cp1252").split("\r\n")
     encabezado = [c["label"] for c in columnas_plantilla]
     inicio_filas = 1 if plantilla.incluir_encabezado else 0
     filas = [l.split(delimitador) for l in lineas[inicio_filas:] if l]
