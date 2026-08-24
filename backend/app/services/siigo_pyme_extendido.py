@@ -77,7 +77,7 @@ DEFAULTS_SIIGO_PYME_EXTENDIDO: dict[str, tuple[str, object]] = {
     'VALOR DE IVA DE LA SECUENCIA': ('fijo', '0'),
     'BASE DE RETENCIÓN': ('fijo', '                   '),
     'BASE PARA CUENTAS MARCADAS COMO RETEIVA': ('fijo', '0'),
-    'SECUENCIA GRAVADA O EXCENTA': ('fijo', 'N'),
+    'SECUENCIA GRAVADA O EXCENTA': ('fijo', ' '),
     'PORCENTAJE AIU': ('fijo', '           '),
     'BASE IVA AIU': ('fijo', '                '),
     'VALOR TOTAL IMPOCONSUMO DE LA SECUENCIA': ('fijo', '0'),
@@ -133,20 +133,24 @@ DEFAULTS_SIIGO_PYME_EXTENDIDO: dict[str, tuple[str, object]] = {
 }
 
 # Columnas del rango A:R (las que sí trae cada factura nueva) que
-# también se pudieron reconocer con certeza contra el archivo real:
-# CÓDIGO DEL VENDEDOR, SUBCENTRO DE COSTO y SUCURSAL fueron siempre el
-# mismo valor en las 194 filas de referencia; SECUENCIA y CENTRO DE
-# COSTO ya se pueden calcular con datos que el sistema sí rastrea
-# (posición de la línea dentro del comprobante, y el centro de costo
-# real asignado a esa línea). Deliberadamente NO se incluyen aquí
-# "CÓDIGO COMPROBANTE", "CÓDIGO DE LA CIUDAD" ni "CÓDIGO DE LA ZONA" —
-# variaron según el tercero en el archivo real y el sistema no tiene
-# de dónde sacar ese dato con certeza; inventarlo sería un error
-# contable/tributario silencioso.
+# también se pudieron reconocer con certeza: CÓDIGO DEL VENDEDOR,
+# SUBCENTRO DE COSTO, SUCURSAL, CÓDIGO COMPROBANTE y CÓDIGO DE LA ZONA
+# fueron siempre el mismo valor en dos archivos reales distintos (194
+# filas + 26 filas de un segundo archivo que el usuario sí subió con
+# éxito a Siigo); SECUENCIA y CENTRO DE COSTO ya se pueden calcular con
+# datos que el sistema sí rastrea (posición de la línea dentro del
+# comprobante, y el centro de costo real asignado a esa línea).
+# Deliberadamente NO se incluye "CÓDIGO DE LA CIUDAD" — en ambos
+# archivos reales varió según el tercero (confirmado con evidencia:
+# 16 filas en '1', 10 filas en '0' en el segundo archivo) y el sistema
+# no tiene de dónde sacar ese dato con certeza; inventarlo sería un
+# error contable/tributario silencioso.
 DEFAULTS_SIIGO_PYME_A_R: dict[str, tuple[str, object]] = {
     'CÓDIGO DEL VENDEDOR': ('fijo', '1'),
     'SUBCENTRO DE COSTO': ('fijo', '0'),
     'SUCURSAL': ('fijo', '0'),
+    'CÓDIGO COMPROBANTE  (OBLIGATORIO)': ('fijo', '1'),
+    'CÓDIGO DE LA ZONA': ('fijo', '0'),
     'SECUENCIA': ('secuencia_linea', None),
     'CENTRO DE COSTO': ('centro_costo', None),
 }

@@ -150,6 +150,41 @@ def _seleccionar_cuenta_iva_por_tasa(db: Session, empresa: Empresa, subtotal: fl
     return None
 
 
+def _descripcion_comprobante(factura: Factura) -> str:
+    """
+    Descripción corta y consistente para TODAS las líneas de un mismo
+    comprobante — confirmado por el usuario: "Prefijo" + "-" + "Folio"
+    (los títulos reales del propio Excel de la DIAN, ya guardados como
+    factura.prefijo/factura.numero_factura) más una descripción corta
+    de lo que trae la factura. Antes cada línea del mismo comprobante
+    (gasto, IVA, contrapartida) llevaba un texto distinto y genérico
+    ("Factura X", "IVA descontable", "Contrapartida (...)") — ahora
+    todas comparten esta misma descripción real.
+    """
+    partes_doc = [p for p in [factura.prefijo, factura.numero_factura] if p]
+    doc = "-".join(partes_doc)
+
+    descripcion_corta = ""
+    if factura.conceptos_json:
+        try:
+            items = json.loads(factura.conceptos_json)
+            descripciones = [
+                i.get("descripcion", "").strip() for i in items
+                if i.get("descripcion", "").strip() and i.get("descripcion") != "(sin descripción)"
+            ]
+            descripcion_corta = "; ".join(dict.fromkeys(descripciones))[:200]  # sin duplicados, orden preservado
+        except (ValueError, TypeError):
+            descripcion_corta = ""
+
+    if doc and descripcion_corta:
+        return f"{doc} {descripcion_corta}"
+    if doc:
+        return doc
+    if descripcion_corta:
+        return descripcion_corta
+    return f"Factura {factura.numero_factura or ''}".strip()
+
+
 def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
                              cuenta_gasto_id: str, contrapartida: str,
                              centro_costo=None) -> ResultadoPartida:
@@ -183,12 +218,13 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
         reteica = 0.0
 
     lineas = []
+    descripcion = _descripcion_comprobante(factura)
     if cuenta_gasto:
         # El centro de costo se aplica a la línea de gasto/costo (donde
         # tiene sentido contable de verdad) — no a IVA, retenciones ni a
         # la contrapartida, que no pertenecen a un centro de costo.
         lineas.append(LineaPartida(cuenta_gasto.id, cuenta_gasto.codigo, cuenta_gasto.nombre,
-                                    "debito", subtotal, f"Factura {factura.numero_factura or ''}",
+                                    "debito", subtotal, descripcion,
                                     centro_costo_id=centro_costo.id if centro_costo else None,
                                     centro_costo_codigo=centro_costo.codigo if centro_costo else None))
 
@@ -197,15 +233,14 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
             cta_por_tasa = _seleccionar_cuenta_iva_por_tasa(db, empresa, subtotal, iva, factura.concepto_resumen,
                                                               tipo_iva="descontable")
             if cta_por_tasa:
-                tasa_detectada = round(iva / subtotal * 100) if subtotal > 0 else None
                 lineas.append(LineaPartida(cta_por_tasa.id, cta_por_tasa.codigo, cta_por_tasa.nombre,
-                                            "debito", iva, f"IVA descontable {tasa_detectada}% (detectado automáticamente)"))
+                                            "debito", iva, descripcion))
             elif not empresa.cuenta_iva_descontable_id:
                 errores.append("La factura tiene IVA pero la empresa no tiene configurada la "
                                 "cuenta de IVA descontable (ni una cuenta 2408 propia que mencione la tasa).")
             else:
                 cta = db.get(CuentaContable, empresa.cuenta_iva_descontable_id)
-                lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", iva, "IVA descontable"))
+                lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", iva, descripcion))
         elif lineas:
             lineas[0].valor += iva
 
@@ -214,28 +249,28 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
             errores.append("La factura tiene INC pero la empresa no tiene configurada la cuenta de INC.")
         else:
             cta = db.get(CuentaContable, empresa.cuenta_inc_id)
-            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", inc, "INC"))
+            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", inc, descripcion))
 
     if retefuente > 0:
         if not empresa.cuenta_retefuente_id:
             errores.append("La factura tiene retención en la fuente pero la empresa no tiene configurada esa cuenta.")
         else:
             cta = db.get(CuentaContable, empresa.cuenta_retefuente_id)
-            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", retefuente, "Retefuente"))
+            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", retefuente, descripcion))
 
     if reteica > 0:
         if not empresa.cuenta_reteica_id:
             errores.append("La factura tiene ReteICA pero la empresa no tiene configurada esa cuenta.")
         else:
             cta = db.get(CuentaContable, empresa.cuenta_reteica_id)
-            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", reteica, "ReteICA"))
+            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", reteica, descripcion))
 
     if reteiva > 0:
         if not empresa.cuenta_reteiva_id:
             errores.append("La factura tiene ReteIVA pero la empresa no tiene configurada esa cuenta.")
         else:
             cta = db.get(CuentaContable, empresa.cuenta_reteiva_id)
-            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", reteiva, "ReteIVA"))
+            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", reteiva, descripcion))
 
     cuenta_contra, errores_contra = _resolver_contrapartida(db, empresa, contrapartida,
                                                               ("proveedores", "caja", "banco"))
@@ -245,7 +280,7 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
     valor_contrapartida = round(total_debito - total_credito_parcial, 2)
     if not errores and cuenta_contra and valor_contrapartida > 0:
         lineas.append(LineaPartida(cuenta_contra.id, cuenta_contra.codigo, cuenta_contra.nombre,
-                                    "credito", valor_contrapartida, f"Contrapartida ({contrapartida})"))
+                                    "credito", valor_contrapartida, descripcion))
 
     total_debito, total_credito = _totales(lineas)
     balanceado = abs(total_debito - total_credito) < 0.01 and not errores
@@ -284,9 +319,10 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
     inc = float(factura.inc or 0)
 
     lineas = []
+    descripcion = _descripcion_comprobante(factura)
     if cuenta_ingreso:
         lineas.append(LineaPartida(cuenta_ingreso.id, cuenta_ingreso.codigo, cuenta_ingreso.nombre,
-                                    "credito", subtotal, f"Venta — Factura {factura.numero_factura or ''}",
+                                    "credito", subtotal, descripcion,
                                     centro_costo_id=centro_costo.id if centro_costo else None,
                                     centro_costo_codigo=centro_costo.codigo if centro_costo else None))
 
@@ -295,15 +331,14 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
             cta_por_tasa = _seleccionar_cuenta_iva_por_tasa(db, empresa, subtotal, iva,
                                                               factura.concepto_resumen, tipo_iva="generado")
             if cta_por_tasa:
-                tasa_detectada = round(iva / subtotal * 100) if subtotal > 0 else None
                 lineas.append(LineaPartida(cta_por_tasa.id, cta_por_tasa.codigo, cta_por_tasa.nombre,
-                                            "credito", iva, f"IVA generado {tasa_detectada}% (detectado automáticamente)"))
+                                            "credito", iva, descripcion))
             elif not empresa.cuenta_iva_generado_id:
                 errores.append("La factura tiene IVA pero la empresa no tiene configurada la "
                                 "cuenta de IVA generado (ni una cuenta 2408 propia que mencione la tasa).")
             else:
                 cta = db.get(CuentaContable, empresa.cuenta_iva_generado_id)
-                lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", iva, "IVA generado"))
+                lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", iva, descripcion))
         elif lineas:
             lineas[0].valor += iva
 
@@ -312,7 +347,7 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
             errores.append("La factura tiene INC pero la empresa no tiene configurada la cuenta de INC.")
         else:
             cta = db.get(CuentaContable, empresa.cuenta_inc_id)
-            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", inc, "INC"))
+            lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", inc, descripcion))
 
     cuenta_contra, errores_contra = _resolver_contrapartida(db, empresa, contrapartida,
                                                               ("clientes", "caja", "banco"))
@@ -322,7 +357,7 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
     valor_contrapartida = round(total_credito - total_debito_parcial, 2)
     if not errores and cuenta_contra and valor_contrapartida > 0:
         lineas.append(LineaPartida(cuenta_contra.id, cuenta_contra.codigo, cuenta_contra.nombre,
-                                    "debito", valor_contrapartida, f"Contrapartida ({contrapartida})"))
+                                    "debito", valor_contrapartida, descripcion))
 
     total_debito, total_credito = _totales(lineas)
     balanceado = abs(total_debito - total_credito) < 0.01 and not errores

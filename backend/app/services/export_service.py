@@ -69,7 +69,18 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
     fijo = columna.get("valor_fijo", "")
 
     if source == "fijo":
-        return str(fijo) if fijo is not None else ""
+        if fijo not in (None, ""):
+            return str(fijo)
+        # Respaldo de seguridad: en Siigo Pyme ninguna celda del archivo
+        # real queda genuinamente vacía — las que no se pueden llenar
+        # con certeza (ej. si una columna nueva de Siigo no calza con
+        # ninguna de las reconocidas) llevan un espacio, nunca nada.
+        # Confirmado por el usuario contra su propio archivo real
+        # (verificado exhaustivamente: 0/espacio/texto en blanco, jamás
+        # una celda vacía de la S en adelante).
+        if empresa and empresa.sistema_contable == "siigo_pyme":
+            return " "
+        return ""
     if source == "fecha_generacion":
         # Fecha en que se genera ESTE archivo (no la de la factura) —
         # columna real de Siigo Pyme "FECHA ACTUALIZACIÓN DEL DOCUMENTO",
