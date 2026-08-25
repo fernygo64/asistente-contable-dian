@@ -569,11 +569,106 @@ class PlantillaExportacion(Base):
     formato_fecha = Column(String(20), nullable=False, default="%Y-%m-%d")
     columnas_json = Column(Text, nullable=False)             # [{label, source, valor_fijo}]
     equivalencias_cuentas_json = Column(Text, nullable=False, default="{}")  # {codigo_interno: codigo_software}
+    # Versionado técnico del formato. Las plantillas históricas quedan en v1;
+    # al reprocesar SIIGO se crea una nueva versión v2 conservando la anterior.
+    version_formato = Column(Integer, nullable=False, default=1)
+    plantilla_origen_id = Column(String(36), ForeignKey("plantillas_exportacion.id"), nullable=True)
     activa = Column(Boolean, nullable=False, default=True)
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("empresa_id", "nombre", name="uq_plantilla_empresa_nombre"),
+    )
+
+
+# ------------------------------------------- Configuración técnica Siigo --
+class ConfiguracionComprobanteSiigo(Base):
+    """Tipo+código y defaults técnicos por empresa y clase documental."""
+    __tablename__ = "configuraciones_comprobante_siigo"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    empresa_id = Column(String(36), ForeignKey("empresas.id"), nullable=False, index=True)
+    tipo_documento = Column(String(40), nullable=False)  # factura_recibida, factura_emitida, nota_credito, ...
+    tipo_comprobante = Column(String(20), nullable=True)
+    codigo_comprobante = Column(String(20), nullable=True)
+    codigo_vendedor_default = Column(String(20), nullable=True)
+    codigo_ciudad_default = Column(String(20), nullable=True)
+    codigo_zona_default = Column(String(20), nullable=True)
+    centro_costo_default = Column(String(30), nullable=True)
+    subcentro_costo_default = Column(String(30), nullable=True)
+    sucursal_default = Column(String(20), nullable=True)
+    creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "tipo_documento", name="uq_cfg_siigo_empresa_tipo_doc"),
+        Index("ix_cfg_siigo_empresa_tipo_doc", "empresa_id", "tipo_documento"),
+    )
+
+
+class ConsecutivoSiigo(Base):
+    """Último consecutivo usado por empresa + tipo + código SIIGO."""
+    __tablename__ = "consecutivos_siigo"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    empresa_id = Column(String(36), ForeignKey("empresas.id"), nullable=False, index=True)
+    tipo_comprobante = Column(String(20), nullable=False)
+    codigo_comprobante = Column(String(20), nullable=False)
+    ultimo_consecutivo_usado = Column(Integer, nullable=False, default=0)
+    actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "tipo_comprobante", "codigo_comprobante", name="uq_consecutivo_siigo"),
+        Index("ix_consecutivo_siigo_clave", "empresa_id", "tipo_comprobante", "codigo_comprobante"),
+    )
+
+
+class ParametrizacionCuentaSiigo(Base):
+    """Comportamiento técnico de una cuenta al exportar a SIIGO; no contamina CuentaContable."""
+    __tablename__ = "parametrizaciones_cuenta_siigo"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    empresa_id = Column(String(36), ForeignKey("empresas.id"), nullable=False, index=True)
+    cuenta_id = Column(String(36), ForeignKey("cuentas_contables.id"), nullable=False, index=True)
+    maneja_tercero = Column(Boolean, nullable=False, default=True)
+    nit_tecnico_exportacion = Column(String(30), nullable=True, default="0")
+    codigo_vendedor = Column(String(20), nullable=True)
+    codigo_ciudad = Column(String(20), nullable=True)
+    codigo_zona = Column(String(20), nullable=True)
+    centro_costo = Column(String(30), nullable=True)
+    subcentro_costo = Column(String(30), nullable=True)
+    sucursal = Column(String(20), nullable=True)
+    activa = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    cuenta = relationship("CuentaContable")
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "cuenta_id", name="uq_param_cuenta_siigo"),
+        Index("ix_param_cuenta_siigo_empresa", "empresa_id", "cuenta_id"),
+    )
+
+
+class ExportacionFactura(Base):
+    """Relación por destino: una factura puede exportarse a SIIGO y World Office independientemente."""
+    __tablename__ = "exportaciones_facturas"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    empresa_id = Column(String(36), ForeignKey("empresas.id"), nullable=False, index=True)
+    exportacion_id = Column(String(36), ForeignKey("exportaciones.id"), nullable=True, index=True)
+    factura_id = Column(String(36), ForeignKey("facturas.id"), nullable=False, index=True)
+    sistema_contable = Column(String(20), nullable=False)
+    tipo_comprobante = Column(String(20), nullable=True)
+    codigo_comprobante = Column(String(20), nullable=True)
+    numero_documento = Column(String(60), nullable=True)
+    usuario = Column(String(120), nullable=True)
+    creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("exportacion_id", "factura_id", name="uq_exportacion_factura"),
+        Index("ix_exp_factura_destino", "empresa_id", "factura_id", "sistema_contable"),
     )
 
 

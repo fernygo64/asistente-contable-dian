@@ -96,6 +96,44 @@ class EmpresaComprobantesPorTipo(BaseModel):
     comprobante_documento_equivalente: Optional[str] = None
 
 
+class ConfiguracionComprobanteSiigoItem(BaseModel):
+    tipo_documento: str
+    tipo_comprobante: Optional[str] = None
+    codigo_comprobante: Optional[str] = None
+    codigo_vendedor_default: Optional[str] = None
+    codigo_ciudad_default: Optional[str] = None
+    codigo_zona_default: Optional[str] = None
+    centro_costo_default: Optional[str] = None
+    subcentro_costo_default: Optional[str] = None
+    sucursal_default: Optional[str] = None
+    ultimo_consecutivo_usado: Optional[int] = None
+
+
+class ConfiguracionComprobantesSiigoUpdate(BaseModel):
+    configuraciones: List[ConfiguracionComprobanteSiigoItem]
+
+
+class ParametrizacionCuentaSiigoUpdate(BaseModel):
+    maneja_tercero: bool = True
+    nit_tecnico_exportacion: Optional[str] = "0"
+    codigo_vendedor: Optional[str] = None
+    codigo_ciudad: Optional[str] = None
+    codigo_zona: Optional[str] = None
+    centro_costo: Optional[str] = None
+    subcentro_costo: Optional[str] = None
+    sucursal: Optional[str] = None
+    activa: bool = True
+
+
+class ParametrizacionCuentaSiigoOut(ParametrizacionCuentaSiigoUpdate):
+    id: Optional[str] = None
+    empresa_id: str
+    cuenta_id: str
+    cuenta_codigo: str
+    cuenta_nombre: str
+    configurada: bool = False
+
+
 class EmpresaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -350,6 +388,8 @@ class PlantillaOut(BaseModel):
     columnas: List[ColumnaPlantilla]
     equivalencias_cuentas: Dict[str, str]
     activa: bool
+    version_formato: int = 1
+    plantilla_origen_id: Optional[str] = None
 
 
 class GenerarExportacionRequest(BaseModel):

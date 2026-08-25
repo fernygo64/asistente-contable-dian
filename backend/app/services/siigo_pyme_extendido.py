@@ -154,3 +154,51 @@ DEFAULTS_SIIGO_PYME_A_R: dict[str, tuple[str, object]] = {
     'SECUENCIA': ('secuencia_linea', None),
     'CENTRO DE COSTO': ('centro_costo', None),
 }
+
+# Mapa exacto/dinámico de las primeras 18 columnas del Modelo General.
+# El label ORIGINAL siempre se conserva; esto solo define de dónde sale su valor.
+_SIIGO_A_R_DINAMICO = {
+    'TIPO DE COMPROBANTE (OBLIGATORIO)': ('tipo_comprobante', None),
+    'CÓDIGO COMPROBANTE (OBLIGATORIO)': ('codigo_comprobante_siigo', None),
+    'NÚMERO DE DOCUMENTO': ('numero_documento', None),
+    'CUENTA CONTABLE (OBLIGATORIO)': ('cuenta', None),
+    'DÉBITO O CRÉDITO (OBLIGATORIO)': ('debito_credito', None),
+    'VALOR DE LA SECUENCIA (OBLIGATORIO)': ('valor', None),
+    'AÑO DEL DOCUMENTO': ('anio', None),
+    'MES DEL DOCUMENTO': ('mes', None),
+    'DÍA DEL DOCUMENTO': ('dia', None),
+    'CÓDIGO DEL VENDEDOR': ('codigo_vendedor_siigo', None),
+    'CÓDIGO DE LA CIUDAD': ('codigo_ciudad_siigo', None),
+    'CÓDIGO DE LA ZONA': ('codigo_zona_siigo', None),
+    'SECUENCIA': ('secuencia_linea', None),
+    'CENTRO DE COSTO': ('centro_costo_siigo', None),
+    'SUBCENTRO DE COSTO': ('subcentro_siigo', None),
+    'NIT': ('nit', None),
+    'SUCURSAL': ('sucursal_siigo', None),
+    'DESCRIPCIÓN DE LA SECUENCIA': ('concepto_siigo', None),
+}
+
+
+def _normalizar_label_para_mapeo(label: str) -> str:
+    """Solo para comparar. Nunca se usa para reescribir el título real."""
+    return ' '.join((label or '').strip().upper().split())
+
+
+def reprocesar_columnas_siigo(columnas: list[dict]) -> list[dict]:
+    """Reaplica fuentes/defaults actuales preservando literalmente cada encabezado."""
+    dinamicos = {_normalizar_label_para_mapeo(k): v for k, v in _SIIGO_A_R_DINAMICO.items()}
+    extendidos = {_normalizar_label_para_mapeo(k): v for k, v in DEFAULTS_SIIGO_PYME_EXTENDIDO.items()}
+    nuevas = []
+    for col in columnas:
+        label = col.get('label', '')
+        key = _normalizar_label_para_mapeo(label)
+        if key in dinamicos:
+            source, fijo = dinamicos[key]
+            nuevas.append({'label': label, 'source': source, 'valor_fijo': '' if fijo is None else str(fijo)})
+        elif key in extendidos:
+            source, fijo = extendidos[key]
+            nuevas.append({'label': label, 'source': source, 'valor_fijo': '' if fijo is None else str(fijo)})
+        else:
+            # Título desconocido: se preserva y se mantiene su configuración existente.
+            nuevas.append(dict(col))
+    return nuevas

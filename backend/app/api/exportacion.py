@@ -6,7 +6,7 @@ from app.database import get_db
 from app.core.security import get_empresa_activa, usuario_actual
 from app.models.models import (
     Empresa, PlantillaExportacion, Factura, Exportacion, EstadoExportacion,
-    EstadoFactura, SistemaContable,
+    EstadoFactura, SistemaContable, ExportacionFactura,
 )
 from app.schemas.schemas import (
     PlantillaCreate, PlantillaOut, GenerarExportacionRequest, ExportacionResumen,
@@ -14,6 +14,10 @@ from app.schemas.schemas import (
 from app.services import export_service
 from app.services.auditoria_service import registrar as auditoria_registrar
 from app.services.plantilla_inferencia_service import detectar_estructura_archivo_plano
+from app.services.siigo_pyme_extendido import reprocesar_columnas_siigo
+from app.services.siigo_config_service import (
+    asignar_numeros, proyectar_numeros, configuraciones_empresa, tipo_documento_clave,
+)
 
 router = APIRouter(prefix="/empresas/{empresa_id}", tags=["exportacion"])
 
@@ -44,6 +48,8 @@ def _plantilla_a_out(p: PlantillaExportacion) -> PlantillaOut:
         delimitador=p.delimitador, extension=p.extension, incluir_encabezado=p.incluir_encabezado,
         formato_fecha=p.formato_fecha, columnas=json.loads(p.columnas_json),
         equivalencias_cuentas=json.loads(p.equivalencias_cuentas_json or "{}"), activa=p.activa,
+        version_formato=int(getattr(p, "version_formato", 1) or 1),
+        plantilla_origen_id=getattr(p, "plantilla_origen_id", None),
     )
 
 
@@ -58,12 +64,20 @@ def crear_plantilla(empresa_id: str, payload: PlantillaCreate, db: Session = Dep
     if existente:
         raise HTTPException(status_code=409, detail=f"Ya existe una plantilla llamada '{payload.nombre}' en esta empresa.")
 
+    columnas = [c.model_dump() for c in payload.columnas]
+    version_formato = 1
+    # Solo el Modelo General completo (≈123 columnas) se reprocesa automáticamente.
+    # Las plantillas cortas/personalizadas conservan exactamente los sources elegidos por el usuario.
+    if payload.sistema_contable == SistemaContable.siigo_pyme.value and len(columnas) >= 100:
+        columnas = reprocesar_columnas_siigo(columnas)
+        version_formato = 2
     p = PlantillaExportacion(
         empresa_id=empresa_id, nombre=payload.nombre, sistema_contable=payload.sistema_contable,
         delimitador=payload.delimitador, extension=payload.extension,
         incluir_encabezado=payload.incluir_encabezado, formato_fecha=payload.formato_fecha,
-        columnas_json=json.dumps([c.model_dump() for c in payload.columnas], ensure_ascii=False),
+        columnas_json=json.dumps(columnas, ensure_ascii=False),
         equivalencias_cuentas_json=json.dumps(payload.equivalencias_cuentas, ensure_ascii=False),
+        version_formato=version_formato,
     )
     db.add(p)
     db.commit()
@@ -110,6 +124,70 @@ def renombrar_plantilla(empresa_id: str, plantilla_id: str, nombre: str, db: Ses
     db.commit()
     db.refresh(plantilla)
     return _plantilla_a_out(plantilla)
+
+
+@router.post("/plantillas/{plantilla_id}/reprocesar-siigo", response_model=PlantillaOut, status_code=201)
+def reprocesar_plantilla_siigo(empresa_id: str, plantilla_id: str, db: Session = Depends(get_db),
+                                empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
+    original = db.query(PlantillaExportacion).filter(
+        PlantillaExportacion.empresa_id == empresa_id, PlantillaExportacion.id == plantilla_id
+    ).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada en esta empresa.")
+    sistema = original.sistema_contable.value if hasattr(original.sistema_contable, "value") else original.sistema_contable
+    if sistema != "siigo_pyme":
+        raise HTTPException(status_code=422, detail="Solo las plantillas de Siigo Pyme se reprocesan con esta función.")
+    columnas = reprocesar_columnas_siigo(json.loads(original.columnas_json))
+    base_nombre = f"{original.nombre} · SIIGO v2"
+    nombre = base_nombre
+    i = 2
+    while db.query(PlantillaExportacion).filter(
+        PlantillaExportacion.empresa_id == empresa_id, PlantillaExportacion.nombre == nombre
+    ).first():
+        nombre = f"{base_nombre}.{i}"
+        i += 1
+    nueva = PlantillaExportacion(
+        empresa_id=empresa_id, nombre=nombre, sistema_contable=original.sistema_contable,
+        delimitador=original.delimitador, extension=original.extension,
+        incluir_encabezado=original.incluir_encabezado, formato_fecha=original.formato_fecha,
+        columnas_json=json.dumps(columnas, ensure_ascii=False),
+        equivalencias_cuentas_json=original.equivalencias_cuentas_json or "{}",
+        version_formato=2, plantilla_origen_id=original.id,
+    )
+    db.add(nueva)
+    db.flush()
+    auditoria_registrar(db, empresa_id, "PlantillaExportacion", nueva.id, "plantilla_siigo_reprocesada",
+                         {"plantilla_origen_id": original.id, "version": 2}, usuario)
+    db.commit()
+    db.refresh(nueva)
+    return _plantilla_a_out(nueva)
+
+
+@router.get("/exportaciones/pendientes/{plantilla_id}")
+def facturas_pendientes_exportacion(empresa_id: str, plantilla_id: str, db: Session = Depends(get_db),
+                                     empresa: Empresa = Depends(get_empresa_activa)):
+    plantilla = db.query(PlantillaExportacion).filter(
+        PlantillaExportacion.empresa_id == empresa_id, PlantillaExportacion.id == plantilla_id
+    ).first()
+    if not plantilla:
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada en esta empresa.")
+    sistema = plantilla.sistema_contable
+    ya = db.query(ExportacionFactura.factura_id).filter(
+        ExportacionFactura.empresa_id == empresa_id,
+        ExportacionFactura.sistema_contable == sistema,
+    ).all()
+    ya_ids = {x[0] for x in ya}
+    q = db.query(Factura).filter(
+        Factura.empresa_id == empresa_id,
+        Factura.estado.in_([EstadoFactura.contabilizada, EstadoFactura.exportada]),
+    )
+    facturas = [f for f in q.order_by(Factura.fecha_emision.asc()).all() if f.id not in ya_ids]
+    return [{
+        "id": f.id, "numero_factura": f.numero_factura, "prefijo": f.prefijo,
+        "fecha_emision": f.fecha_emision.isoformat() if f.fecha_emision else None,
+        "tercero_nit": f.tercero_nit, "tercero_nombre": f.tercero_nombre,
+        "estado": f.estado.value if hasattr(f.estado, "value") else f.estado,
+    } for f in facturas]
 
 
 @router.delete("/plantillas/{plantilla_id}")
@@ -188,17 +266,34 @@ def previsualizar_exportacion(empresa_id: str, payload: GenerarExportacionReques
         return {"valido": False, "errores": errores, "encabezado": [], "filas": []}
 
     columnas_plantilla = json.loads(plantilla.columnas_json)
-    contenido, total_filas = export_service.generar_archivo(db, empresa, plantilla, facturas)
+    sistema = plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable
+    facturas_ordenadas = export_service.agrupar_y_ordenar_facturas(facturas)
+    numeros = proyectar_numeros(db, empresa, facturas_ordenadas) if sistema == "siigo_pyme" else None
+    contenido, total_filas = export_service.generar_archivo(db, empresa, plantilla, facturas, numeros_documento=numeros)
     delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
     lineas = contenido.decode("cp1252").split("\r\n")
     encabezado = [c["label"] for c in columnas_plantilla]
     inicio_filas = 1 if plantilla.incluir_encabezado else 0
     filas = [l.split(delimitador) for l in lineas[inicio_filas:] if l]
 
+    tipos_codigos = []
+    if sistema == "siigo_pyme":
+        cfgs = configuraciones_empresa(db, empresa)
+        vistos = set()
+        for f in facturas_ordenadas:
+            cfg = cfgs[tipo_documento_clave(f)]
+            par = (cfg.get("tipo_comprobante"), cfg.get("codigo_comprobante"))
+            if par not in vistos:
+                vistos.add(par); tipos_codigos.append({"tipo": par[0], "codigo": par[1]})
+    nums_int = [int(x) for x in (numeros or {}).values() if str(x).isdigit()]
     return {
         "valido": True, "errores": [],
-        "encabezado": encabezado, "filas": filas[:500],  # tope razonable para no inflar la respuesta
-        "total_filas": total_filas,
+        "encabezado": encabezado, "filas": filas[:500],
+        "total_filas": total_filas, "total_documentos": len(facturas),
+        "tipos_codigos": tipos_codigos,
+        "consecutivo_inicial_proyectado": min(nums_int) if nums_int else None,
+        "consecutivo_final_proyectado": max(nums_int) if nums_int else None,
+        "plantilla_version": int(getattr(plantilla, "version_formato", 1) or 1),
     }
 
 
@@ -238,21 +333,46 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
         raise HTTPException(status_code=422, detail={"mensaje": "No se generó el archivo por errores de validación.",
                                                        "errores": errores})
 
-    contenido, total_filas = export_service.generar_archivo(db, empresa, plantilla, facturas)
-    db.add(exportacion)
-    db.flush()  # necesario para que exportacion.id exista antes de usarlo en el nombre del archivo
-    nombre_archivo = f"exportacion_{plantilla.sistema_contable.value}_{exportacion.id[:8]}.{plantilla.extension}"
-    exportacion.cantidad_registros = total_filas
-    exportacion.archivo_nombre = nombre_archivo
+    sistema = plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable
+    try:
+        facturas_ordenadas = export_service.agrupar_y_ordenar_facturas(facturas)
+        numeros = None
+        cfg_por_factura = {}
+        if sistema == "siigo_pyme":
+            numeros, cfg_por_factura = asignar_numeros(db, empresa, facturas_ordenadas)
+        contenido, total_filas = export_service.generar_archivo(
+            db, empresa, plantilla, facturas_ordenadas, numeros_documento=numeros
+        )
+        db.add(exportacion)
+        db.flush()
+        nombre_archivo = f"exportacion_{sistema}_{exportacion.id[:8]}.{plantilla.extension}"
+        exportacion.cantidad_registros = total_filas
+        exportacion.archivo_nombre = nombre_archivo
 
-    for f in facturas:
-        f.estado = EstadoFactura.exportada
+        for f in facturas_ordenadas:
+            cfg = cfg_por_factura.get(f.id, {})
+            db.add(ExportacionFactura(
+                empresa_id=empresa_id, exportacion_id=exportacion.id, factura_id=f.id,
+                sistema_contable=plantilla.sistema_contable,
+                tipo_comprobante=cfg.get("tipo_comprobante") if sistema == "siigo_pyme" else None,
+                codigo_comprobante=cfg.get("codigo_comprobante") if sistema == "siigo_pyme" else None,
+                numero_documento=(numeros or {}).get(f.id) if sistema == "siigo_pyme" else None,
+                usuario=payload.usuario or usuario,
+            ))
 
-    auditoria_registrar(db, empresa_id, "Exportacion", exportacion.id, "exportacion_generada",
-                         {"archivo": nombre_archivo, "registros": total_filas,
-                          "facturas": payload.factura_ids},
-                         payload.usuario or usuario)
-    db.commit()
+        # Compatibilidad visual con versiones anteriores: se conserva el estado legacy
+        # "exportada", pero YA NO se usa como fuente de verdad para pendientes por destino.
+        for f in facturas_ordenadas:
+            f.estado = EstadoFactura.exportada
+
+        auditoria_registrar(db, empresa_id, "Exportacion", exportacion.id, "exportacion_generada",
+                             {"archivo": nombre_archivo, "registros": total_filas,
+                              "facturas": payload.factura_ids, "sistema": sistema},
+                             payload.usuario or usuario)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return Response(
         content=contenido,
@@ -296,6 +416,11 @@ def eliminar_exportacion(empresa_id: str, exportacion_id: str, db: Session = Dep
         raise HTTPException(status_code=404, detail="Exportación no encontrada en esta empresa.")
 
     detalle = {"archivo": exportacion.archivo_nombre, "plantilla_id": exportacion.plantilla_id}
+    # La marca por destino se conserva aunque se elimine la fila del historial visual.
+    relaciones = db.query(ExportacionFactura).filter(ExportacionFactura.exportacion_id == exportacion_id).all()
+    for r in relaciones:
+        r.exportacion_id = None
+    db.flush()
     db.delete(exportacion)
     auditoria_registrar(db, empresa_id, "Exportacion", exportacion_id, "exportacion_eliminada", detalle, usuario)
     db.commit()

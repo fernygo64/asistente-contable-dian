@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import empresas, config_empresa, historial, auditoria, documentos, exportacion, puc
+from app.api import empresas, config_empresa, historial, auditoria, documentos, exportacion, puc, siigo_config
 
 # El esquema de base de datos se gestiona con Alembic (carpeta alembic/),
 # no con Base.metadata.create_all(). Antes de levantar el servidor por
@@ -51,6 +51,7 @@ app.include_router(config_empresa.router)
 app.include_router(historial.router)
 app.include_router(documentos.router)
 app.include_router(exportacion.router)
+app.include_router(siigo_config.router)
 app.include_router(auditoria.router)
 app.include_router(puc.router)
 

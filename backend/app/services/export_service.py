@@ -13,6 +13,9 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.models import Empresa, Factura, Movimiento, PlantillaExportacion, EstadoFactura
+from app.services.siigo_config_service import (
+    configuraciones_empresa, tipo_documento_clave, parametros_cuentas_empresa, proyectar_numeros,
+)
 from app.services.export_adapters import obtener_adaptador
 
 
@@ -62,9 +65,24 @@ def _formatear_codigo_cuenta(codigo: str, empresa: Optional[Empresa]) -> str:
     return codigo.ljust(10, "0")
 
 
+
+def _descripcion_exportacion_siigo(factura: Factura) -> str:
+    """Descripción uniforme por comprobante sin alterar Movimiento.descripcion histórico."""
+    partes = [str(x).strip() for x in (factura.prefijo, factura.numero_factura) if x and str(x).strip()]
+    documento = "-".join(partes)
+    concepto = factura.concepto_resumen or ""
+    texto = " ".join(x for x in (documento, concepto) if x).strip()
+    if not texto:
+        texto = f"Factura {factura.numero_factura or ''}".strip()
+    # El archivo real usa un campo corto de descripción. Se conserva un ancho estable de 50.
+    texto = " ".join(texto.upper().split())[:50]
+    return texto.ljust(50)
+
+
 def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
                     equivalencias: dict, formato_fecha: str, empresa: Optional[Empresa] = None,
-                    numero_documento_calculado: Optional[str] = None) -> str:
+                    numero_documento_calculado: Optional[str] = None,
+                    config_siigo: Optional[dict] = None, param_cuenta_siigo=None) -> str:
     source = columna.get("source")
     fijo = columna.get("valor_fijo", "")
 
@@ -91,8 +109,34 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
         # formato HHMMSS confirmado contra archivo real.
         return datetime.now().strftime("%H%M%S")
     if source == "tipo_comprobante":
-        valor = _tipo_comprobante_para_factura(empresa, factura) if empresa else ""
+        if factura.tipo_comprobante_override:
+            return factura.tipo_comprobante_override
+        valor = (config_siigo or {}).get("tipo_comprobante") if config_siigo else None
+        if not valor:
+            valor = _tipo_comprobante_para_factura(empresa, factura) if empresa else ""
         return valor or fijo
+    if source == "codigo_comprobante_siigo":
+        return str((config_siigo or {}).get("codigo_comprobante") or fijo or " ")
+    if source == "codigo_vendedor_siigo":
+        valor = getattr(param_cuenta_siigo, "codigo_vendedor", None) if param_cuenta_siigo else None
+        return str(valor or (config_siigo or {}).get("codigo_vendedor_default") or fijo or " ")
+    if source == "codigo_ciudad_siigo":
+        valor = getattr(param_cuenta_siigo, "codigo_ciudad", None) if param_cuenta_siigo else None
+        return str(valor or (config_siigo or {}).get("codigo_ciudad_default") or fijo or " ")
+    if source == "codigo_zona_siigo":
+        valor = getattr(param_cuenta_siigo, "codigo_zona", None) if param_cuenta_siigo else None
+        return str(valor or (config_siigo or {}).get("codigo_zona_default") or fijo or "0")
+    if source == "subcentro_siigo":
+        valor = getattr(param_cuenta_siigo, "subcentro_costo", None) if param_cuenta_siigo else None
+        return str(valor or (config_siigo or {}).get("subcentro_costo_default") or fijo or "0")
+    if source == "sucursal_siigo":
+        valor = getattr(param_cuenta_siigo, "sucursal", None) if param_cuenta_siigo else None
+        return str(valor or (config_siigo or {}).get("sucursal_default") or fijo or "0")
+    if source == "centro_costo_siigo":
+        if movimiento.centro_costo:
+            return str(movimiento.centro_costo.codigo)
+        valor = getattr(param_cuenta_siigo, "centro_costo", None) if param_cuenta_siigo else None
+        return str(valor or (config_siigo or {}).get("centro_costo_default") or fijo or "0")
     if source == "numero_documento":
         # El consecutivo INTERNO de Siigo que agrupa las líneas de un
         # mismo comprobante (verificado contra archivo real del
@@ -116,14 +160,23 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
     if source == "nombre_cuenta":
         return movimiento.cuenta.nombre
     if source == "nit":
-        return movimiento.tercero_nit_override or factura.tercero_nit or fijo
+        if movimiento.tercero_nit_override:
+            return movimiento.tercero_nit_override
+        if empresa and empresa.sistema_contable == "siigo_pyme" and param_cuenta_siigo is not None:
+            if not bool(param_cuenta_siigo.maneja_tercero):
+                return str(param_cuenta_siigo.nit_tecnico_exportacion or "0")
+        return factura.tercero_nit or fijo
     if source == "tercero":
         return movimiento.tercero_nombre_override or factura.tercero_nombre or fijo
     if source == "numero_factura":
         return factura.numero_factura or fijo
     if source == "cufe":
         return factura.cufe or fijo
+    if source == "concepto_siigo":
+        return _descripcion_exportacion_siigo(factura)
     if source == "concepto":
+        if empresa and empresa.sistema_contable == "siigo_pyme":
+            return _descripcion_exportacion_siigo(factura)
         return movimiento.descripcion or f"Factura {factura.numero_factura or ''}"
     if source == "debito_credito":
         # Estructura real de Siigo Pyme (Movimiento Contable): una sola
@@ -162,14 +215,27 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
     if not columnas:
         errores.append("La plantilla no tiene columnas configuradas.")
 
+    es_siigo = (plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable) == "siigo_pyme"
+    cfgs_siigo = configuraciones_empresa(db, empresa) if es_siigo else {}
+    params_siigo = parametros_cuentas_empresa(db, empresa.id) if es_siigo else {}
+    sources = {c.get("source") for c in columnas}
+    plantilla_siigo_completa = es_siigo and len(columnas) >= 100
+
     filas_por_validar = []
     for f in facturas:
-        if f.estado not in (EstadoFactura.lista_para_contabilizar, EstadoFactura.contabilizada):
+        if f.estado not in (EstadoFactura.lista_para_contabilizar, EstadoFactura.contabilizada, EstadoFactura.exportada):
             errores.append(
                 f"La factura {f.numero_factura or f.id} está en estado '{f.estado.value}' — "
                 f"debe generar y aprobar su partida doble antes de exportarla."
             )
             continue
+        if plantilla_siigo_completa:
+            cfg = cfgs_siigo.get(tipo_documento_clave(f), {})
+            tipo_efectivo = f.tipo_comprobante_override or cfg.get("tipo_comprobante")
+            if not tipo_efectivo:
+                errores.append(f"La factura {f.numero_factura or f.id} no tiene Tipo SIIGO configurado para su clase documental.")
+            if not cfg.get("codigo_comprobante"):
+                errores.append(f"La factura {f.numero_factura or f.id} no tiene Código SIIGO configurado para su clase documental.")
         movimientos = db.query(Movimiento).filter(Movimiento.factura_id == f.id).order_by(Movimiento.orden).all()
         if not movimientos:
             errores.append(f"La factura {f.numero_factura or f.id} no tiene movimientos contables generados.")
@@ -186,6 +252,11 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
                             f"({'receptor' if f.direccion_documento == 'emitida' else 'emisor'}).")
 
         for m in movimientos:
+            if plantilla_siigo_completa and int(getattr(plantilla, "version_formato", 1) or 1) >= 2 and m.cuenta_id not in params_siigo:
+                errores.append(
+                    f"Cuenta {m.cuenta.codigo} ({m.cuenta.nombre}) sin parametrización SIIGO. "
+                    f"Define si maneja tercero y sus códigos técnicos antes de exportar."
+                )
             filas_por_validar.append({
                 "Fecha": f.fecha_emision.strftime(plantilla.formato_fecha) if f.fecha_emision else "",
                 "Cuenta": m.cuenta.codigo, "Nit": f.tercero_nit or "", "Tercero": f.tercero_nombre or "",
@@ -314,13 +385,17 @@ def _calcular_numeros_documento(empresa: Optional[Empresa], facturas: list[Factu
 
 
 def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
-                     facturas: list[Factura]) -> tuple[bytes, int]:
+                     facturas: list[Factura], numeros_documento: Optional[dict[str, str]] = None) -> tuple[bytes, int]:
     """Devuelve (contenido_bytes, cantidad_de_filas). Se asume ya validado."""
     facturas = agrupar_y_ordenar_facturas(facturas)
     columnas = json.loads(plantilla.columnas_json)
     equivalencias = json.loads(plantilla.equivalencias_cuentas_json or "{}")
     delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
-    numeros_documento = _calcular_numeros_documento(empresa, facturas)
+    es_siigo = (plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable) == "siigo_pyme"
+    cfgs_siigo = configuraciones_empresa(db, empresa) if es_siigo else {}
+    params_siigo = parametros_cuentas_empresa(db, empresa.id) if es_siigo else {}
+    if numeros_documento is None:
+        numeros_documento = proyectar_numeros(db, empresa, facturas) if es_siigo else _calcular_numeros_documento(empresa, facturas)
 
     lineas = []
     if plantilla.incluir_encabezado:
@@ -329,10 +404,12 @@ def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportaci
     total_filas = 0
     for f in facturas:
         movimientos = db.query(Movimiento).filter(Movimiento.factura_id == f.id).order_by(Movimiento.orden).all()
+        cfg_siigo = cfgs_siigo.get(tipo_documento_clave(f), {}) if es_siigo else None
         for m in movimientos:
+            param_siigo = params_siigo.get(m.cuenta_id) if es_siigo else None
             valores = [
                 _valor_columna(c, f, m, equivalencias, plantilla.formato_fecha, empresa,
-                                numeros_documento.get(f.id)).replace(delimitador, " ")
+                                numeros_documento.get(f.id), cfg_siigo, param_siigo).replace(delimitador, " ")
                 for c in columnas
             ]
             lineas.append(delimitador.join(valores))
