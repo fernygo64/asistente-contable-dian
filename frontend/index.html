@@ -223,18 +223,23 @@
     </div>
 
     <div class="card">
-      <h2>Tipo de comprobante por tipo de documento</h2>
-      <p class="muted">En Siigo/World Office, las compras, ventas, notas y nómina normalmente van a comprobantes distintos — configúralo una sola vez aquí y las plantillas de exportación lo usan automáticamente según la clasificación de cada factura. Si dejas alguno vacío, esa columna sale en blanco en el archivo (nunca se inventa un código). Para Siigo Pyme, cada campo sugiere los códigos reales de "Tipos de Documento" de Siigo (verificado contra la aplicación real) — puedes elegir uno o escribir el tuyo si tu empresa usa otro.</p>
+      <h2>Comprobantes por tipo de documento</h2>
+      <p class="muted">En SIIGO Pyme son tres conceptos distintos: <strong>Tipo</strong> (ej. G), <strong>Código</strong> (ej. 1) y <strong>consecutivo</strong>. El consecutivo mostrado es el último utilizado; el siguiente se asigna automáticamente al exportar. En World Office se conserva la configuración anterior por tipo.</p>
       <datalist id="siigoTiposComprobante"></datalist>
-      <div class="row">
-        <div><label>Facturas recibidas (compras)</label><input id="tcRecibida" list="siigoTiposComprobante" placeholder="P"></div>
-        <div><label>Facturas emitidas (ventas)</label><input id="tcEmitida" list="siigoTiposComprobante" placeholder="F"></div>
-        <div><label>Notas crédito</label><input id="tcNotaCredito" list="siigoTiposComprobante" placeholder="C"></div>
-        <div><label>Notas débito</label><input id="tcNotaDebito" list="siigoTiposComprobante" placeholder="D"></div>
-        <div><label>Nómina</label><input id="tcNomina" list="siigoTiposComprobante" placeholder="N"></div>
-        <div><label>Documento equivalente</label><input id="tcEquivalente" list="siigoTiposComprobante" placeholder="E"></div>
-        <div><button class="btn" onclick="guardarComprobantesPorTipo()">Guardar</button></div>
-      </div>
+      <table><thead><tr><th>Documento</th><th>Tipo</th><th>Código SIIGO</th><th>Último consecutivo SIIGO</th></tr></thead><tbody>
+        <tr><td>Facturas recibidas</td><td><input id="tcRecibida" list="siigoTiposComprobante" placeholder="G"></td><td><input id="ccRecibida" placeholder="1"></td><td><input id="consRecibida" type="number" min="0" placeholder="80"></td></tr>
+        <tr><td>Facturas emitidas</td><td><input id="tcEmitida" list="siigoTiposComprobante" placeholder="F"></td><td><input id="ccEmitida" placeholder="1"></td><td><input id="consEmitida" type="number" min="0"></td></tr>
+        <tr><td>Notas crédito</td><td><input id="tcNotaCredito" list="siigoTiposComprobante" placeholder="U"></td><td><input id="ccNotaCredito" placeholder="1"></td><td><input id="consNotaCredito" type="number" min="0"></td></tr>
+        <tr><td>Notas débito</td><td><input id="tcNotaDebito" list="siigoTiposComprobante" placeholder="D"></td><td><input id="ccNotaDebito" placeholder="1"></td><td><input id="consNotaDebito" type="number" min="0"></td></tr>
+        <tr><td>Nómina</td><td><input id="tcNomina" list="siigoTiposComprobante" placeholder="N"></td><td><input id="ccNomina" placeholder="1"></td><td><input id="consNomina" type="number" min="0"></td></tr>
+        <tr><td>Documento equivalente</td><td><input id="tcEquivalente" list="siigoTiposComprobante" placeholder="E"></td><td><input id="ccEquivalente" placeholder="1"></td><td><input id="consEquivalente" type="number" min="0"></td></tr>
+      </tbody></table>
+      <div style="margin-top:10px;"><button class="btn" onclick="guardarComprobantesPorTipo()">Guardar comprobantes</button></div>
+    </div>
+
+    <div class="card" id="siigoCuentasCard">
+      <div class="flex-between"><div><h2>Parametrización SIIGO por cuenta</h2><p class="muted">Define si cada cuenta maneja tercero y sus códigos técnicos. Esto solo afecta la exportación SIIGO; no modifica el plan de cuentas ni World Office.</p></div><button class="btn ghost" onclick="cargarParametrizacionSiigoCuentas()">Actualizar</button></div>
+      <div style="overflow-x:auto;"><table><thead><tr><th>Cuenta</th><th>Nombre</th><th>Maneja tercero</th><th>NIT técnico</th><th>Vendedor</th><th>Ciudad</th><th>Zona</th><th>Centro</th><th>Subcentro</th><th>Sucursal</th><th></th></tr></thead><tbody id="tablaSiigoCuentas"></tbody></table></div>
     </div>
 
     <div class="card">
@@ -509,7 +514,7 @@ Credito=credito</textarea>
 
     <div class="card">
       <h2>Plantillas de la empresa</h2>
-      <table><thead><tr><th>Nombre</th><th>Sistema</th><th>Columnas</th><th></th></tr></thead><tbody id="tablaPlantillas"></tbody></table>
+      <table><thead><tr><th>Nombre</th><th>Sistema</th><th>Versión</th><th>Columnas</th><th></th></tr></thead><tbody id="tablaPlantillas"></tbody></table>
     </div>
 
     <div class="card">
@@ -753,6 +758,7 @@ async function seleccionarEmpresa(id){
   await cargarCuentasBase();
   await cargarCentrosCosto();
   await cargarComprobantesPorTipo();
+  await cargarParametrizacionSiigoCuentas();
   await cargarEmpleados();
 }
 
@@ -772,31 +778,88 @@ function buscarPuc(input){
 
 async function guardarComprobantesPorTipo(){
   if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
-  const payload = {
-    comprobante_factura_recibida: document.getElementById('tcRecibida').value.trim() || null,
-    comprobante_factura_emitida: document.getElementById('tcEmitida').value.trim() || null,
-    comprobante_nota_credito: document.getElementById('tcNotaCredito').value.trim() || null,
-    comprobante_nota_debito: document.getElementById('tcNotaDebito').value.trim() || null,
-    comprobante_nomina: document.getElementById('tcNomina').value.trim() || null,
-    comprobante_documento_equivalente: document.getElementById('tcEquivalente').value.trim() || null,
-  };
+  const emp = empresas.find(e=>e.id===empresaActivaId);
+  const ids = [
+    ['factura_recibida','tcRecibida','ccRecibida','consRecibida'],
+    ['factura_emitida','tcEmitida','ccEmitida','consEmitida'],
+    ['nota_credito','tcNotaCredito','ccNotaCredito','consNotaCredito'],
+    ['nota_debito','tcNotaDebito','ccNotaDebito','consNotaDebito'],
+    ['nomina','tcNomina','ccNomina','consNomina'],
+    ['documento_equivalente','tcEquivalente','ccEquivalente','consEquivalente'],
+  ];
   try{
-    await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-    toast('Tipos de comprobante guardados');
+    if(emp?.sistema_contable === 'siigo_pyme'){
+      const configuraciones = ids.map(([tipo,tipoId,codId,consId])=>({
+        tipo_documento: tipo,
+        tipo_comprobante: document.getElementById(tipoId).value.trim() || null,
+        codigo_comprobante: document.getElementById(codId).value.trim() || null,
+        ultimo_consecutivo_usado: document.getElementById(consId).value === '' ? null : Number(document.getElementById(consId).value),
+        codigo_vendedor_default: '1', codigo_zona_default:'0', centro_costo_default:'0', subcentro_costo_default:'0', sucursal_default:'0'
+      }));
+      await req(`/empresas/${empresaActivaId}/siigo/comprobantes`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({configuraciones})});
+    }else{
+      const payload = {
+        comprobante_factura_recibida: document.getElementById('tcRecibida').value.trim() || null,
+        comprobante_factura_emitida: document.getElementById('tcEmitida').value.trim() || null,
+        comprobante_nota_credito: document.getElementById('tcNotaCredito').value.trim() || null,
+        comprobante_nota_debito: document.getElementById('tcNotaDebito').value.trim() || null,
+        comprobante_nomina: document.getElementById('tcNomina').value.trim() || null,
+        comprobante_documento_equivalente: document.getElementById('tcEquivalente').value.trim() || null,
+      };
+      await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    }
+    toast('Configuración de comprobantes guardada');
+    await cargarComprobantesPorTipo();
   }catch(e){ toast(e.message, true); }
 }
 
 async function cargarComprobantesPorTipo(){
   if(!empresaActivaId) return;
+  const emp = empresas.find(e=>e.id===empresaActivaId);
+  const pares = {
+    factura_recibida:['tcRecibida','ccRecibida','consRecibida'], factura_emitida:['tcEmitida','ccEmitida','consEmitida'],
+    nota_credito:['tcNotaCredito','ccNotaCredito','consNotaCredito'], nota_debito:['tcNotaDebito','ccNotaDebito','consNotaDebito'],
+    nomina:['tcNomina','ccNomina','consNomina'], documento_equivalente:['tcEquivalente','ccEquivalente','consEquivalente']
+  };
   try{
-    const c = await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`);
-    document.getElementById('tcRecibida').value = c.comprobante_factura_recibida || '';
-    document.getElementById('tcEmitida').value = c.comprobante_factura_emitida || '';
-    document.getElementById('tcNotaCredito').value = c.comprobante_nota_credito || '';
-    document.getElementById('tcNotaDebito').value = c.comprobante_nota_debito || '';
-    document.getElementById('tcNomina').value = c.comprobante_nomina || '';
-    document.getElementById('tcEquivalente').value = c.comprobante_documento_equivalente || '';
+    if(emp?.sistema_contable === 'siigo_pyme'){
+      const lista = await req(`/empresas/${empresaActivaId}/siigo/comprobantes`);
+      lista.forEach(c=>{ const [ti,ci,ni]=pares[c.tipo_documento]; document.getElementById(ti).value=c.tipo_comprobante||''; document.getElementById(ci).value=c.codigo_comprobante||''; document.getElementById(ni).value=c.ultimo_consecutivo_usado ?? 0; });
+      Object.values(pares).forEach(([,ci,ni])=>{document.getElementById(ci).disabled=false;document.getElementById(ni).disabled=false;});
+    }else{
+      const c = await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`);
+      document.getElementById('tcRecibida').value = c.comprobante_factura_recibida || '';
+      document.getElementById('tcEmitida').value = c.comprobante_factura_emitida || '';
+      document.getElementById('tcNotaCredito').value = c.comprobante_nota_credito || '';
+      document.getElementById('tcNotaDebito').value = c.comprobante_nota_debito || '';
+      document.getElementById('tcNomina').value = c.comprobante_nomina || '';
+      document.getElementById('tcEquivalente').value = c.comprobante_documento_equivalente || '';
+      Object.values(pares).forEach(([,ci,ni])=>{document.getElementById(ci).value='';document.getElementById(ni).value='';document.getElementById(ci).disabled=true;document.getElementById(ni).disabled=true;});
+    }
   }catch(e){ /* silencioso */ }
+}
+
+async function cargarParametrizacionSiigoCuentas(){
+  const card=document.getElementById('siigoCuentasCard'); if(!empresaActivaId||!card)return;
+  const emp=empresas.find(e=>e.id===empresaActivaId); card.style.display=emp?.sistema_contable==='siigo_pyme'?'block':'none';
+  if(emp?.sistema_contable!=='siigo_pyme') return;
+  try{
+    const filas=await req(`/empresas/${empresaActivaId}/siigo/cuentas`);
+    document.getElementById('tablaSiigoCuentas').innerHTML=filas.map(x=>`<tr data-cuenta="${x.cuenta_id}"><td class="mono">${x.cuenta_codigo}</td><td>${x.cuenta_nombre}</td>
+      <td><input type="checkbox" class="ps-maneja" ${x.maneja_tercero?'checked':''} style="width:auto"></td>
+      <td><input class="ps-nit" value="${x.nit_tecnico_exportacion||'0'}" style="width:90px"></td>
+      <td><input class="ps-vend" value="${x.codigo_vendedor||''}" style="width:65px"></td><td><input class="ps-ciudad" value="${x.codigo_ciudad||''}" style="width:65px"></td>
+      <td><input class="ps-zona" value="${x.codigo_zona||''}" style="width:65px"></td><td><input class="ps-centro" value="${x.centro_costo||''}" style="width:70px"></td>
+      <td><input class="ps-sub" value="${x.subcentro_costo||''}" style="width:70px"></td><td><input class="ps-suc" value="${x.sucursal||''}" style="width:65px"></td>
+      <td><button class="btn ghost" onclick="guardarParamSiigoCuenta('${x.cuenta_id}',this)">${x.configurada?'Guardar':'Configurar'}</button></td></tr>`).join('')||'<tr><td colspan="11" class="muted">No hay cuentas activas.</td></tr>';
+  }catch(e){document.getElementById('tablaSiigoCuentas').innerHTML=`<tr><td colspan="11" class="muted">${e.message}</td></tr>`;}
+}
+
+async function guardarParamSiigoCuenta(cuentaId,boton){
+  const tr=boton.closest('tr');
+  const val=sel=>tr.querySelector(sel).value.trim()||null;
+  const payload={maneja_tercero:tr.querySelector('.ps-maneja').checked,nit_tecnico_exportacion:val('.ps-nit')||'0',codigo_vendedor:val('.ps-vend'),codigo_ciudad:val('.ps-ciudad'),codigo_zona:val('.ps-zona'),centro_costo:val('.ps-centro'),subcentro_costo:val('.ps-sub'),sucursal:val('.ps-suc'),activa:true};
+  try{await req(`/empresas/${empresaActivaId}/siigo/cuentas/${cuentaId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});toast('Parametrización SIIGO guardada');boton.textContent='Guardar';}catch(e){toast(e.message,true);}
 }
 
 async function guardarModoContable(){
@@ -1762,12 +1825,13 @@ async function cargarPlantillas(){
   try{
     const plantillas = await req(`/empresas/${empresaActivaId}/plantillas`);
     document.getElementById('tablaPlantillas').innerHTML = plantillas.map(p=>`
-      <tr><td>${p.nombre || '<span class="pill err">(sin nombre)</span>'}</td><td>${p.sistema_contable}</td><td>${p.columnas.map(c=>c.label).join(', ')}</td>
+      <tr><td>${p.nombre || '<span class="pill err">(sin nombre)</span>'}</td><td>${p.sistema_contable}</td><td>${p.sistema_contable==='siigo_pyme'?'v'+(p.version_formato||1):'—'}</td><td>${p.columnas.map(c=>c.label).join(', ')}</td>
       <td style="white-space:nowrap;">
+        ${p.sistema_contable==='siigo_pyme'?`<button class="btn ghost" onclick="reprocesarPlantillaSiigo('${p.id}')">Actualizar SIIGO</button>`:''}
         <button class="btn ghost" onclick="renombrarPlantilla('${p.id}','${(p.nombre||'').replace(/'/g,"\\'")}')">Renombrar</button>
         <button class="btn danger" onclick="eliminarPlantilla('${p.id}','${(p.nombre||'').replace(/'/g,"\\'")}')">Eliminar</button>
       </td></tr>
-    `).join('') || '<tr><td colspan="4" class="muted">Sin plantillas todavía.</td></tr>';
+    `).join('') || '<tr><td colspan="5" class="muted">Sin plantillas todavía.</td></tr>';
     document.getElementById('expPlantilla').innerHTML = plantillas.map(p=>`<option value="${p.id}">${p.nombre || '(sin nombre)'} (${p.sistema_contable})</option>`).join('');
   }catch(e){ toast(e.message, true); }
 }
@@ -1780,6 +1844,15 @@ async function renombrarPlantilla(id, nombreActual){
     await req(`/empresas/${empresaActivaId}/plantillas/${id}/renombrar?nombre=${encodeURIComponent(nuevo.trim())}`, {method:'PATCH'});
     toast('Plantilla renombrada');
     cargarPlantillas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function reprocesarPlantillaSiigo(id){
+  if(!confirm('Se creará una NUEVA versión de esta plantilla SIIGO conservando la histórica. ¿Continuar?')) return;
+  try{
+    const p = await req(`/empresas/${empresaActivaId}/plantillas/${id}/reprocesar-siigo`, {method:'POST'});
+    toast(`Nueva plantilla creada: ${p.nombre}`);
+    await cargarPlantillas();
   }catch(e){ toast(e.message, true); }
 }
 
@@ -1797,12 +1870,14 @@ let _idsContabilizadasParaExportar = [];
 async function cargarFacturasContabilizadas(){
   if(!empresaActivaId) return;
   const div = document.getElementById('resumenContabilizadasExportar');
+  const plantillaId = document.getElementById('expPlantilla')?.value;
+  if(!plantillaId){ _idsContabilizadasParaExportar=[]; div.innerHTML='<span class="muted">Selecciona una plantilla.</span>'; return; }
   try{
-    const facturas = await req(`/empresas/${empresaActivaId}/documentos?estado=contabilizada`);
+    const facturas = await req(`/empresas/${empresaActivaId}/exportaciones/pendientes/${plantillaId}`);
     _idsContabilizadasParaExportar = facturas.map(f=>f.id);
     div.innerHTML = facturas.length
-      ? `<span class="pill ok">${facturas.length} factura(s) contabilizada(s) lista(s) para exportar</span>`
-      : '<span class="muted">No hay facturas contabilizadas pendientes de exportar todavía — ve a Facturas, aprueba las que correspondan, y vuelve aquí.</span>';
+      ? `<span class="pill ok">${facturas.length} factura(s) pendiente(s) para ESTE destino</span>`
+      : '<span class="muted">No hay facturas pendientes para este destino.</span>';
   }catch(e){ div.innerHTML = `<span class="muted">No se pudo consultar: ${e.message}</span>`; }
 }
 
@@ -1837,7 +1912,7 @@ async function previsualizarExportacion(){
       return;
     }
     div.innerHTML = `
-      <p class="muted" style="font-weight:600; color:var(--ink-soft);">Así va a quedar el archivo (${r.total_filas} línea(s)) — revisa que las cuentas sean correctas antes de aprobar la descarga:</p>
+      <p class="muted" style="font-weight:600; color:var(--ink-soft);">Así va a quedar el archivo: ${r.total_documentos||ids.length} documento(s), ${r.total_filas} movimiento(s). ${r.tipos_codigos?.length?'Comprobante(s): '+r.tipos_codigos.map(x=>`${x.tipo}-${x.codigo}`).join(', ')+'. ':''}${r.consecutivo_inicial_proyectado!=null?'Consecutivos proyectados: '+r.consecutivo_inicial_proyectado+' a '+r.consecutivo_final_proyectado+'. ':''}Plantilla v${r.plantilla_version||1}. La vista previa NO consume consecutivos.</p>
       <div style="overflow-x:auto;"><table><thead><tr>${r.encabezado.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
       <tbody>${r.filas.map(fila=>`<tr>${fila.map(c=>`<td class="mono">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
       <div style="margin-top:10px;"><button class="btn" onclick="generarExportacion()">✓ Apruebo esta vista previa — generar y descargar</button></div>
