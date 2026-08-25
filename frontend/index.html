@@ -237,11 +237,6 @@
       <div style="margin-top:10px;"><button class="btn" onclick="guardarComprobantesPorTipo()">Guardar comprobantes</button></div>
     </div>
 
-    <div class="card" id="siigoCuentasCard">
-      <div class="flex-between"><div><h2>Parametrización SIIGO por cuenta</h2><p class="muted">Define si cada cuenta maneja tercero y sus códigos técnicos. Esto solo afecta la exportación SIIGO; no modifica el plan de cuentas ni World Office.</p></div><button class="btn ghost" onclick="cargarParametrizacionSiigoCuentas()">Actualizar</button></div>
-      <div style="overflow-x:auto;"><table><thead><tr><th>Cuenta</th><th>Nombre</th><th>Maneja tercero</th><th>NIT técnico</th><th>Vendedor</th><th>Ciudad</th><th>Zona</th><th>Centro</th><th>Subcentro</th><th>Sucursal</th><th></th></tr></thead><tbody id="tablaSiigoCuentas"></tbody></table></div>
-    </div>
-
     <div class="card">
       <h2>Centros de costo <span class="muted" style="text-transform:none; font-weight:normal;">(opcional — solo si tu empresa los necesita)</span></h2>
       <p class="muted">No es indispensable para generar la partida doble; puedes ignorarlo por completo si no manejas centros de costo.</p>
@@ -336,7 +331,7 @@
 
     <div class="card">
       <h2>Auxiliar / Movimiento contable (con mapeo de columnas)</h2>
-      <p class="muted">Para el auxiliar/movimiento contable completo de tu software — trae muchas más columnas (comprobante, débito/crédito, retenciones, etc.) y sí conviene revisar el mapeo antes de importar. El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje. La aprobación de las facturas nuevas se sigue haciendo en la pestaña Facturas.</p>
+      <p class="muted">Para el auxiliar/movimiento contable completo de tu software — trae muchas más columnas (comprobante, débito/crédito, retenciones, etc.) y sí conviene revisar el mapeo básico antes de importar. El sistema aprende qué cuenta usa cada NIT para sugerirla en las próximas facturas. <strong>Si el archivo es Movimiento Contable de SIIGO Pyme, además aprende automáticamente fila por fila los datos técnicos de exportación</strong> (vendedor, ciudad, zona, centro, subcentro, sucursal y comportamiento del NIT por cuenta) sin pedirte parametrizarlos manualmente. Esto NO genera ningún archivo de exportación — solo alimenta el aprendizaje.</p>
       <div class="row">
         <div><label>Archivo (auxiliar o movimiento contable)</label><input type="file" id="histArchivoInput" accept=".xlsx,.xls,.csv"></div>
         <div><button class="btn" onclick="usarPlantillaConocidaHistorial()">Usar plantilla de <span id="histSistemaNombre">tu sistema contable</span></button></div>
@@ -367,7 +362,7 @@
         <div style="flex:2;"><label>Cuentas a excluir del aprendizaje (códigos o prefijos, separados por coma)</label><input id="histCuentasExcluir" placeholder="220501, 1105, 24 (proveedores, caja/bancos, IVA/retenciones)"></div>
         <div><button class="btn" onclick="importarHistorico()">Importar</button></div>
       </div>
-      <p class="muted">Excluye aquí las cuentas de contrapartida/control (proveedores, caja, bancos, IVA, retenciones) para que el sistema solo aprenda de la cuenta de gasto/ingreso real — un archivo de movimiento contable trae todas las líneas del comprobante, no solo la que importa clasificar.</p>
+      <p class="muted">Excluye aquí las cuentas de contrapartida/control (proveedores, caja, bancos, IVA, retenciones) para que no contaminen la <strong>sugerencia de la cuenta de gasto/ingreso</strong>. En SIIGO esas mismas filas de control sí se conservan automáticamente en el aprendizaje técnico de exportación, porque sirven para saber, por ejemplo, cuándo Caja debe salir con NIT 0 y qué códigos usa históricamente esa cuenta.</p>
       <div id="resultadoImportacionHistorial" style="margin-top:12px;"></div>
     </div>
 
@@ -758,7 +753,6 @@ async function seleccionarEmpresa(id){
   await cargarCuentasBase();
   await cargarCentrosCosto();
   await cargarComprobantesPorTipo();
-  await cargarParametrizacionSiigoCuentas();
   await cargarEmpleados();
 }
 
@@ -837,29 +831,6 @@ async function cargarComprobantesPorTipo(){
       Object.values(pares).forEach(([,ci,ni])=>{document.getElementById(ci).value='';document.getElementById(ni).value='';document.getElementById(ci).disabled=true;document.getElementById(ni).disabled=true;});
     }
   }catch(e){ /* silencioso */ }
-}
-
-async function cargarParametrizacionSiigoCuentas(){
-  const card=document.getElementById('siigoCuentasCard'); if(!empresaActivaId||!card)return;
-  const emp=empresas.find(e=>e.id===empresaActivaId); card.style.display=emp?.sistema_contable==='siigo_pyme'?'block':'none';
-  if(emp?.sistema_contable!=='siigo_pyme') return;
-  try{
-    const filas=await req(`/empresas/${empresaActivaId}/siigo/cuentas`);
-    document.getElementById('tablaSiigoCuentas').innerHTML=filas.map(x=>`<tr data-cuenta="${x.cuenta_id}"><td class="mono">${x.cuenta_codigo}</td><td>${x.cuenta_nombre}</td>
-      <td><input type="checkbox" class="ps-maneja" ${x.maneja_tercero?'checked':''} style="width:auto"></td>
-      <td><input class="ps-nit" value="${x.nit_tecnico_exportacion||'0'}" style="width:90px"></td>
-      <td><input class="ps-vend" value="${x.codigo_vendedor||''}" style="width:65px"></td><td><input class="ps-ciudad" value="${x.codigo_ciudad||''}" style="width:65px"></td>
-      <td><input class="ps-zona" value="${x.codigo_zona||''}" style="width:65px"></td><td><input class="ps-centro" value="${x.centro_costo||''}" style="width:70px"></td>
-      <td><input class="ps-sub" value="${x.subcentro_costo||''}" style="width:70px"></td><td><input class="ps-suc" value="${x.sucursal||''}" style="width:65px"></td>
-      <td><button class="btn ghost" onclick="guardarParamSiigoCuenta('${x.cuenta_id}',this)">${x.configurada?'Guardar':'Configurar'}</button></td></tr>`).join('')||'<tr><td colspan="11" class="muted">No hay cuentas activas.</td></tr>';
-  }catch(e){document.getElementById('tablaSiigoCuentas').innerHTML=`<tr><td colspan="11" class="muted">${e.message}</td></tr>`;}
-}
-
-async function guardarParamSiigoCuenta(cuentaId,boton){
-  const tr=boton.closest('tr');
-  const val=sel=>tr.querySelector(sel).value.trim()||null;
-  const payload={maneja_tercero:tr.querySelector('.ps-maneja').checked,nit_tecnico_exportacion:val('.ps-nit')||'0',codigo_vendedor:val('.ps-vend'),codigo_ciudad:val('.ps-ciudad'),codigo_zona:val('.ps-zona'),centro_costo:val('.ps-centro'),subcentro_costo:val('.ps-sub'),sucursal:val('.ps-suc'),activa:true};
-  try{await req(`/empresas/${empresaActivaId}/siigo/cuentas/${cuentaId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});toast('Parametrización SIIGO guardada');boton.textContent='Guardar';}catch(e){toast(e.message,true);}
 }
 
 async function guardarModoContable(){
@@ -1351,10 +1322,11 @@ async function importarHistorico(){
     document.getElementById('resultadoImportacionHistorial').innerHTML = `
       <div class="pill ok">Registros válidos aprendidos: ${body.registros_validos}</div>
       <div class="pill warn">Rechazados/excluidos: ${body.registros_rechazados}</div>
+      ${body.filas_tecnicas_siigo ? `<div class="pill ok">SIIGO: ${body.filas_tecnicas_siigo} filas técnicas aprendidas automáticamente</div>` : ''}
       <div class="muted">De ${body.total_registros} filas totales en el archivo.</div>
       ${body.detalle_rechazos && body.detalle_rechazos.length ? '<p class="muted">'+body.detalle_rechazos.slice(0,10).join('<br>')+'</p>' : ''}
     `;
-    toast('Historial importado — ya se puede usar en la sugerencia de cuentas');
+    toast(body.filas_tecnicas_siigo ? 'Historial importado — cuentas y parámetros técnicos SIIGO aprendidos automáticamente' : 'Historial importado — ya se puede usar en la sugerencia de cuentas');
     cargarImportacionesHistorial();
   }catch(e){ toast(e.message, true); }
 }
