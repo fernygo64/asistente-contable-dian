@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_empresa_activa, usuario_actual
-from app.models.models import Empresa, OrigenDecision, ImportacionHistorico, HistorialContable, Proveedor, CuentaContable, Empleado
+from app.models.models import Empresa, OrigenDecision, ImportacionHistorico, HistorialContable, HistorialTecnicoSiigo, Proveedor, CuentaContable, Empleado
 from app.schemas.schemas import SugerenciaCuenta, ImportacionResumen, HistorialManualCreate
 from app.services import historial_service, importacion_service
 from app.services.auditoria_service import registrar as auditoria_registrar
@@ -65,6 +65,7 @@ async def importar_balance_automatico(
             total_registros=importacion.total_registros, registros_validos=importacion.registros_validos,
             registros_rechazados=importacion.registros_rechazados,
             detalle_rechazos=json.loads(importacion.detalle_rechazos_json or "[]"),
+            filas_tecnicas_siigo=getattr(importacion, "filas_tecnicas_siigo", 0),
             importado_en=importacion.importado_en,
         )
 
@@ -107,6 +108,7 @@ async def importar_balance_automatico(
         registros_validos=importacion.registros_validos,
         registros_rechazados=importacion.registros_rechazados,
         detalle_rechazos=json.loads(importacion.detalle_rechazos_json or "[]"),
+        filas_tecnicas_siigo=getattr(importacion, "filas_tecnicas_siigo", 0),
         importado_en=importacion.importado_en,
     )
 
@@ -200,6 +202,7 @@ async def importar_historico(
         registros_validos=importacion.registros_validos,
         registros_rechazados=importacion.registros_rechazados,
         detalle_rechazos=json.loads(importacion.detalle_rechazos_json or "[]"),
+        filas_tecnicas_siigo=getattr(importacion, "filas_tecnicas_siigo", 0),
         importado_en=importacion.importado_en,
     )
 
@@ -247,13 +250,16 @@ def eliminar_importacion(empresa_id: str, importacion_id: str, db: Session = Dep
     decisiones_borradas = db.query(HistorialContable).filter(
         HistorialContable.empresa_id == empresa_id, HistorialContable.importacion_id == importacion_id
     ).delete()
+    tecnicas_borradas = db.query(HistorialTecnicoSiigo).filter(
+        HistorialTecnicoSiigo.empresa_id == empresa_id, HistorialTecnicoSiigo.importacion_id == importacion_id
+    ).delete()
 
     nombre_archivo = importacion.archivo_nombre
     db.delete(importacion)
     auditoria_registrar(db, empresa_id, "ImportacionHistorico", importacion_id, "importacion_eliminada",
-                         {"archivo": nombre_archivo, "decisiones_borradas": decisiones_borradas}, usuario)
+                         {"archivo": nombre_archivo, "decisiones_borradas": decisiones_borradas, "filas_tecnicas_siigo_borradas": tecnicas_borradas}, usuario)
     db.commit()
-    return {"eliminada": True, "id": importacion_id, "decisiones_borradas": decisiones_borradas}
+    return {"eliminada": True, "id": importacion_id, "decisiones_borradas": decisiones_borradas, "filas_tecnicas_siigo_borradas": tecnicas_borradas}
 
 
 @router.get("/sugerencia", response_model=SugerenciaCuenta)

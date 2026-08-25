@@ -241,7 +241,7 @@ def eliminar_empresa(empresa_id: str, confirmar: bool = False, db: Session = Dep
         CuentaContable, Proveedor, CentroCosto, ReglaContable, ImportacionHistorico,
         HistorialContable, CargaDocumentosDian, Factura, Movimiento, PlantillaExportacion,
         Exportacion, Auditoria, Empleado, ConfiguracionComprobanteSiigo, ConsecutivoSiigo,
-        ParametrizacionCuentaSiigo, ExportacionFactura,
+        ParametrizacionCuentaSiigo, HistorialTecnicoSiigo, ExportacionFactura,
     )
 
     empresa = db.query(Empresa).filter(Empresa.id == empresa_id).first()
@@ -268,6 +268,7 @@ def eliminar_empresa(empresa_id: str, confirmar: bool = False, db: Session = Dep
 
     db.query(ExportacionFactura).filter(ExportacionFactura.empresa_id == empresa_id).delete()
     db.query(ParametrizacionCuentaSiigo).filter(ParametrizacionCuentaSiigo.empresa_id == empresa_id).delete()
+    db.query(HistorialTecnicoSiigo).filter(HistorialTecnicoSiigo.empresa_id == empresa_id).delete()
     db.query(ConsecutivoSiigo).filter(ConsecutivoSiigo.empresa_id == empresa_id).delete()
     db.query(ConfiguracionComprobanteSiigo).filter(ConfiguracionComprobanteSiigo.empresa_id == empresa_id).delete()
     db.query(Movimiento).filter(Movimiento.empresa_id == empresa_id).delete()

@@ -246,6 +246,7 @@ class ImportacionResumen(BaseModel):
     registros_validos: int
     registros_rechazados: int
     detalle_rechazos: List[str] = []
+    filas_tecnicas_siigo: int = 0
     importado_en: datetime
 
 

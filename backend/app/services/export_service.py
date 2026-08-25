@@ -17,6 +17,7 @@ from app.services.siigo_config_service import (
     configuraciones_empresa, tipo_documento_clave, parametros_cuentas_empresa, proyectar_numeros,
 )
 from app.services.export_adapters import obtener_adaptador
+from app.services.siigo_historial_service import construir_indice_historial_siigo, inferir_parametros_movimiento
 
 
 def _tipo_comprobante_para_factura(empresa: Empresa, factura: Factura) -> str:
@@ -217,7 +218,6 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
 
     es_siigo = (plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable) == "siigo_pyme"
     cfgs_siigo = configuraciones_empresa(db, empresa) if es_siigo else {}
-    params_siigo = parametros_cuentas_empresa(db, empresa.id) if es_siigo else {}
     sources = {c.get("source") for c in columnas}
     plantilla_siigo_completa = es_siigo and len(columnas) >= 100
 
@@ -252,11 +252,6 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
                             f"({'receptor' if f.direccion_documento == 'emitida' else 'emisor'}).")
 
         for m in movimientos:
-            if plantilla_siigo_completa and int(getattr(plantilla, "version_formato", 1) or 1) >= 2 and m.cuenta_id not in params_siigo:
-                errores.append(
-                    f"Cuenta {m.cuenta.codigo} ({m.cuenta.nombre}) sin parametrización SIIGO. "
-                    f"Define si maneja tercero y sus códigos técnicos antes de exportar."
-                )
             filas_por_validar.append({
                 "Fecha": f.fecha_emision.strftime(plantilla.formato_fecha) if f.fecha_emision else "",
                 "Cuenta": m.cuenta.codigo, "Nit": f.tercero_nit or "", "Tercero": f.tercero_nombre or "",
@@ -393,9 +388,15 @@ def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportaci
     delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
     es_siigo = (plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable) == "siigo_pyme"
     cfgs_siigo = configuraciones_empresa(db, empresa) if es_siigo else {}
-    params_siigo = parametros_cuentas_empresa(db, empresa.id) if es_siigo else {}
     if numeros_documento is None:
         numeros_documento = proyectar_numeros(db, empresa, facturas) if es_siigo else _calcular_numeros_documento(empresa, facturas)
+    # Índice aprendido del historial real. Se carga una sola vez por archivo
+    # y luego cada movimiento busca cuenta+NIT+tipo/código sin consultas por fila.
+    indice_historial_siigo = construir_indice_historial_siigo(db, empresa.id) if es_siigo else None
+    # Compatibilidad silenciosa con datos de la versión anterior: si existiera
+    # una parametrización manual ya guardada, solo se usa como último respaldo
+    # cuando el historial no tiene evidencia. La interfaz manual fue retirada.
+    params_manual_siigo = parametros_cuentas_empresa(db, empresa.id) if es_siigo else {}
 
     lineas = []
     if plantilla.incluir_encabezado:
@@ -406,7 +407,18 @@ def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportaci
         movimientos = db.query(Movimiento).filter(Movimiento.factura_id == f.id).order_by(Movimiento.orden).all()
         cfg_siigo = cfgs_siigo.get(tipo_documento_clave(f), {}) if es_siigo else None
         for m in movimientos:
-            param_siigo = params_siigo.get(m.cuenta_id) if es_siigo else None
+            param_siigo = None
+            if es_siigo:
+                cuenta_exportada = equivalencias.get(m.cuenta.codigo, m.cuenta.codigo)
+                cuenta_exportada = _formatear_codigo_cuenta(cuenta_exportada, empresa)
+                nit_actual = m.tercero_nit_override or f.tercero_nit
+                param_siigo = inferir_parametros_movimiento(
+                    indice_historial_siigo, cuenta_exportada, nit_actual,
+                    (cfg_siigo or {}).get("tipo_comprobante"),
+                    (cfg_siigo or {}).get("codigo_comprobante"),
+                )
+                if getattr(param_siigo, "coincidencias", 0) == 0 and m.cuenta_id in params_manual_siigo:
+                    param_siigo = params_manual_siigo[m.cuenta_id]
             valores = [
                 _valor_columna(c, f, m, equivalencias, plantilla.formato_fecha, empresa,
                                 numeros_documento.get(f.id), cfg_siigo, param_siigo).replace(delimitador, " ")

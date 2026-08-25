@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.models.models import ImportacionHistorico, OrigenDecision, Proveedor, CuentaContable, HistorialContable
 from app.services.auditoria_service import registrar as auditoria_registrar
 from app.services.excel_utils import resolver_columna, leer_dataframe_excel
+from app.services.siigo_historial_service import guardar_historial_tecnico_siigo
 
 
 def _leer_dataframe(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
@@ -277,6 +278,22 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
     importacion = importar_registros_historico(
         db, empresa_id, nombre_archivo, registros, mapeo, usuario, total, excluidos_por_cuenta
     )
+
+    # Aprendizaje técnico SIIGO AUTOMÁTICO: se inspecciona el archivo
+    # completo fila por fila y se guardan vendedor/ciudad/zona/centro/
+    # subcentro/sucursal y el patrón real de NIT por cuenta. Esto ocurre
+    # incluso para cuentas excluidas del aprendizaje de clasificación
+    # (caja, bancos, IVA, proveedores), porque justamente esas líneas
+    # muestran cómo SIIGO exige exportar cada cuenta.
+    tecnicos_siigo = guardar_historial_tecnico_siigo(db, empresa_id, importacion.id, df)
+    importacion.filas_tecnicas_siigo = tecnicos_siigo
+    if tecnicos_siigo:
+        auditoria_registrar(
+            db, empresa_id, entidad="ImportacionHistorico", entidad_id=importacion.id,
+            accion="aprendizaje_tecnico_siigo_automatico",
+            detalle={"archivo": nombre_archivo, "filas_tecnicas_aprendidas": tecnicos_siigo},
+            usuario=usuario,
+        )
     # Los rechazos por fila sin NIT/cuenta son propios de este camino
     # (mapeo por columnas) — se agregan encima de los que ya puso la
     # función compartida (exclusión por cuenta).

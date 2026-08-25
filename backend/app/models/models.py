@@ -624,6 +624,41 @@ class ConsecutivoSiigo(Base):
     )
 
 
+class HistorialTecnicoSiigo(Base):
+    """
+    Huella técnica de cada fila histórica de Movimiento Contable SIIGO.
+
+    No es una parametrización manual: se alimenta automáticamente al subir
+    el historial real de la empresa y permite aprender cómo SIIGO exige
+    vendedor/ciudad/zona/centro/subcentro/sucursal y si una cuenta maneja
+    tercero, usando evidencia real por cuenta + NIT + tipo/código.
+    """
+    __tablename__ = "historial_tecnico_siigo"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    empresa_id = Column(String(36), ForeignKey("empresas.id"), nullable=False, index=True)
+    importacion_id = Column(String(36), ForeignKey("importaciones_historico.id"), nullable=True, index=True)
+    cuenta_codigo = Column(String(30), nullable=False, index=True)
+    nit = Column(String(30), nullable=True, index=True)
+    tipo_comprobante = Column(String(20), nullable=True)
+    codigo_comprobante = Column(String(20), nullable=True)
+    numero_documento = Column(String(60), nullable=True)
+    codigo_vendedor = Column(String(20), nullable=True)
+    codigo_ciudad = Column(String(20), nullable=True)
+    codigo_zona = Column(String(20), nullable=True)
+    centro_costo = Column(String(30), nullable=True)
+    subcentro_costo = Column(String(30), nullable=True)
+    sucursal = Column(String(20), nullable=True)
+    fecha_documento = Column(DateTime(timezone=True), nullable=True)
+    fila_origen = Column(Integer, nullable=True)
+    creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_hist_siigo_cuenta_nit", "empresa_id", "cuenta_codigo", "nit"),
+        Index("ix_hist_siigo_cuenta_comp", "empresa_id", "cuenta_codigo", "tipo_comprobante", "codigo_comprobante"),
+    )
+
+
 class ParametrizacionCuentaSiigo(Base):
     """Comportamiento técnico de una cuenta al exportar a SIIGO; no contamina CuentaContable."""
     __tablename__ = "parametrizaciones_cuenta_siigo"
