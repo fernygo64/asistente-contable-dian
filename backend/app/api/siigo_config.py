@@ -46,10 +46,13 @@ def guardar_configuraciones_comprobante(empresa_id: str, payload: ConfiguracionC
     legacy_attr = {
         "factura_recibida": "comprobante_factura_recibida",
         "factura_emitida": "comprobante_factura_emitida",
-        "nota_credito": "comprobante_nota_credito",
-        "nota_debito": "comprobante_nota_debito",
+        "nota_credito_recibida": "comprobante_nota_credito",
+        "nota_credito_emitida": None,
+        "nota_debito_recibida": "comprobante_nota_debito",
+        "nota_debito_emitida": None,
         "nomina": "comprobante_nomina",
-        "documento_equivalente": "comprobante_documento_equivalente",
+        "documento_equivalente_recibido": "comprobante_documento_equivalente",
+        "documento_equivalente_emitido": None,
     }
     cambios = []
     for item in payload.configuraciones:
@@ -63,13 +66,17 @@ def guardar_configuraciones_comprobante(empresa_id: str, payload: ConfiguracionC
             fila = ConfiguracionComprobanteSiigo(empresa_id=empresa_id, tipo_documento=item.tipo_documento)
             db.add(fila)
         datos = item.model_dump(exclude={"ultimo_consecutivo_usado"})
+        if datos.get("modo_numeracion") not in ("interna", "folio_dian"):
+            raise HTTPException(status_code=422, detail="La numeración debe ser 'interna' o 'folio_dian'.")
         for campo, valor in datos.items():
             if campo != "tipo_documento":
                 setattr(fila, campo, valor)
-        # Mantiene los campos legacy sincronizados para World Office y compatibilidad con el resto de la app.
-        setattr(empresa, legacy_attr[item.tipo_documento], item.tipo_comprobante)
+        # Compatibilidad con campos legacy. Las direcciones nuevas viven en la tabla SIIGO.
+        attr_legacy = legacy_attr.get(item.tipo_documento)
+        if attr_legacy:
+            setattr(empresa, attr_legacy, item.tipo_comprobante)
 
-        if item.ultimo_consecutivo_usado is not None and item.tipo_comprobante and item.codigo_comprobante:
+        if (item.modo_numeracion or "interna") == "interna" and item.ultimo_consecutivo_usado is not None and item.tipo_comprobante and item.codigo_comprobante:
             cons = db.query(ConsecutivoSiigo).filter(
                 ConsecutivoSiigo.empresa_id == empresa_id,
                 ConsecutivoSiigo.tipo_comprobante == item.tipo_comprobante,

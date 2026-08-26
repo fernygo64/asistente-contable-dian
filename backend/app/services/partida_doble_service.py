@@ -21,12 +21,16 @@ Reglas no negociables:
 """
 import json
 import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.models import Empresa, Factura, Movimiento, TipoMovimiento, CuentaContable, Empleado
+from app.models.models import (
+    Empresa, Factura, Movimiento, TipoMovimiento, CuentaContable, Empleado,
+    HistorialTecnicoSiigo,
+)
 
 
 @dataclass
@@ -56,6 +60,161 @@ def _totales(lineas: list[LineaPartida]) -> tuple[float, float]:
     debito = round(sum(l.valor for l in lineas if l.tipo == "debito"), 2)
     credito = round(sum(l.valor for l in lineas if l.tipo == "credito"), 2)
     return debito, credito
+
+
+
+def _hist_valores(row: HistorialTecnicoSiigo) -> dict:
+    try:
+        return json.loads(row.valores_columnas_json or "{}")
+    except Exception:
+        return {}
+
+
+def _hist_dc(row: HistorialTecnicoSiigo) -> str:
+    valores = _hist_valores(row)
+    for k, v in valores.items():
+        nk = " ".join(str(k or "").upper().split())
+        if "DÉBITO O CRÉDITO" in nk or "DEBITO O CREDITO" in nk:
+            return str(v or "").strip().upper()[:1]
+    return ""
+
+
+def _hist_valor(row: HistorialTecnicoSiigo) -> float:
+    valores = _hist_valores(row)
+    for k, v in valores.items():
+        nk = " ".join(str(k or "").upper().split())
+        if "VALOR DE LA SECUENCIA" in nk:
+            try:
+                return abs(float(str(v).replace(",", ".")))
+            except Exception:
+                return 0.0
+    return 0.0
+
+
+def _cuenta_por_codigo(db: Session, empresa_id: str, codigo: str | None) -> Optional[CuentaContable]:
+    if not codigo:
+        return None
+    return db.query(CuentaContable).filter(
+        CuentaContable.empresa_id == empresa_id, CuentaContable.codigo == str(codigo)
+    ).first()
+
+
+def _inferir_control_historial(db: Session, empresa: Empresa, factura: Factura,
+                               cuenta_principal: Optional[CuentaContable], rol: str) -> Optional[CuentaContable]:
+    """Aprende cuentas de control de comprobantes históricos reales.
+
+    No usa una cuenta base universal. Busca comprobantes históricos que contienen
+    la misma cuenta principal y, cuando es posible, el mismo tercero. Solo devuelve
+    una cuenta si el patrón observado es estable; de lo contrario deja que el flujo
+    pida revisión en vez de inventar una cuenta.
+    """
+    if not cuenta_principal:
+        return None
+    filas = db.query(HistorialTecnicoSiigo).filter(
+        HistorialTecnicoSiigo.empresa_id == empresa.id
+    ).all()
+    if not filas:
+        return None
+
+    nit_obj = re.sub(r"\D", "", str(factura.tercero_nit or ""))
+    grupos: dict[tuple[str, str, str], list[HistorialTecnicoSiigo]] = defaultdict(list)
+    for r in filas:
+        if not r.numero_documento:
+            continue
+        grupos[(str(r.tipo_comprobante or ""), str(r.codigo_comprobante or ""), str(r.numero_documento))].append(r)
+
+    grupos_coincidentes = []
+    for g in grupos.values():
+        principales = [r for r in g if str(r.cuenta_codigo or "") == str(cuenta_principal.codigo)]
+        if not principales:
+            continue
+        if nit_obj:
+            exactas = [r for r in principales if re.sub(r"\D", "", str(r.nit or "")) == nit_obj]
+            if exactas:
+                grupos_coincidentes.append((2, g))
+                continue
+        grupos_coincidentes.append((1, g))
+    if not grupos_coincidentes:
+        return None
+    mejor_nivel = max(n for n, _ in grupos_coincidentes)
+    grupos_coincidentes = [g for n, g in grupos_coincidentes if n == mejor_nivel]
+
+    candidatos = []
+    compra = factura.direccion_documento != "emitida"
+    for g in grupos_coincidentes:
+        posibles = []
+        for r in g:
+            codigo = str(r.cuenta_codigo or "")
+            dc = _hist_dc(r)
+            if codigo == str(cuenta_principal.codigo):
+                continue
+            if rol == "iva_descontable" and codigo.startswith("2408") and dc == "D":
+                posibles.append(r)
+            elif rol == "iva_generado" and codigo.startswith("2408") and dc == "C":
+                posibles.append(r)
+            elif rol == "retefuente" and codigo.startswith("2365") and dc == "C":
+                posibles.append(r)
+            elif rol == "reteica" and codigo.startswith("2368") and dc == "C":
+                posibles.append(r)
+            elif rol == "reteiva" and codigo.startswith("2367") and dc == "C":
+                posibles.append(r)
+            elif rol == "inc" and codigo.startswith("24") and not codigo.startswith("2408"):
+                posibles.append(r)
+            elif rol == "contrapartida_compra" and compra and dc == "C" and (codigo.startswith("11") or codigo.startswith("22") or codigo.startswith("23")) and not codigo.startswith(("2365","2367","2368","2408")):
+                posibles.append(r)
+            elif rol == "contrapartida_venta" and (not compra) and dc == "D" and (codigo.startswith("11") or codigo.startswith("13")):
+                posibles.append(r)
+        if rol.startswith("contrapartida") and posibles:
+            # La contrapartida principal suele ser la línea de mayor valor dentro
+            # del comprobante; evita confundirla con pequeños ajustes/control.
+            posibles = sorted(posibles, key=_hist_valor, reverse=True)[:1]
+        candidatos.extend(str(r.cuenta_codigo) for r in posibles if r.cuenta_codigo)
+
+    if not candidatos:
+        return None
+    conteo = Counter(candidatos)
+    codigo, usos = conteo.most_common(1)[0]
+    # Con evidencia exacta por NIT una observación ya es útil; sin ella pedimos
+    # mayoría clara para no convertir una casualidad en regla general.
+    total = sum(conteo.values())
+    if mejor_nivel < 2 and (usos < 2 or usos / total < 0.70):
+        return None
+    return _cuenta_por_codigo(db, empresa.id, codigo)
+
+
+def _resolver_contrapartida_inteligente(db: Session, empresa: Empresa, factura: Factura,
+                                         cuenta_principal: Optional[CuentaContable], contrapartida: str,
+                                         opciones_validas: tuple[str, ...], rol_historial: str):
+    # Si el usuario eligió explícitamente una opción y existe, se respeta.
+    mapa = {
+        "proveedores": empresa.cuenta_proveedores_id, "caja": empresa.cuenta_caja_id,
+        "banco": empresa.cuenta_banco_id, "clientes": empresa.cuenta_clientes_id,
+    }
+    if contrapartida in opciones_validas and mapa.get(contrapartida):
+        return db.get(CuentaContable, mapa[contrapartida]), []
+    # Compatibilidad con empresas antiguas que usaban "solo_gastos":
+    # ese control ya no se muestra en la interfaz V5, pero conservamos el
+    # comportamiento histórico para no romper datos existentes. Si llega una
+    # contrapartida no válida para una compra (p. ej. "clientes"), usamos
+    # primero la cuenta realmente configurada entre las opciones permitidas.
+    if getattr(empresa, "modo_contable", None) == "solo_gastos" and contrapartida not in opciones_validas:
+        elegida = _elegir_contrapartida_configurada(empresa, opciones_validas)
+        if elegida and mapa.get(elegida):
+            return db.get(CuentaContable, mapa[elegida]), []
+    aprendida = _inferir_control_historial(db, empresa, factura, cuenta_principal, rol_historial)
+    if aprendida:
+        return aprendida, []
+    # Si no hubo evidencia histórica, recién ahí se usa una cuenta base ya
+    # existente como respaldo. Esto mantiene compatibilidad sin convertir las
+    # cuentas base en la regla principal de todas las compras/ventas.
+    if not contrapartida:
+        elegida = _elegir_contrapartida_configurada(empresa, opciones_validas)
+        if elegida and mapa.get(elegida):
+            return db.get(CuentaContable, mapa[elegida]), []
+        return None, [
+            "El historial no permite determinar la contrapartida y la empresa no tiene una cuenta de respaldo configurada."
+        ]
+    return _resolver_contrapartida(db, empresa, contrapartida, opciones_validas)
 
 
 def _resolver_contrapartida(db: Session, empresa: Empresa, contrapartida: str,
@@ -200,9 +359,8 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
         # se genera una partida así; se avisa con el motivo exacto.
         errores.append(
             f"La cuenta {cuenta_gasto.codigo} ({cuenta_gasto.nombre}) es una cuenta de INGRESO (empieza por 4), "
-            f"no de gasto — no se puede usar aquí. Si esta factura es en realidad una VENTA, revisa el modo "
-            f"contable de la empresa (Empresas → Modo contable): en 'solo_gastos' todo se procesa como gasto, "
-            f"lo cual invierte una venta real. Cambia a 'mixto' si esta empresa sí tiene ventas."
+            f"no de gasto — no se puede usar aquí. Si esta factura es una VENTA, revisa su dirección "
+            f"(emitida/recibida) antes de generar la partida."
         )
 
     subtotal = float(factura.subtotal or 0)
@@ -235,45 +393,56 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
             if cta_por_tasa:
                 lineas.append(LineaPartida(cta_por_tasa.id, cta_por_tasa.codigo, cta_por_tasa.nombre,
                                             "debito", iva, descripcion))
-            elif not empresa.cuenta_iva_descontable_id:
-                errores.append("La factura tiene IVA pero la empresa no tiene configurada la "
-                                "cuenta de IVA descontable (ni una cuenta 2408 propia que mencione la tasa).")
             else:
-                cta = db.get(CuentaContable, empresa.cuenta_iva_descontable_id)
-                lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", iva, descripcion))
+                cta = _inferir_control_historial(db, empresa, factura, cuenta_gasto, "iva_descontable")
+                if not cta and empresa.cuenta_iva_descontable_id:
+                    cta = db.get(CuentaContable, empresa.cuenta_iva_descontable_id)
+                if not cta:
+                    errores.append("La factura tiene IVA y el historial no permite determinar con certeza la cuenta de IVA descontable.")
+                else:
+                    lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", iva, descripcion))
         elif lineas:
             lineas[0].valor += iva
 
     if inc > 0:
-        if not empresa.cuenta_inc_id:
-            errores.append("La factura tiene INC pero la empresa no tiene configurada la cuenta de INC.")
-        else:
+        cta = _inferir_control_historial(db, empresa, factura, cuenta_gasto, "inc")
+        if not cta and empresa.cuenta_inc_id:
             cta = db.get(CuentaContable, empresa.cuenta_inc_id)
+        if not cta:
+            errores.append("La factura tiene INC y el historial no permite determinar con certeza la cuenta correspondiente.")
+        else:
             lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", inc, descripcion))
 
     if retefuente > 0:
-        if not empresa.cuenta_retefuente_id:
-            errores.append("La factura tiene retención en la fuente pero la empresa no tiene configurada esa cuenta.")
-        else:
+        cta = _inferir_control_historial(db, empresa, factura, cuenta_gasto, "retefuente")
+        if not cta and empresa.cuenta_retefuente_id:
             cta = db.get(CuentaContable, empresa.cuenta_retefuente_id)
+        if not cta:
+            errores.append("La factura tiene retención en la fuente y el historial no permite determinar con certeza la cuenta correspondiente.")
+        else:
             lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", retefuente, descripcion))
 
     if reteica > 0:
-        if not empresa.cuenta_reteica_id:
-            errores.append("La factura tiene ReteICA pero la empresa no tiene configurada esa cuenta.")
-        else:
+        cta = _inferir_control_historial(db, empresa, factura, cuenta_gasto, "reteica")
+        if not cta and empresa.cuenta_reteica_id:
             cta = db.get(CuentaContable, empresa.cuenta_reteica_id)
+        if not cta:
+            errores.append("La factura tiene ReteICA y el historial no permite determinar con certeza la cuenta correspondiente.")
+        else:
             lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", reteica, descripcion))
 
     if reteiva > 0:
-        if not empresa.cuenta_reteiva_id:
-            errores.append("La factura tiene ReteIVA pero la empresa no tiene configurada esa cuenta.")
-        else:
+        cta = _inferir_control_historial(db, empresa, factura, cuenta_gasto, "reteiva")
+        if not cta and empresa.cuenta_reteiva_id:
             cta = db.get(CuentaContable, empresa.cuenta_reteiva_id)
+        if not cta:
+            errores.append("La factura tiene ReteIVA y el historial no permite determinar con certeza la cuenta correspondiente.")
+        else:
             lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", reteiva, descripcion))
 
-    cuenta_contra, errores_contra = _resolver_contrapartida(db, empresa, contrapartida,
-                                                              ("proveedores", "caja", "banco"))
+    cuenta_contra, errores_contra = _resolver_contrapartida_inteligente(
+        db, empresa, factura, cuenta_gasto, contrapartida, ("proveedores", "caja", "banco"), "contrapartida_compra"
+    )
     errores += errores_contra
 
     total_debito, total_credito_parcial = _totales(lineas)
@@ -333,24 +502,29 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
             if cta_por_tasa:
                 lineas.append(LineaPartida(cta_por_tasa.id, cta_por_tasa.codigo, cta_por_tasa.nombre,
                                             "credito", iva, descripcion))
-            elif not empresa.cuenta_iva_generado_id:
-                errores.append("La factura tiene IVA pero la empresa no tiene configurada la "
-                                "cuenta de IVA generado (ni una cuenta 2408 propia que mencione la tasa).")
             else:
-                cta = db.get(CuentaContable, empresa.cuenta_iva_generado_id)
-                lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", iva, descripcion))
+                cta = _inferir_control_historial(db, empresa, factura, cuenta_ingreso, "iva_generado")
+                if not cta and empresa.cuenta_iva_generado_id:
+                    cta = db.get(CuentaContable, empresa.cuenta_iva_generado_id)
+                if not cta:
+                    errores.append("La factura tiene IVA y el historial no permite determinar con certeza la cuenta de IVA generado.")
+                else:
+                    lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", iva, descripcion))
         elif lineas:
             lineas[0].valor += iva
 
     if inc > 0:
-        if not empresa.cuenta_inc_id:
-            errores.append("La factura tiene INC pero la empresa no tiene configurada la cuenta de INC.")
-        else:
+        cta = _inferir_control_historial(db, empresa, factura, cuenta_ingreso, "inc")
+        if not cta and empresa.cuenta_inc_id:
             cta = db.get(CuentaContable, empresa.cuenta_inc_id)
+        if not cta:
+            errores.append("La factura tiene INC y el historial no permite determinar con certeza la cuenta correspondiente.")
+        else:
             lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", inc, descripcion))
 
-    cuenta_contra, errores_contra = _resolver_contrapartida(db, empresa, contrapartida,
-                                                              ("clientes", "caja", "banco"))
+    cuenta_contra, errores_contra = _resolver_contrapartida_inteligente(
+        db, empresa, factura, cuenta_ingreso, contrapartida, ("clientes", "caja", "banco"), "contrapartida_venta"
+    )
     errores += errores_contra
 
     total_debito_parcial, total_credito = _totales(lineas)
@@ -559,19 +733,6 @@ def generar_partida(db: Session, empresa: Empresa, factura: Factura,
     # una cuenta de INGRESO terminaba debitada en vez de acreditada).
     if factura.direccion_documento == "emitida":
         resultado = _generar_partida_venta(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
-    elif empresa.modo_contable == "solo_gastos":
-        # En modo "solo_gastos" (persona natural que solo lleva sus
-        # propios gastos), lo que NO sea una venta clara se contabiliza
-        # por el lado de gasto — evita exigir cuentas de ingresos/
-        # clientes que esta empresa no necesita para sus compras.
-        contrapartida_efectiva = contrapartida
-        if contrapartida == "clientes":
-            # "Clientes" no aplica en este modo — se usa lo que la
-            # empresa SÍ tenga configurado (proveedores, si no caja, si
-            # no banco), nunca se asume "proveedores" a ciegas.
-            contrapartida_efectiva = _elegir_contrapartida_configurada(
-                empresa, ("proveedores", "caja", "banco")) or "proveedores"
-        resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida_efectiva, centro_costo)
     else:
         resultado = _generar_partida_compra(db, empresa, factura, cuenta_gasto_id, contrapartida, centro_costo)
 

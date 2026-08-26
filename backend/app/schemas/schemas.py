@@ -106,6 +106,7 @@ class ConfiguracionComprobanteSiigoItem(BaseModel):
     centro_costo_default: Optional[str] = None
     subcentro_costo_default: Optional[str] = None
     sucursal_default: Optional[str] = None
+    modo_numeracion: str = "interna"  # interna | folio_dian
     ultimo_consecutivo_usado: Optional[int] = None
 
 

@@ -598,6 +598,10 @@ class ConfiguracionComprobanteSiigo(Base):
     centro_costo_default = Column(String(30), nullable=True)
     subcentro_costo_default = Column(String(30), nullable=True)
     sucursal_default = Column(String(20), nullable=True)
+    # Forma de obtener el NÚMERO DE DOCUMENTO del comprobante SIIGO:
+    # "interna" = consecutivo persistente de la contabilidad;
+    # "folio_dian" = toma el Folio del Excel/Documento DIAN y conserva solo dígitos.
+    modo_numeracion = Column(String(20), nullable=False, default="interna")
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
     actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
 

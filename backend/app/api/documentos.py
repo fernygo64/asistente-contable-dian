@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import get_empresa_activa, usuario_actual
-from app.models.models import Empresa, Factura, CargaDocumentosDian, EstadoFactura, Movimiento, OrigenDecision
+from app.models.models import Empresa, Factura, CargaDocumentosDian, EstadoFactura, Movimiento, OrigenDecision, ExportacionFactura
 from app.schemas.schemas import (
     FacturaOut, CargaResumen, CorreccionFactura, ResolucionDuplicado,
     GenerarPartidaRequest, PartidaOut, LineaPartidaOut,
@@ -75,6 +75,21 @@ def listar_cargas(empresa_id: str, db: Session = Depends(get_db),
         {"id": c.id, "archivo_zip_nombre": c.archivo_zip_nombre, "creado_en": c.creado_en}
         for c in cargas
     ]
+
+
+@router.get("/documentos-cargados")
+def listar_documentos_cargados(empresa_id: str, db: Session = Depends(get_db),
+                                empresa: Empresa = Depends(get_empresa_activa)):
+    """Una fila por documento/CUFE, no por ZIP."""
+    facturas = db.query(Factura).filter(Factura.empresa_id == empresa_id).order_by(Factura.creado_en.desc()).all()
+    exportadas = {x[0] for x in db.query(ExportacionFactura.factura_id).filter(ExportacionFactura.empresa_id == empresa_id).all()}
+    return [{
+        "id": f.id, "cufe": f.cufe, "prefijo": f.prefijo, "numero_factura": f.numero_factura,
+        "naturaleza_documento": f.naturaleza_documento, "direccion_documento": f.direccion_documento,
+        "fecha_emision": f.fecha_emision, "tercero_nit": f.tercero_nit, "tercero_nombre": f.tercero_nombre,
+        "total": float(f.total or 0), "estado": getattr(f.estado, "value", f.estado),
+        "exportada": f.id in exportadas,
+    } for f in facturas]
 
 
 @router.get("/resumen-por-tipo")
@@ -343,14 +358,32 @@ def obtener_factura(empresa_id: str, factura_id: str, db: Session = Depends(get_
     f = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id == factura_id).first()
     if not f:
         raise HTTPException(status_code=404, detail="Factura no encontrada en esta empresa.")
+    movimientos = db.query(Movimiento).filter(
+        Movimiento.empresa_id == empresa_id, Movimiento.factura_id == factura_id
+    ).order_by(Movimiento.orden.asc()).all()
+    movimientos_out = [{
+        "id": m.id, "orden": m.orden, "cuenta_id": m.cuenta_id,
+        "cuenta_codigo": m.cuenta.codigo if m.cuenta else None,
+        "cuenta_nombre": m.cuenta.nombre if m.cuenta else None,
+        "tipo": getattr(m.tipo, "value", m.tipo), "valor": float(m.valor or 0),
+        "descripcion": m.descripcion,
+        "tercero_nit": m.tercero_nit_override or f.tercero_nit,
+        "tercero_nombre": m.tercero_nombre_override or f.tercero_nombre,
+        "centro_costo": m.centro_costo.codigo if m.centro_costo else None,
+    } for m in movimientos]
+    total_debito = sum(x["valor"] for x in movimientos_out if x["tipo"] == "debito")
+    total_credito = sum(x["valor"] for x in movimientos_out if x["tipo"] == "credito")
     return {
         "id": f.id, "estado": f.estado, "fuente_extraccion": f.fuente_extraccion,
         "confianza_extraccion": float(f.confianza_extraccion),
         "relacionada_con_excel": f.relacionada_con_excel, "metodo_relacion": f.metodo_relacion,
         "motivo_no_relacionada": f.motivo_no_relacionada,
         "es_posible_duplicado": f.es_posible_duplicado, "duplicado_de_id": f.duplicado_de_id,
-        "cufe": f.cufe, "numero_factura": f.numero_factura, "nit_emisor": f.nit_emisor,
+        "cufe": f.cufe, "prefijo": f.prefijo, "numero_factura": f.numero_factura, "nit_emisor": f.nit_emisor,
         "nombre_emisor": f.nombre_emisor, "direccion_emisor": f.direccion_emisor,
+        "tercero_nit": f.tercero_nit, "tercero_nombre": f.tercero_nombre,
+        "direccion_documento": f.direccion_documento, "naturaleza_documento": f.naturaleza_documento,
+        "concepto_resumen": f.concepto_resumen,
         "fecha_emision": f.fecha_emision, "subtotal": f.subtotal, "iva": f.iva, "inc": f.inc,
         "retenciones": json.loads(f.retenciones_json) if f.retenciones_json else {},
         "total": f.total, "conceptos": json.loads(f.conceptos_json) if f.conceptos_json else [],
@@ -358,6 +391,8 @@ def obtener_factura(empresa_id: str, factura_id: str, db: Session = Depends(get_
         "datos_corregidos": json.loads(f.datos_corregidos_json) if f.datos_corregidos_json else None,
         "archivo_xml": f.archivo_xml_path, "archivo_pdf": f.archivo_pdf_path,
         "excel_fila": json.loads(f.excel_fila_json) if f.excel_fila_json else None,
+        "movimientos": movimientos_out, "total_debito": total_debito, "total_credito": total_credito,
+        "diferencia_partida": round(total_debito-total_credito, 2),
     }
 
 
@@ -443,19 +478,10 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
     if not cuenta_gasto and f.naturaleza_documento != "nomina":
         return None, "Debes indicar la cuenta de gasto/ingreso."
 
-    # Contrapartida: si no se indicó explícitamente, se deriva de lo que
-    # la empresa ya parametrizó (sección 38) — no hay que volver a
-    # elegirla en cada factura. Una EMITIDA real (no nómina) siempre usa
-    # clientes, sin importar el modo contable (misma prioridad que en
-    # generar_partida — una venta real nunca debe ir por "proveedores").
-    if not contrapartida:
-        if f.direccion_documento == "emitida":
-            contrapartida = "clientes"
-        elif empresa.modo_contable == "solo_gastos":
-            contrapartida = partida_doble_service._elegir_contrapartida_configurada(
-                empresa, ("proveedores", "caja", "banco")) or "proveedores"
-        else:
-            contrapartida = "proveedores"
+    # Si no hay corrección manual, la contrapartida queda AUTOMÁTICA.
+    # El motor consulta primero el historial fila por fila; solo si no existe
+    # evidencia suficiente usa una cuenta base antigua como respaldo.
+    contrapartida = contrapartida or ""
 
     centro_costo = None
     if centro_costo_codigo:
@@ -596,15 +622,8 @@ def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends
             continue
 
         cuenta_codigo = cuenta_fija
-        if contrapartida_fija:
-            contrapartida = contrapartida_fija
-        elif f.direccion_documento == "emitida":
-            contrapartida = "clientes"
-        elif empresa.modo_contable == "solo_gastos":
-            contrapartida = partida_doble_service._elegir_contrapartida_configurada(
-                empresa, ("proveedores", "caja", "banco")) or "proveedores"
-        else:
-            contrapartida = "proveedores"
+        # Vacío = aprender automáticamente del historial.
+        contrapartida = contrapartida_fija or ""
 
         if usar_sugerencia:
             if f.naturaleza_documento == "nomina":
@@ -782,6 +801,11 @@ def eliminar_factura(empresa_id: str, factura_id: str, db: Session = Depends(get
     if not f:
         raise HTTPException(status_code=404, detail="Factura no encontrada en esta empresa.")
 
+    ya_exportada = db.query(ExportacionFactura).filter(
+        ExportacionFactura.empresa_id == empresa_id, ExportacionFactura.factura_id == factura_id
+    ).first()
+    if ya_exportada:
+        raise HTTPException(status_code=409, detail="Este documento ya fue exportado y no se puede eliminar sin romper la trazabilidad.")
     resumen = {"numero_factura": f.numero_factura, "cufe": f.cufe, "nit_emisor": f.nit_emisor, "estado": f.estado.value}
     db.query(Movimiento).filter(Movimiento.factura_id == factura_id).delete()
     db.delete(f)
@@ -801,6 +825,11 @@ def eliminar_facturas_multiples(empresa_id: str, factura_ids: list[str], db: Ses
     if not facturas:
         raise HTTPException(status_code=404, detail="Ninguna de las facturas indicadas existe en esta empresa.")
 
+    exportadas = {x[0] for x in db.query(ExportacionFactura.factura_id).filter(
+        ExportacionFactura.empresa_id == empresa_id, ExportacionFactura.factura_id.in_([f.id for f in facturas])
+    ).all()}
+    if exportadas:
+        raise HTTPException(status_code=409, detail=f"Hay {len(exportadas)} documento(s) ya exportados; elimínalos del lote para conservar la trazabilidad.")
     eliminadas = []
     for f in facturas:
         db.query(Movimiento).filter(Movimiento.factura_id == f.id).delete()

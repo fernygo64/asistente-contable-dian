@@ -15,6 +15,7 @@ from app.services import export_service
 from app.services.auditoria_service import registrar as auditoria_registrar
 from app.services.plantilla_inferencia_service import detectar_estructura_archivo_plano
 from app.services.siigo_pyme_extendido import reprocesar_columnas_siigo
+from app.services.siigo_excel_service import generar_xlsx as generar_xlsx_siigo, columnas_modelo_general
 from app.services.siigo_config_service import (
     asignar_numeros, proyectar_numeros, configuraciones_empresa, tipo_documento_clave,
 )
@@ -51,6 +52,38 @@ def _plantilla_a_out(p: PlantillaExportacion) -> PlantillaOut:
         version_formato=int(getattr(p, "version_formato", 1) or 1),
         plantilla_origen_id=getattr(p, "plantilla_origen_id", None),
     )
+
+
+def _asegurar_plantilla_siigo(db: Session, empresa_id: str) -> PlantillaExportacion:
+    nombre = "SIIGO Pyme · Modelo General automático"
+    p = db.query(PlantillaExportacion).filter(
+        PlantillaExportacion.empresa_id == empresa_id,
+        PlantillaExportacion.nombre == nombre,
+    ).first()
+    columnas = columnas_modelo_general()
+    if not p:
+        p = PlantillaExportacion(
+            empresa_id=empresa_id, nombre=nombre, sistema_contable=SistemaContable.siigo_pyme,
+            delimitador=";", extension="xlsx", incluir_encabezado=True, formato_fecha="%Y-%m-%d",
+            columnas_json=json.dumps(columnas, ensure_ascii=False), equivalencias_cuentas_json="{}",
+            version_formato=5, activa=True,
+        )
+        db.add(p); db.flush()
+    else:
+        # La plantilla automática sí puede autoactualizarse porque no es una plantilla histórica manual.
+        p.columnas_json = json.dumps(columnas, ensure_ascii=False)
+        p.extension = "xlsx"; p.version_formato = 5; p.activa = True
+    return p
+
+
+@router.get("/plantillas/siigo-automatica", response_model=PlantillaOut)
+def plantilla_siigo_automatica(empresa_id: str, db: Session = Depends(get_db),
+                                empresa: Empresa = Depends(get_empresa_activa)):
+    if empresa.sistema_contable != SistemaContable.siigo_pyme:
+        raise HTTPException(status_code=422, detail="La empresa activa no usa SIIGO Pyme.")
+    p = _asegurar_plantilla_siigo(db, empresa_id)
+    db.commit(); db.refresh(p)
+    return _plantilla_a_out(p)
 
 
 @router.post("/plantillas", response_model=PlantillaOut, status_code=201)
@@ -269,12 +302,8 @@ def previsualizar_exportacion(empresa_id: str, payload: GenerarExportacionReques
     sistema = plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable
     facturas_ordenadas = export_service.agrupar_y_ordenar_facturas(facturas)
     numeros = proyectar_numeros(db, empresa, facturas_ordenadas) if sistema == "siigo_pyme" else None
-    contenido, total_filas = export_service.generar_archivo(db, empresa, plantilla, facturas, numeros_documento=numeros)
-    delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
-    lineas = contenido.decode("cp1252").split("\r\n")
+    _, filas, total_filas = export_service.generar_filas(db, empresa, plantilla, facturas, numeros_documento=numeros)
     encabezado = [c["label"] for c in columnas_plantilla]
-    inicio_filas = 1 if plantilla.incluir_encabezado else 0
-    filas = [l.split(delimitador) for l in lineas[inicio_filas:] if l]
 
     tipos_codigos = []
     if sistema == "siigo_pyme":
@@ -285,15 +314,31 @@ def previsualizar_exportacion(empresa_id: str, payload: GenerarExportacionReques
             par = (cfg.get("tipo_comprobante"), cfg.get("codigo_comprobante"))
             if par not in vistos:
                 vistos.add(par); tipos_codigos.append({"tipo": par[0], "codigo": par[1]})
-    nums_int = [int(x) for x in (numeros or {}).values() if str(x).isdigit()]
+    nums_int = []
+    if sistema == "siigo_pyme":
+        cfgs = configuraciones_empresa(db, empresa)
+        for f in facturas_ordenadas:
+            cfg = cfgs[tipo_documento_clave(f)]
+            if cfg.get("modo_numeracion") == "interna":
+                n = (numeros or {}).get(f.id)
+                if str(n or "").isdigit(): nums_int.append(int(n))
+    total_debito = total_credito = 0.0
+    from app.models.models import Movimiento
+    for f in facturas:
+        for m in db.query(Movimiento).filter(Movimiento.factura_id == f.id).all():
+            if str(getattr(m.tipo, "value", m.tipo)) == "debito": total_debito += float(m.valor or 0)
+            else: total_credito += float(m.valor or 0)
     return {
         "valido": True, "errores": [],
         "encabezado": encabezado, "filas": filas[:500],
         "total_filas": total_filas, "total_documentos": len(facturas),
+        "total_debito": total_debito, "total_credito": total_credito,
+        "diferencia": round(total_debito-total_credito, 2),
         "tipos_codigos": tipos_codigos,
         "consecutivo_inicial_proyectado": min(nums_int) if nums_int else None,
         "consecutivo_final_proyectado": max(nums_int) if nums_int else None,
         "plantilla_version": int(getattr(plantilla, "version_formato", 1) or 1),
+        "formato_salida": ("xlsx" if sistema == "siigo_pyme" and len(columnas_plantilla) == 123 else plantilla.extension),
     }
 
 
@@ -340,12 +385,20 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
         cfg_por_factura = {}
         if sistema == "siigo_pyme":
             numeros, cfg_por_factura = asignar_numeros(db, empresa, facturas_ordenadas)
-        contenido, total_filas = export_service.generar_archivo(
-            db, empresa, plantilla, facturas_ordenadas, numeros_documento=numeros
-        )
+        columnas_count = len(json.loads(plantilla.columnas_json or "[]"))
+        es_modelo_general_siigo = sistema == "siigo_pyme" and columnas_count == 123
+        if es_modelo_general_siigo:
+            contenido, total_filas = generar_xlsx_siigo(
+                db, empresa, plantilla, facturas_ordenadas, numeros_documento=numeros
+            )
+        else:
+            contenido, total_filas = export_service.generar_archivo(
+                db, empresa, plantilla, facturas_ordenadas, numeros_documento=numeros
+            )
         db.add(exportacion)
         db.flush()
-        nombre_archivo = f"exportacion_{sistema}_{exportacion.id[:8]}.{plantilla.extension}"
+        nombre_archivo = (f"movimientocontable_{exportacion.id[:8]}.xlsx" if es_modelo_general_siigo
+                          else f"exportacion_{sistema}_{exportacion.id[:8]}.{plantilla.extension}")
         exportacion.cantidad_registros = total_filas
         exportacion.archivo_nombre = nombre_archivo
 
@@ -374,9 +427,11 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
         db.rollback()
         raise
 
+    media = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+             if es_modelo_general_siigo else "text/plain")
     return Response(
         content=contenido,
-        media_type="text/plain",
+        media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"',
                  "X-Exportacion-Id": exportacion.id, "X-Cantidad-Registros": str(total_filas)},
     )

@@ -262,6 +262,33 @@ def eliminar_importacion(empresa_id: str, importacion_id: str, db: Session = Dep
     return {"eliminada": True, "id": importacion_id, "decisiones_borradas": decisiones_borradas, "filas_tecnicas_siigo_borradas": tecnicas_borradas}
 
 
+@router.get("/resumen-aprendizaje")
+def resumen_aprendizaje(empresa_id: str, db: Session = Depends(get_db),
+                        empresa: Empresa = Depends(get_empresa_activa)):
+    """Resumen compacto de lo aprendido; no exige parametrización manual."""
+    decisiones = db.query(HistorialContable).filter(HistorialContable.empresa_id == empresa_id).count()
+    tecnicas_q = db.query(HistorialTecnicoSiigo).filter(HistorialTecnicoSiigo.empresa_id == empresa_id)
+    tecnicas = tecnicas_q.count()
+    cuentas = {x[0] for x in tecnicas_q.with_entities(HistorialTecnicoSiigo.cuenta_codigo).all() if x[0]}
+    terceros = {x[0] for x in tecnicas_q.with_entities(HistorialTecnicoSiigo.nit).all() if x[0]}
+    comprobantes = {
+        (x[0] or "", x[1] or "")
+        for x in tecnicas_q.with_entities(
+            HistorialTecnicoSiigo.tipo_comprobante, HistorialTecnicoSiigo.codigo_comprobante
+        ).all() if x[0] or x[1]
+    }
+    importaciones = db.query(ImportacionHistorico).filter(ImportacionHistorico.empresa_id == empresa_id).count()
+    return {
+        "importaciones": importaciones,
+        "decisiones_contables": decisiones,
+        "filas_tecnicas": tecnicas,
+        "cuentas": len(cuentas),
+        "terceros": len(terceros),
+        "comprobantes": len(comprobantes),
+        "campos_siigo": 123 if tecnicas else 0,
+    }
+
+
 @router.get("/sugerencia", response_model=SugerenciaCuenta)
 def sugerir(empresa_id: str, nit: str, descripcion: str | None = None, direccion: str | None = None,
             db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa)):

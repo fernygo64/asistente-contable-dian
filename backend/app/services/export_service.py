@@ -7,6 +7,7 @@ las columnas de Siigo o World Office — eso se resuelve aquí, en la
 capa de exportación, aplicando la plantilla configurada.
 """
 import json
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Empresa, Factura, Movimiento, PlantillaExportacion, EstadoFactura
 from app.services.siigo_config_service import (
-    configuraciones_empresa, tipo_documento_clave, parametros_cuentas_empresa, proyectar_numeros,
+    configuraciones_empresa, tipo_documento_clave, parametros_cuentas_empresa, proyectar_numeros, folio_dian_factura,
 )
 from app.services.export_adapters import obtener_adaptador
 from app.services.siigo_historial_service import construir_indice_historial_siigo, inferir_parametros_movimiento
@@ -69,8 +70,18 @@ def _formatear_codigo_cuenta(codigo: str, empresa: Optional[Empresa]) -> str:
 
 def _descripcion_exportacion_siigo(factura: Factura) -> str:
     """Descripción uniforme por comprobante sin alterar Movimiento.descripcion histórico."""
-    partes = [str(x).strip() for x in (factura.prefijo, factura.numero_factura) if x and str(x).strip()]
-    documento = "-".join(partes)
+    prefijo = str(factura.prefijo or "").strip()
+    numero = str(factura.numero_factura or "").strip()
+    # Algunas fuentes DIAN ya entregan el prefijo incluido en numero_factura
+    # (p.ej. ST-172 o BELE40502). No duplicarlo como ST-ST-172.
+    limpio_prefijo = re.sub(r"[^A-Z0-9]", "", prefijo.upper())
+    limpio_numero = re.sub(r"[^A-Z0-9]", "", numero.upper())
+    if prefijo and numero and limpio_numero.startswith(limpio_prefijo):
+        documento = numero
+    elif prefijo and numero:
+        documento = f"{prefijo}-{numero}"
+    else:
+        documento = prefijo or numero
     concepto = factura.concepto_resumen or ""
     texto = " ".join(x for x in (documento, concepto) if x).strip()
     if not texto:
@@ -257,6 +268,13 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
     cfgs_siigo = configuraciones_empresa(db, empresa) if es_siigo else {}
     sources = {c.get("source") for c in columnas}
     plantilla_siigo_completa = es_siigo and len(columnas) >= 100
+    indice_siigo = construir_indice_historial_siigo(db, empresa.id) if plantilla_siigo_completa else None
+    campos_criticos = {
+        "CÓDIGO DEL VENDEDOR", "CÓDIGO DE LA CIUDAD", "FORMA DE PAGO",
+        "LÍNEA PRODUCTO", "GRUPO PRODUCTO", "CÓDIGO PRODUCTO",
+        "CÓDIGO DE LA BODEGA", "CÓDIGO DE LA UBICACIÓN",
+        "TIPO Y COMPROBANTE CRUCE", "NÚMERO DE DOCUMENTO CRUCE",
+    }
 
     filas_por_validar = []
     for f in facturas:
@@ -273,6 +291,8 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
                 errores.append(f"La factura {f.numero_factura or f.id} no tiene Tipo SIIGO configurado para su clase documental.")
             if not cfg.get("codigo_comprobante"):
                 errores.append(f"La factura {f.numero_factura or f.id} no tiene Código SIIGO configurado para su clase documental.")
+            if cfg.get("modo_numeracion") == "folio_dian" and not folio_dian_factura(f):
+                errores.append(f"La factura {f.numero_factura or f.id} usa numeración Folio DIAN, pero no tiene un Folio numérico utilizable.")
         movimientos = db.query(Movimiento).filter(Movimiento.factura_id == f.id).order_by(Movimiento.orden).all()
         if not movimientos:
             errores.append(f"La factura {f.numero_factura or f.id} no tiene movimientos contables generados.")
@@ -289,6 +309,20 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
                             f"({'receptor' if f.direccion_documento == 'emitida' else 'emisor'}).")
 
         for m in movimientos:
+            if plantilla_siigo_completa and indice_siigo is not None:
+                cfg = cfgs_siigo.get(tipo_documento_clave(f), {})
+                tipo_efectivo = f.tipo_comprobante_override or cfg.get("tipo_comprobante") or ""
+                param = inferir_parametros_movimiento(
+                    indice_siigo, m.cuenta.codigo, m.tercero_nit_override or f.tercero_nit,
+                    tipo_efectivo, cfg.get("codigo_comprobante") or "",
+                    f.concepto_resumen or m.descripcion,
+                )
+                ambiguos = [x for x in param.ambiguos if " ".join(str(x).upper().split()) in campos_criticos]
+                if ambiguos:
+                    errores.append(
+                        f"{f.numero_factura or f.id} · cuenta {m.cuenta.codigo}: el historial muestra más de un valor posible para "
+                        + ", ".join(sorted(set(ambiguos))) + ". Revisa la contabilización antes de exportar."
+                    )
             filas_por_validar.append({
                 "Fecha": f.fecha_emision.strftime(plantilla.formato_fecha) if f.fecha_emision else "",
                 "Cuenta": m.cuenta.codigo, "Nit": f.tercero_nit or "", "Tercero": f.tercero_nombre or "",
@@ -416,30 +450,20 @@ def _calcular_numeros_documento(empresa: Optional[Empresa], facturas: list[Factu
     return resultado
 
 
-def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
-                     facturas: list[Factura], numeros_documento: Optional[dict[str, str]] = None) -> tuple[bytes, int]:
-    """Devuelve (contenido_bytes, cantidad_de_filas). Se asume ya validado."""
+def generar_filas(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
+                   facturas: list[Factura], numeros_documento: Optional[dict[str, str]] = None):
+    """Devuelve (columnas, filas, cantidad). Mantiene las 123 posiciones sin serializar."""
     facturas = agrupar_y_ordenar_facturas(facturas)
     columnas = json.loads(plantilla.columnas_json)
     equivalencias = json.loads(plantilla.equivalencias_cuentas_json or "{}")
-    delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
     es_siigo = (plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable) == "siigo_pyme"
     cfgs_siigo = configuraciones_empresa(db, empresa) if es_siigo else {}
     if numeros_documento is None:
         numeros_documento = proyectar_numeros(db, empresa, facturas) if es_siigo else _calcular_numeros_documento(empresa, facturas)
-    # Índice aprendido del historial real. Se carga una sola vez por archivo
-    # y luego cada movimiento busca cuenta+NIT+tipo/código sin consultas por fila.
     indice_historial_siigo = construir_indice_historial_siigo(db, empresa.id) if es_siigo else None
-    # Compatibilidad silenciosa con datos de la versión anterior: si existiera
-    # una parametrización manual ya guardada, solo se usa como último respaldo
-    # cuando el historial no tiene evidencia. La interfaz manual fue retirada.
     params_manual_siigo = parametros_cuentas_empresa(db, empresa.id) if es_siigo else {}
 
-    lineas = []
-    if plantilla.incluir_encabezado:
-        lineas.append(delimitador.join(c["label"] for c in columnas))
-
-    total_filas = 0
+    filas = []
     for f in facturas:
         movimientos = db.query(Movimiento).filter(Movimiento.factura_id == f.id).order_by(Movimiento.orden).all()
         cfg_siigo = cfgs_siigo.get(tipo_documento_clave(f), {}) if es_siigo else None
@@ -459,18 +483,23 @@ def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportaci
                     param_siigo = params_manual_siigo[m.cuenta_id]
             valores = [
                 _valor_columna(c, f, m, equivalencias, plantilla.formato_fecha, empresa,
-                                numeros_documento.get(f.id), cfg_siigo, param_siigo).replace(delimitador, " ")
+                               numeros_documento.get(f.id), cfg_siigo, param_siigo)
                 for c in columnas
             ]
-            lineas.append(delimitador.join(valores))
-            total_filas += 1
+            filas.append(valores)
+    return columnas, filas, len(filas)
 
-    # Windows-1252 (ANSI) — el importador de escritorio de Siigo Pyme
-    # espera esta codificación, no UTF-8: con UTF-8 cada tilde/ñ ocupa
-    # 2 bytes y Siigo los interpreta mal (ej. "Ó" se ve como "Ã"" en su
-    # ventana de importación), lo cual hace que ni siquiera reconozca
-    # la línea de títulos. errors="replace" evita que un carácter
-    # verdaderamente exótico (fuera de este alfabeto) rompa todo el
-    # archivo — se cambia por "?" en ese caso puntual, en vez de fallar.
+
+def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
+                     facturas: list[Factura], numeros_documento: Optional[dict[str, str]] = None) -> tuple[bytes, int]:
+    """Archivo plano, conservado principalmente para World Office y compatibilidad."""
+    columnas, filas, total_filas = generar_filas(db, empresa, plantilla, facturas, numeros_documento)
+    delimitador = "\t" if plantilla.delimitador == "\\t" else plantilla.delimitador
+    lineas = []
+    if plantilla.incluir_encabezado:
+        lineas.append(delimitador.join(c["label"] for c in columnas))
+    for fila in filas:
+        lineas.append(delimitador.join(str(v).replace(delimitador, " ") for v in fila))
     contenido = ("\r\n".join(lineas)).encode("cp1252", errors="replace")
     return contenido, total_filas
+

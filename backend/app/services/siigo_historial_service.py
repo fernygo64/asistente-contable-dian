@@ -327,6 +327,38 @@ def construir_indice_historial_siigo(db: Session, empresa_id: str) -> IndiceHist
     return IndiceHistorialSiigo(filas)
 
 
+
+_GENERIC_DESC = {
+    "FACTURA", "COMPRA", "VENTA", "DOCUMENTO", "COMPROBANTE", "SECUENCIA", "IVA",
+    "DEBITO", "CREDITO", "DESCONTABLE", "GENERADO", "CONTRAPARTIDA", "PAGO", "RECIBO",
+}
+
+def _tokens_descripcion(texto: Optional[str]) -> set[str]:
+    normal = _norm_label(texto or "")
+    return {t for t in normal.split() if len(t) >= 4 and t not in _GENERIC_DESC and not t.isdigit()}
+
+def _filtrar_por_concepto(filas: list[HistorialTecnicoSiigo], descripcion_actual: Optional[str]) -> list[HistorialTecnicoSiigo]:
+    actuales = _tokens_descripcion(descripcion_actual)
+    if not actuales:
+        return []
+    puntuadas = []
+    for r in filas:
+        hist = _tokens_descripcion(r.descripcion_secuencia)
+        if not hist:
+            continue
+        inter = actuales & hist
+        if not inter:
+            continue
+        # Prioriza coincidencias de palabras significativas. Un solo término
+        # basta si es muy específico; con conceptos largos se exige mayor solapamiento.
+        score = len(inter) / max(1, min(len(actuales), len(hist)))
+        if score >= 0.34 or len(inter) >= 2:
+            puntuadas.append((score, len(inter), r))
+    if not puntuadas:
+        return []
+    mejor = max(x[0] for x in puntuadas)
+    return [r for score, _, r in puntuadas if score >= max(0.34, mejor - 0.12)]
+
 def _candidatos(indice: IndiceHistorialSiigo, cuenta: str, nit: str, tipo: str, codigo: str):
     grupos = [
         ("cuenta+nit+comprobante", indice.por_cuenta_nit_comp.get((cuenta, nit, tipo, codigo), [])),
@@ -414,6 +446,18 @@ def _inferir_tecnicos(indice: IndiceHistorialSiigo, grupos) -> tuple[dict[str, s
                     fuentes.append(nombre)
                     encontrado = True
                     break
+                # Un campo relacional no siempre está activo para una cuenta.
+                # Si históricamente todas las filas llevan el mismo default
+                # (por ejemplo vacío o 0 en una cuenta de ingresos que NO cruza),
+                # ese patrón estable también es evidencia válida. No debe
+                # reportarse como ambigüedad solo porque no coincide con el
+                # número/tipo del comprobante histórico.
+                estable_rel = _valor_estable(indice, filas, label_norm)
+                if estable_rel is not None:
+                    valores[label_norm] = estable_rel
+                    fuentes.append(nombre)
+                    encontrado = True
+                    break
             if es_estatico:
                 estable = _valor_estable(indice, filas, label_norm)
                 if estable is not None:
@@ -434,7 +478,16 @@ def inferir_parametros_movimiento(indice: IndiceHistorialSiigo, cuenta_codigo: s
     nit = _normalizar_nit(nit_actual)
     tipo = _texto(tipo_comprobante)
     codigo = _texto(codigo_comprobante)
-    grupos = _candidatos(indice, cuenta, nit, tipo, codigo)
+    grupos_base = _candidatos(indice, cuenta, nit, tipo, codigo)
+    # Si el histórico contiene varios productos/bodegas para la misma cuenta,
+    # el concepto actual puede resolver cuál patrón corresponde sin pedir una
+    # parametrización manual. Nunca se elige por similitud si no hay evidencia.
+    grupos = []
+    for nombre, filas in grupos_base:
+        por_concepto = _filtrar_por_concepto(filas, descripcion_actual)
+        if por_concepto:
+            grupos.append((nombre + "+concepto", por_concepto))
+        grupos.append((nombre, filas))
 
     resultado = ParametrosSiigoInferidos()
     if not grupos:
