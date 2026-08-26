@@ -649,6 +649,11 @@ class HistorialTecnicoSiigo(Base):
     centro_costo = Column(String(30), nullable=True)
     subcentro_costo = Column(String(30), nullable=True)
     sucursal = Column(String(20), nullable=True)
+    descripcion_secuencia = Column(String(500), nullable=True)
+    # Copia técnica completa de las 123 columnas de la fila histórica SIIGO.
+    # Se guarda como JSON para que el aprendizaje pueda evolucionar sin tener
+    # que agregar una columna SQL cada vez que SIIGO exige un campo distinto.
+    valores_columnas_json = Column(Text, nullable=True)
     fecha_documento = Column(DateTime(timezone=True), nullable=True)
     fila_origen = Column(Integer, nullable=True)
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)

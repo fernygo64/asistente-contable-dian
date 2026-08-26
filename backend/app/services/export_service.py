@@ -80,6 +80,32 @@ def _descripcion_exportacion_siigo(factura: Factura) -> str:
     return texto.ljust(50)
 
 
+def _valor_relacion_aprendida(relacion: str, factura: Factura, numero_documento_calculado: Optional[str],
+                               config_siigo: Optional[dict] = None) -> Optional[str]:
+    """Resuelve relaciones aprendidas sin copiar números/fechas históricos."""
+    if relacion == "tipo_codigo_comprobante":
+        tipo = factura.tipo_comprobante_override or (config_siigo or {}).get("tipo_comprobante") or ""
+        codigo = (config_siigo or {}).get("codigo_comprobante") or ""
+        if not tipo or not codigo:
+            return None
+        try:
+            codigo = f"{int(str(codigo)) :03d}"
+        except Exception:
+            codigo = str(codigo).zfill(3)
+        return f"{tipo}-{codigo}"
+    if relacion == "numero_documento":
+        return numero_documento_calculado or ""
+    if not factura.fecha_emision:
+        return None
+    if relacion == "anio":
+        return str(factura.fecha_emision.year)
+    if relacion == "mes":
+        return str(factura.fecha_emision.month)
+    if relacion == "dia":
+        return str(factura.fecha_emision.day)
+    return None
+
+
 def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
                     equivalencias: dict, formato_fecha: str, empresa: Optional[Empresa] = None,
                     numero_documento_calculado: Optional[str] = None,
@@ -88,15 +114,26 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
     fijo = columna.get("valor_fijo", "")
 
     if source == "fijo":
+        # SIIGO no usa un único default universal por columna: el historial
+        # real demuestra que algunas cuentas/tipos de comprobante exigen
+        # producto, bodega, forma de pago, cruce, etc. La fila histórica
+        # completa se consulta ANTES del default global. Solo llegan aquí
+        # valores que el motor de aprendizaje encontró estables.
+        if empresa and empresa.sistema_contable == "siigo_pyme" and param_cuenta_siigo is not None:
+            relacion = param_cuenta_siigo.relacion_tecnica(columna.get("label", "")) \
+                if hasattr(param_cuenta_siigo, "relacion_tecnica") else None
+            if relacion:
+                resuelto = _valor_relacion_aprendida(relacion, factura, numero_documento_calculado, config_siigo)
+                if resuelto is not None:
+                    return str(resuelto)
+            aprendido = param_cuenta_siigo.valor_tecnico(columna.get("label", "")) \
+                if hasattr(param_cuenta_siigo, "valor_tecnico") else None
+            if aprendido is not None:
+                return str(aprendido)
         if fijo not in (None, ""):
             return str(fijo)
-        # Respaldo de seguridad: en Siigo Pyme ninguna celda del archivo
-        # real queda genuinamente vacía — las que no se pueden llenar
-        # con certeza (ej. si una columna nueva de Siigo no calza con
-        # ninguna de las reconocidas) llevan un espacio, nunca nada.
-        # Confirmado por el usuario contra su propio archivo real
-        # (verificado exhaustivamente: 0/espacio/texto en blanco, jamás
-        # una celda vacía de la S en adelante).
+        # Respaldo de seguridad: si la plantilla SIIGO trae una columna
+        # desconocida, nunca se elimina la posición; se deja un espacio.
         if empresa and empresa.sistema_contable == "siigo_pyme":
             return " "
         return ""
@@ -414,8 +451,9 @@ def generar_archivo(db: Session, empresa: Empresa, plantilla: PlantillaExportaci
                 nit_actual = m.tercero_nit_override or f.tercero_nit
                 param_siigo = inferir_parametros_movimiento(
                     indice_historial_siigo, cuenta_exportada, nit_actual,
-                    (cfg_siigo or {}).get("tipo_comprobante"),
+                    f.tipo_comprobante_override or (cfg_siigo or {}).get("tipo_comprobante"),
                     (cfg_siigo or {}).get("codigo_comprobante"),
+                    _descripcion_exportacion_siigo(f),
                 )
                 if getattr(param_siigo, "coincidencias", 0) == 0 and m.cuenta_id in params_manual_siigo:
                     param_siigo = params_manual_siigo[m.cuenta_id]
