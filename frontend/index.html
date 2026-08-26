@@ -559,7 +559,8 @@ Credito=credito</textarea>
 <script>
 let empresas = [];
 let empresaActivaId = null;
-let facturaSeleccionParaExportar = new Set();
+let seleccionesFacturas = {recibidas: new Set(), emitidas: new Set()};
+function seleccionFacturasActual(){ return seleccionesFacturas[moduloFacturasActivo] || seleccionesFacturas.recibidas; }
 
 function api(){ return document.getElementById('apiBase').value.replace(/\/$/, ''); }
 function toast(msg, esError){
@@ -669,6 +670,8 @@ document.getElementById('tabs').addEventListener('click', e=>{
     document.getElementById('avisoModuloFacturas').textContent = moduloFacturasActivo === 'recibidas'
       ? 'Este módulo incluye la nómina electrónica (siempre se contabiliza como gasto, sin importar cómo la haya marcado la DIAN).'
       : 'Este módulo nunca incluye nómina (aunque la DIAN la marque "Emitido") — la nómina siempre aparece en Facturas Recibidas.';
+    document.getElementById('expFacturaIds').value = Array.from(seleccionFacturasActual()).join(',');
+    actualizarContadorSeleccion();
     cargarFacturas();
     cargarPanelClasificacion();
   }
@@ -1444,7 +1447,7 @@ async function cargarFacturas(){
     el.innerHTML = facturas.map(f => `
       <details>
         <summary>
-          <span class="col-check"><input type="checkbox" ${facturaSeleccionParaExportar.has(f.id)?'checked':''} onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
+          <span class="col-check"><input type="checkbox" ${seleccionFacturasActual().has(f.id)?'checked':''} onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
           <span>
             <strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}
             ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}
@@ -1525,15 +1528,19 @@ function etiquetaNaturaleza(naturaleza){
   return etiquetas[naturaleza] || naturaleza;
 }
 function toggleFacturaSel(id, checked){
-  if(checked) facturaSeleccionParaExportar.add(id); else facturaSeleccionParaExportar.delete(id);
-  document.getElementById('expFacturaIds').value = Array.from(facturaSeleccionParaExportar).join(',');
+  const seleccion = seleccionFacturasActual();
+  if(checked) seleccion.add(id); else seleccion.delete(id);
+  document.getElementById('expFacturaIds').value = Array.from(seleccion).join(',');
   actualizarContadorSeleccion();
 }
 
 function actualizarContadorSeleccion(){
-  const n = facturaSeleccionParaExportar.size;
+  const seleccion = seleccionFacturasActual();
+  const n = seleccion.size;
   const el = document.getElementById('contadorSeleccion');
   if(el) el.textContent = n===1 ? '1 seleccionada' : `${n} seleccionadas`;
+  const chkTodas = document.getElementById('seleccionarTodasChk');
+  if(chkTodas && n === 0) chkTodas.checked = false;
 }
 
 function toggleSeleccionarTodas(marcarTodas){
@@ -1638,14 +1645,14 @@ async function eliminarFactura(facturaId){
   try{
     await req(`/empresas/${empresaActivaId}/documentos/${facturaId}`, {method:'DELETE'});
     toast('Factura eliminada');
-    facturaSeleccionParaExportar.delete(facturaId);
-    document.getElementById('expFacturaIds').value = Array.from(facturaSeleccionParaExportar).join(',');
+    seleccionFacturasActual().delete(facturaId);
+    document.getElementById('expFacturaIds').value = Array.from(seleccionFacturasActual()).join(',');
     cargarFacturas();
   }catch(e){ toast(e.message, true); }
 }
 
 async function eliminarSeleccionadas(){
-  const ids = Array.from(facturaSeleccionParaExportar);
+  const ids = Array.from(seleccionFacturasActual());
   if(ids.length === 0){ toast('Marca al menos una factura (la casilla a la izquierda) para eliminar', true); return; }
   if(!confirm(`¿Eliminar ${ids.length} factura(s) seleccionada(s)? Esta acción no se puede deshacer.`)) return;
   try{
@@ -1653,7 +1660,7 @@ async function eliminarSeleccionadas(){
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ids),
     });
     toast(`${r.eliminadas} factura(s) eliminada(s)`);
-    facturaSeleccionParaExportar.clear();
+    seleccionFacturasActual().clear();
     document.getElementById('expFacturaIds').value = '';
     cargarFacturas();
   }catch(e){ toast(e.message, true); }
@@ -1672,7 +1679,7 @@ function _mostrarResultadoMasivo(body, verbo){
 }
 
 async function generarPartidaMasivoConCuenta(){
-  const ids = Array.from(facturaSeleccionParaExportar);
+  const ids = Array.from(seleccionFacturasActual());
   if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
   const cuenta = document.getElementById('masivoCuenta').value.trim();
   if(!cuenta){ toast('Escribe la cuenta a aplicar a todas las seleccionadas', true); return; }
@@ -1689,7 +1696,7 @@ async function generarPartidaMasivoConCuenta(){
 }
 
 async function generarPartidaMasivoConSugerencia(){
-  const ids = Array.from(facturaSeleccionParaExportar);
+  const ids = Array.from(seleccionFacturasActual());
   if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
   const contrapartida = document.getElementById('masivoContrapartida').value;
   if(!confirm(`Se generará la partida de ${ids.length} factura(s) usando la cuenta que el historial sugiere para cada una (solo las que tengan una sugerencia confiable — las demás se omiten). ¿Continuar?`)) return;
@@ -1705,7 +1712,7 @@ async function generarPartidaMasivoConSugerencia(){
 }
 
 async function aplicarTipoComprobanteMasivo(){
-  const ids = Array.from(facturaSeleccionParaExportar);
+  const ids = Array.from(seleccionFacturasActual());
   if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
   const codigo = document.getElementById('masivoTipoComprobante').value;
 
@@ -1721,7 +1728,7 @@ async function aplicarTipoComprobanteMasivo(){
 }
 
 async function contabilizarMasivo(){
-  const ids = Array.from(facturaSeleccionParaExportar);
+  const ids = Array.from(seleccionFacturasActual());
   if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
   try{
     const body = await req(`/empresas/${empresaActivaId}/documentos/contabilizar-masivo`, {
