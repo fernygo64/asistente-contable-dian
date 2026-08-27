@@ -19,7 +19,7 @@ from app.services.siigo_config_service import (
 )
 from app.services.export_adapters import obtener_adaptador
 from app.services.siigo_historial_service import construir_indice_historial_siigo, inferir_parametros_movimiento
-from app.services.document_format_service import ordenar_documentos, referencia_documento
+from app.services.document_format_service import ordenar_documentos, prefijo_folio
 
 
 def _tipo_comprobante_para_factura(empresa: Empresa, factura: Factura) -> str:
@@ -70,20 +70,20 @@ def _formatear_codigo_cuenta(codigo: str, empresa: Optional[Empresa]) -> str:
 
 
 def _descripcion_exportacion_siigo(factura: Factura) -> str:
-    """Referencia canónica: ``DD PREFIJO-FOLIO NOMBRE EMISOR``.
+    """Descripción uniforme de SIIGO: ``PREFIJO-FOLIO + concepto breve``.
 
-    La fecha completa se usa para ordenar el lote; aquí solo se muestra el día,
-    tal como se acordó para identificar visualmente cada comprobante.
+    La clave cronológica (fecha completa, prefijo, folio y emisor) se usa
+    exclusivamente para ORDENAR el lote y asignar consecutivos. Nunca se
+    incorpora a "DESCRIPCIÓN DE LA SECUENCIA".
     """
-    texto = referencia_documento(
-        factura.fecha_emision, factura.prefijo, factura.numero_factura, factura.nombre_emisor
-    )
+    documento = prefijo_folio(factura.prefijo, factura.numero_factura)
+    concepto = str(factura.concepto_resumen or "").strip()
+    texto = " ".join(x for x in (documento, concepto) if x).strip()
     if not texto:
         texto = f"Factura {factura.numero_factura or ''}".strip()
     # El campo del Modelo General SIIGO es corto; conservar el ancho histórico.
     texto = " ".join(texto.upper().split())[:50]
     return texto.ljust(50)
-
 
 def _valor_relacion_aprendida(relacion: str, factura: Factura, numero_documento_calculado: Optional[str],
                                config_siigo: Optional[dict] = None) -> Optional[str]:

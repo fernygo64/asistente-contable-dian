@@ -317,7 +317,7 @@
         <button class="btn ghost" onclick="cargarListadoCargas()">Actualizar</button>
       </div>
       <p class="module-intro">Cada CUFE/documento cargado, con eliminación segura.</p>
-      <div class="table-scroll"><table><thead><tr><th>Referencia DIAN · orden cronológico</th><th>Tipo</th><th>Dirección</th><th>CUFE</th><th>Estado</th><th></th></tr></thead>
+      <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Dirección</th><th>Documento</th><th>Tercero</th><th>CUFE</th><th>Estado</th><th></th></tr></thead>
         <tbody id="tablaCargas"></tbody></table></div>
     </div>
   </section>
@@ -1261,13 +1261,14 @@ async function cargarListadoCargas(){
   try{
     const docs = await req(`/empresas/${empresaActivaId}/documentos/documentos-cargados`);
     document.getElementById('tablaCargas').innerHTML = docs.map(d=>`<tr>
-      <td class="mono" title="${d.fecha_emision ? new Date(d.fecha_emision).toLocaleDateString('es-CO') : ''}"><strong>${d.referencia_documento||referenciaDocUI(d)}</strong></td>
+      <td>${d.fecha_emision ? new Date(d.fecha_emision).toLocaleDateString('es-CO') : '—'}</td>
       <td>${etiquetaNaturaleza(d.naturaleza_documento)}</td><td>${d.direccion_documento||'—'}</td>
+      <td class="mono">${prefijoFolioUI(d.prefijo,d.numero_factura)||'—'}</td><td>${d.tercero_nombre||d.tercero_nit||'—'}</td>
       <td class="mono" title="${d.cufe||''}">${d.cufe ? d.cufe.slice(0,16)+'…' : '—'}</td><td><span class="pill ${estadoPill(d.estado)}">${d.estado}</span></td>
       <td>${d.exportada
         ? `<span class="pill ok">Exportado</span>${authUser?.es_superadmin?` <button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}',true)">Retirar</button>`:''}`
-        : `<button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}',false)">Eliminar</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Sin documentos cargados.</td></tr>';
-  }catch(e){ document.getElementById('tablaCargas').innerHTML=`<tr><td colspan="6" class="muted">${e.message}</td></tr>`; }
+        : `<button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}',false)">Eliminar</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin documentos cargados.</td></tr>';
+  }catch(e){ document.getElementById('tablaCargas').innerHTML=`<tr><td colspan="8" class="muted">${e.message}</td></tr>`; }
 }
 
 async function cargarDocumentos(){
@@ -1491,18 +1492,13 @@ async function eliminarImportacionHistorial(id, nombreArchivo){
   }catch(e){ toast(e.message, true); }
 }
 
-function referenciaDocUI(f){
-  const fecha=f?.fecha_emision ? new Date(f.fecha_emision) : null;
-  const dia=fecha && !Number.isNaN(fecha.getTime()) ? String(fecha.getUTCDate()).padStart(2,'0') : '';
-  const pref=(f?.prefijo||'').trim();
-  let fol=(f?.numero_factura||'').trim();
-  if(pref && fol){
-    const esc=pref.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    fol=fol.replace(new RegExp('^'+esc+'(?:\\s*[-_/]\\s*|\\s*)','i'),'').replace(/^[-_/\s]+/,'') || fol;
-  }
-  const doc=pref && fol ? `${pref}-${fol}` : (pref||fol);
-  const emisor=(f?.nombre_emisor||f?.tercero_nombre||'').trim();
-  return [dia,doc,emisor].filter(Boolean).join(' ');
+
+function prefijoFolioUI(prefijo, folio){
+  let p=String(prefijo||'').trim(), n=String(folio||'').trim();
+  if(!p) return n; if(!n) return p;
+  const esc=p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  n=n.replace(new RegExp('^'+esc+'(?:\\s*[-_/]\\s*|\\s*)','i'),'').replace(/^[-_/\s]+/,'') || n;
+  return n ? `${p}-${n}` : p;
 }
 
 // ---------- facturas ----------
@@ -1513,7 +1509,7 @@ async function cargarPanelClasificacion(){
     const pf=filtrosFacturas[moduloFacturasActivo]||{}; const pp=new URLSearchParams({modulo:moduloFacturasActivo}); if(pf.anio)pp.set('anio',pf.anio);if(pf.mes)pp.set('mes',pf.mes); const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?${pp.toString()}`);
     const filaFactura = (f, extra) => `
       <div class="row" style="align-items:center; padding:4px 0; border-bottom:1px solid var(--line);">
-        <span style="flex:2;"><strong>${f.referencia_documento || referenciaDocUI(f) || '(sin referencia)'}</strong> · NIT ${f.tercero_nit||'—'}
+        <span style="flex:2;"><strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${prefijoFolioUI(f.prefijo,f.numero_factura)||'—'}
           ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}</span>
         <span class="mono">$${(f.total||0).toLocaleString('es-CO')}</span>
         ${extra||''}
@@ -1603,8 +1599,8 @@ async function cargarFacturas(){
         <summary>
           <span class="col-check"><input type="checkbox" ${seleccionFacturasActual().has(f.id)?'checked':''} onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
           <span>
-            <strong>${referenciaDocUI(f) || '(sin referencia)'}</strong>
-            <br><span class="muted" style="font-size:12px;">NIT ${f.tercero_nit||'—'}${f.concepto_resumen ? ' · '+f.concepto_resumen : ''}</span>
+            <strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${prefijoFolioUI(f.prefijo,f.numero_factura)||'—'}
+            ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}
           </span>
           <span>
             <span class="pill ${estadoPill(f.estado)}">${f.estado}</span>

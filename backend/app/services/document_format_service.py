@@ -3,9 +3,12 @@
 Regla operativa acordada para documentos recibidos y para el archivo contable:
 - El orden usa la FECHA DE EMISIÓN completa, de la más antigua a la más reciente.
 - Dentro de la misma fecha: Prefijo, Folio y Nombre Emisor, ascendente.
-- La referencia visible/exportada muestra solo el día: ``DD PREFIJO-FOLIO NOMBRE EMISOR``.
+- La combinación ``DD PREFIJO-FOLIO NOMBRE EMISOR`` es únicamente una referencia
+  técnica disponible para diagnóstico; NO se usa como descripción contable.
+- "DESCRIPCIÓN DE LA SECUENCIA" se construye aparte como
+  ``PREFIJO-FOLIO + concepto breve de la compra``.
 
-La fecha completa nunca se pierde: simplemente no se repite dentro de la descripción corta.
+La fecha completa se conserva para ordenar y asignar consecutivos.
 """
 from __future__ import annotations
 
