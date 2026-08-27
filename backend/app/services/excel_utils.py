@@ -59,7 +59,7 @@ def _fila_encabezado_mas_probable_desde_filas(filas_crudas: list) -> int:
 def _detectar_fila_encabezado(contenido: bytes) -> int:
     """
     Encuentra la fila de encabezado real "espiando" solo las primeras
-    ~15 filas con openpyxl en modo read_only — NUNCA carga el archivo
+    ~40 filas con openpyxl en modo read_only — NUNCA carga el archivo
     completo en memoria dos veces. Con un archivo real de más de mil
     filas y cien columnas, leerlo completo dos veces (antes: una vez
     con pandas para detectar el encabezado, otra para los datos) casi
@@ -72,7 +72,7 @@ def _detectar_fila_encabezado(contenido: bytes) -> int:
     try:
         hoja = wb.active
         filas_crudas = []
-        for i, fila in enumerate(hoja.iter_rows(max_row=15, values_only=True)):
+        for i, fila in enumerate(hoja.iter_rows(max_row=40, values_only=True)):
             filas_crudas.append(fila)
         return _fila_encabezado_mas_probable_desde_filas(filas_crudas)
     finally:

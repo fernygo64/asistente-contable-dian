@@ -272,15 +272,15 @@
   <section id="tab-cargar" class="hidden">
     <p class="module-intro"><strong>Cargar documentos</strong> · Sube documentos DIAN y relaciónalos con su Excel.</p>
     <div class="card">
-      <h2>Cargar Excel DIAN + ZIP de XML/PDF</h2>
+      <h2>Cargar documentos DIAN</h2>
       <div class="row">
-        <div><label>Documentos (uno o varios .zip, y/o .xml/.pdf sueltos)</label>
+        <div><label>ZIP / XML / PDF (opcional si cargas Excel DIAN)</label>
           <input type="file" id="zipInput" accept=".zip,.xml,.pdf" multiple>
 
         </div>
-        <div><label>Excel DIAN (opcional)</label><input type="file" id="excelInput" accept=".xlsx,.xls,.csv"></div>
+        <div><label>Excel DIAN (puede cargarse solo)</label><input type="file" id="excelInput" accept=".xlsx,.xls,.csv"></div>
       </div>
-      <p class="muted" id="mapeoAyuda">Si cargas Excel, elige aquí qué columna de TU archivo corresponde a cada campo (se llenan solas apenas seleccionas el Excel; deja "— no aplica —" lo que no tengas):</p>
+      <p class="muted" id="mapeoAyuda">Si cargas Excel, el sistema intenta detectar estas columnas automáticamente. Solo ajústalas si tu archivo usa títulos diferentes (deja “— no aplica —” lo que no tengas):</p>
       <div class="row">
         <div><label>Columna CUFE</label><select id="mapCufe"><option value="">— no aplica —</option></select></div>
         <div><label>Columna Número factura</label><select id="mapNumero"><option value="">— no aplica —</option></select></div>
@@ -297,7 +297,7 @@
         <div><label>Columna Grupo (Emitido/Recibido)</label><select id="mapGrupo"><option value="">— no aplica —</option></select></div>
       </div>
       <p class="muted">Mapea también "NIT receptor" y "Nombre receptor" si tu Excel los trae — son el dato que de verdad importa en una factura <strong>emitida</strong> (tu cliente, no tú mismo) cuando esa factura no tiene un XML que la respalde, solo la fila del Excel.</p>
-      <p class="muted">Si tu Excel trae "Tipo de documento" y "Grupo" (como el de la DIAN), selecciónalas — el sistema descarta automáticamente los "Application response" y clasifica correctamente facturas emitidas, recibidas, nómina y documentos equivalentes usando la propia clasificación de la DIAN, que es más confiable que adivinarlo.
+      <p class="muted">El sistema intenta reconocer automáticamente las columnas estándar de la DIAN, incluido Tipo de documento y Grupo. Las opciones de arriba quedan disponibles para corregir manualmente una estructura excepcional.</p>
       <button class="btn" onclick="cargarDocumentos()">Cargar y relacionar</button>
       <div id="resultadoCarga" style="margin-top:12px;"></div>
     </div>
@@ -317,7 +317,7 @@
         <button class="btn ghost" onclick="cargarListadoCargas()">Actualizar</button>
       </div>
       <p class="module-intro">Cada CUFE/documento cargado, con eliminación segura.</p>
-      <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Dirección</th><th>Documento</th><th>Tercero</th><th>CUFE</th><th>Estado</th><th></th></tr></thead>
+      <div class="table-scroll"><table><thead><tr><th>Referencia DIAN · orden cronológico</th><th>Tipo</th><th>Dirección</th><th>CUFE</th><th>Estado</th><th></th></tr></thead>
         <tbody id="tablaCargas"></tbody></table></div>
     </div>
   </section>
@@ -498,6 +498,11 @@ Credito=credito</textarea>
         <div><button class="btn ghost" onclick="previsualizarExportacion()">Vista previa</button></div>
         <div><button class="btn" onclick="generarExportacion()">Generar y descargar</button></div>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;margin:8px 0 2px;font-size:13px;">
+        <input type="checkbox" id="expOmitirAdvertencias" style="width:auto;">
+        ⚠️ Generar bajo mi responsabilidad si solo hay advertencias corregibles en SIIGO
+      </label>
+      <p class="muted" style="margin-top:2px;">Nunca permite omitir un descuadre Débito/Crédito, ausencia de movimientos, fecha inválida o configuración esencial del comprobante.</p>
       <div id="resumenContabilizadasExportar" class="muted" style="margin:8px 0"></div>
       <div id="resultadoExportacion"></div>
       <div id="previsualizacionExportacion" style="margin-top:12px"></div>
@@ -1256,23 +1261,22 @@ async function cargarListadoCargas(){
   try{
     const docs = await req(`/empresas/${empresaActivaId}/documentos/documentos-cargados`);
     document.getElementById('tablaCargas').innerHTML = docs.map(d=>`<tr>
-      <td>${d.fecha_emision ? new Date(d.fecha_emision).toLocaleDateString('es-CO') : '—'}</td>
+      <td class="mono" title="${d.fecha_emision ? new Date(d.fecha_emision).toLocaleDateString('es-CO') : ''}"><strong>${d.referencia_documento||referenciaDocUI(d)}</strong></td>
       <td>${etiquetaNaturaleza(d.naturaleza_documento)}</td><td>${d.direccion_documento||'—'}</td>
-      <td class="mono">${d.prefijo||''}${d.numero_factura||'—'}</td><td>${d.tercero_nombre||d.tercero_nit||'—'}</td>
       <td class="mono" title="${d.cufe||''}">${d.cufe ? d.cufe.slice(0,16)+'…' : '—'}</td><td><span class="pill ${estadoPill(d.estado)}">${d.estado}</span></td>
       <td>${d.exportada
         ? `<span class="pill ok">Exportado</span>${authUser?.es_superadmin?` <button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}',true)">Retirar</button>`:''}`
-        : `<button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}',false)">Eliminar</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin documentos cargados.</td></tr>';
-  }catch(e){ document.getElementById('tablaCargas').innerHTML=`<tr><td colspan="8" class="muted">${e.message}</td></tr>`; }
+        : `<button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}',false)">Eliminar</button>`}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Sin documentos cargados.</td></tr>';
+  }catch(e){ document.getElementById('tablaCargas').innerHTML=`<tr><td colspan="6" class="muted">${e.message}</td></tr>`; }
 }
 
 async function cargarDocumentos(){
   if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
   const archivos = document.getElementById('zipInput').files;
-  if(!archivos || archivos.length===0){ toast('Selecciona al menos un archivo .zip, .xml o .pdf', true); return; }
-  const fd = new FormData();
-  for(const f of archivos) fd.append('documentos', f);
   const excelFile = document.getElementById('excelInput').files[0];
+  if((!archivos || archivos.length===0) && !excelFile){ toast('Selecciona un Excel DIAN o al menos un ZIP/XML/PDF', true); return; }
+  const fd = new FormData();
+  for(const f of (archivos || [])) fd.append('documentos', f);
   if(excelFile){
     fd.append('excel', excelFile);
     const mapeos = {mapCufe:'mapeo_cufe', mapNumero:'mapeo_numero_factura', mapPrefijo:'mapeo_prefijo', mapNit:'mapeo_nit_emisor',
@@ -1487,6 +1491,20 @@ async function eliminarImportacionHistorial(id, nombreArchivo){
   }catch(e){ toast(e.message, true); }
 }
 
+function referenciaDocUI(f){
+  const fecha=f?.fecha_emision ? new Date(f.fecha_emision) : null;
+  const dia=fecha && !Number.isNaN(fecha.getTime()) ? String(fecha.getUTCDate()).padStart(2,'0') : '';
+  const pref=(f?.prefijo||'').trim();
+  let fol=(f?.numero_factura||'').trim();
+  if(pref && fol){
+    const esc=pref.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    fol=fol.replace(new RegExp('^'+esc+'(?:\\s*[-_/]\\s*|\\s*)','i'),'').replace(/^[-_/\s]+/,'') || fol;
+  }
+  const doc=pref && fol ? `${pref}-${fol}` : (pref||fol);
+  const emisor=(f?.nombre_emisor||f?.tercero_nombre||'').trim();
+  return [dia,doc,emisor].filter(Boolean).join(' ');
+}
+
 // ---------- facturas ----------
 async function cargarPanelClasificacion(){
   if(!empresaActivaId) return;
@@ -1495,7 +1513,7 @@ async function cargarPanelClasificacion(){
     const pf=filtrosFacturas[moduloFacturasActivo]||{}; const pp=new URLSearchParams({modulo:moduloFacturasActivo}); if(pf.anio)pp.set('anio',pf.anio);if(pf.mes)pp.set('mes',pf.mes); const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?${pp.toString()}`);
     const filaFactura = (f, extra) => `
       <div class="row" style="align-items:center; padding:4px 0; border-bottom:1px solid var(--line);">
-        <span style="flex:2;"><strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}
+        <span style="flex:2;"><strong>${f.referencia_documento || referenciaDocUI(f) || '(sin referencia)'}</strong> · NIT ${f.tercero_nit||'—'}
           ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}</span>
         <span class="mono">$${(f.total||0).toLocaleString('es-CO')}</span>
         ${extra||''}
@@ -1585,8 +1603,8 @@ async function cargarFacturas(){
         <summary>
           <span class="col-check"><input type="checkbox" ${seleccionFacturasActual().has(f.id)?'checked':''} onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
           <span>
-            <strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}
-            ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}
+            <strong>${referenciaDocUI(f) || '(sin referencia)'}</strong>
+            <br><span class="muted" style="font-size:12px;">NIT ${f.tercero_nit||'—'}${f.concepto_resumen ? ' · '+f.concepto_resumen : ''}</span>
           </span>
           <span>
             <span class="pill ${estadoPill(f.estado)}">${f.estado}</span>
@@ -2047,9 +2065,15 @@ async function validarExportacion(){
   const plantillaId=document.getElementById('expPlantilla').value, ids=_idsParaExportar();
   if(!plantillaId||!ids.length){toast('No hay documentos pendientes',true);return;}
   try{
-    const r=await req(`/empresas/${empresaActivaId}/exportaciones/validar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids})});
-    const badge=document.getElementById('estadoExportacionBadge');badge.className='pill '+(r.valido?'ok':'err');badge.textContent=r.valido?'Listo':'Con errores';
-    document.getElementById('resultadoExportacion').innerHTML=r.valido?'<p class="pill ok">✓ Validación correcta</p>':'<p class="pill err">Requiere revisión</p><ul>'+r.errores.map(e=>'<li>'+e+'</li>').join('')+'</ul>';
+    const r=await req(`/empresas/${empresaActivaId}/exportaciones/validar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids,omitir_advertencias:!!document.getElementById('expOmitirAdvertencias')?.checked})});
+    const badge=document.getElementById('estadoExportacionBadge');
+    badge.className='pill '+(r.valido?'ok':(r.puede_generar_bajo_responsabilidad?'warn':'err'));
+    badge.textContent=r.valido?'Listo':(r.puede_generar_bajo_responsabilidad?'Con advertencias':'Bloqueado');
+    const bloq=(r.bloqueantes||[]), adv=(r.advertencias||[]);
+    document.getElementById('resultadoExportacion').innerHTML=
+      (bloq.length?'<p class="pill err">Errores que NO se pueden omitir</p><ul>'+bloq.map(e=>'<li>'+e+'</li>').join('')+'</ul>':'')+
+      (adv.length?'<p class="pill warn">Advertencias corregibles</p><ul>'+adv.map(e=>'<li>'+e+'</li>').join('')+'</ul>':'')+
+      (!bloq.length&&!adv.length?'<p class="pill ok">✓ Validación correcta</p>':'');
   }catch(e){toast(e.message,true);}
 }
 
@@ -2059,15 +2083,20 @@ async function previsualizarExportacion(){
   if(!plantillaId||!ids.length){toast('No hay documentos contabilizados pendientes para exportar',true);return;}
   const div=document.getElementById('previsualizacionExportacion');
   try{
-    const r=await req(`/empresas/${empresaActivaId}/exportaciones/previsualizar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids})});
-    if(!r.valido){div.innerHTML='<p class="pill err">Requiere revisión</p><ul>'+r.errores.map(e=>'<li>'+e+'</li>').join('')+'</ul>';return;}
+    const r=await req(`/empresas/${empresaActivaId}/exportaciones/previsualizar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids,omitir_advertencias:!!document.getElementById('expOmitirAdvertencias')?.checked})});
+    if(!r.valido){
+      const clase=r.puede_generar_bajo_responsabilidad?'warn':'err';
+      const titulo=r.puede_generar_bajo_responsabilidad?'Solo hay advertencias corregibles — marca “Generar bajo mi responsabilidad”':'Hay errores que bloquean la exportación';
+      div.innerHTML=`<p class="pill ${clase}">${titulo}</p><ul>${(r.errores||[]).map(e=>'<li>'+e+'</li>').join('')}</ul>`;return;
+    }
     const money=v=>'$'+Number(v||0).toLocaleString('es-CO',{maximumFractionDigits:2});
     const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v}; set('expKpiDocs',r.total_documentos);set('expKpiMovs',r.total_filas);set('expKpiDeb',money(r.total_debito));set('expKpiCre',money(r.total_credito));set('expKpiDif',money(r.diferencia));
     document.getElementById('estadoExportacionBadge').className='pill ok';document.getElementById('estadoExportacionBadge').textContent='Listo';
     const cols=Math.min(r.encabezado.length,18);
     div.innerHTML=`<div class="accounting-head"><strong>${r.formato_salida==='xlsx'?'Excel listo para SIIGO':'Vista previa'}</strong><span class="muted">${r.total_documentos} documentos · ${r.total_filas} movimientos${r.consecutivo_inicial_proyectado!=null?' · internos '+r.consecutivo_inicial_proyectado+'–'+r.consecutivo_final_proyectado:''}</span></div>
       <div class="table-scroll"><table><thead><tr>${r.encabezado.slice(0,cols).map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${r.filas.slice(0,12).map(f=>`<tr>${f.slice(0,cols).map(c=>`<td class="mono">${c??''}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-      ${r.encabezado.length>cols?`<p class="muted">Vista resumida de ${cols} columnas. El Excel final conserva las ${r.encabezado.length} columnas A:DS.</p>`:''}`;
+      ${r.encabezado.length>cols?`<p class="muted">Vista resumida de ${cols} columnas. El Excel final conserva las ${r.encabezado.length} columnas A:DS.</p>`:''}
+      ${(r.advertencias||[]).length?`<p class="pill warn">Se generará bajo tu responsabilidad con ${(r.advertencias||[]).length} advertencia(s) corregible(s).</p>`:''}`;
   }catch(e){toast(e.message,true);}
 }
 
@@ -2079,7 +2108,7 @@ async function generarExportacion(){
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/exportaciones/generar`, {
       method:'POST', headers:authHeaders({'Content-Type':'application/json'}),
-      body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids}),
+      body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids, omitir_advertencias: !!document.getElementById('expOmitirAdvertencias')?.checked}),
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const blob = await resp.blob();

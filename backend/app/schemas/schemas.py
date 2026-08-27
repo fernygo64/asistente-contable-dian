@@ -400,6 +400,9 @@ class GenerarExportacionRequest(BaseModel):
     plantilla_id: str
     factura_ids: List[str]
     usuario: Optional[str] = None
+    # Permite generar con advertencias técnicas corregibles en SIIGO, pero
+    # NUNCA omite bloqueos contables/estructurales como Débito != Crédito.
+    omitir_advertencias: bool = False
 
 
 class ExportacionResumen(BaseModel):

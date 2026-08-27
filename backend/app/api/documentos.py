@@ -16,6 +16,7 @@ from app.services import documentos_service, partida_doble_service, historial_se
 from app.services.auditoria_service import registrar as auditoria_registrar
 from app.services.excel_utils import leer_columnas_excel
 from app.services.mapeo_dian_service import detectar_mapeo_excel_dian
+from app.services.document_format_service import ordenar_documentos, referencia_documento
 
 router = APIRouter(prefix="/empresas/{empresa_id}/documentos", tags=["documentos"])
 
@@ -98,12 +99,13 @@ def listar_periodos(empresa_id: str, db: Session = Depends(get_db),
 def listar_documentos_cargados(empresa_id: str, db: Session = Depends(get_db),
                                 empresa: Empresa = Depends(get_empresa_activa)):
     """Una fila por documento/CUFE, no por ZIP."""
-    facturas = db.query(Factura).filter(Factura.empresa_id == empresa_id).order_by(Factura.creado_en.desc()).all()
+    facturas = ordenar_documentos(db.query(Factura).filter(Factura.empresa_id == empresa_id).all())
     exportadas = {x[0] for x in db.query(ExportacionFactura.factura_id).filter(ExportacionFactura.empresa_id == empresa_id).all()}
     return [{
         "id": f.id, "cufe": f.cufe, "prefijo": f.prefijo, "numero_factura": f.numero_factura,
         "naturaleza_documento": f.naturaleza_documento, "direccion_documento": f.direccion_documento,
         "fecha_emision": f.fecha_emision, "tercero_nit": f.tercero_nit, "tercero_nombre": f.tercero_nombre,
+        "referencia_documento": referencia_documento(f.fecha_emision, f.prefijo, f.numero_factura, f.nombre_emisor),
         "total": float(f.total or 0), "estado": getattr(f.estado, "value", f.estado),
         "exportada": f.id in exportadas,
     } for f in facturas]
@@ -151,7 +153,7 @@ def resumen_por_tipo(empresa_id: str, db: Session = Depends(get_db),
 @router.post("/cargar", response_model=CargaResumen, status_code=201)
 async def cargar_documentos(
     empresa_id: str,
-    documentos: list[UploadFile] = File(..., description="Uno o varios .zip, y/o .xml/.pdf sueltos"),
+    documentos: list[UploadFile] | None = File(default=None, description="Uno o varios .zip, y/o .xml/.pdf sueltos; opcional si se carga Excel DIAN"),
     excel_file: UploadFile | None = File(default=None, alias="excel"),
     mapeo_cufe: str | None = Form(default=None),
     mapeo_numero_factura: str | None = Form(default=None),
@@ -175,11 +177,11 @@ async def cargar_documentos(
     tiene sueltos porque los bajó del correo uno por uno). Opcionalmente
     también el Excel de la DIAN con el mapeo de sus columnas.
     """
-    if not documentos:
-        raise HTTPException(status_code=422, detail="Debes subir al menos un archivo .zip, .xml o .pdf.")
+    if not documentos and excel_file is None:
+        raise HTTPException(status_code=422, detail="Debes subir al menos un Excel DIAN o un archivo .zip/.xml/.pdf.")
 
     archivos_leidos = []
-    for f in documentos:
+    for f in (documentos or []):
         contenido = await f.read()
         archivos_leidos.append((f.filename or "archivo_sin_nombre", contenido))
 
@@ -199,17 +201,11 @@ async def cargar_documentos(
             "fecha": mapeo_fecha, "prefijo": mapeo_prefijo, "valor_total": mapeo_valor_total,
             "tipo_documento": mapeo_tipo_documento, "grupo": mapeo_grupo,
         }
-        if not any(mapeo.values()):
-            raise HTTPException(
-                status_code=422,
-                detail="Se cargó un Excel pero no se indicó el mapeo de ninguna columna "
-                       "(al menos 'mapeo_cufe' o 'mapeo_numero_factura' + 'mapeo_nit_emisor').",
-            )
 
     carga = CargaDocumentosDian(
         empresa_id=empresa_id,
         archivo_excel_nombre=excel_file.filename if excel_file else None,
-        archivo_zip_nombre=", ".join(nombre for nombre, _ in archivos_leidos)[:300],
+        archivo_zip_nombre=(", ".join(nombre for nombre, _ in archivos_leidos)[:300] or None),
         usuario=usuario,
     )
     db.add(carga)
@@ -303,7 +299,7 @@ def panel_clasificacion(empresa_id: str, modulo: str | None = None,
         q = q.filter(extract("year", Factura.fecha_emision) == anio)
     if mes:
         q = q.filter(extract("month", Factura.fecha_emision) == mes)
-    facturas = q.order_by(Factura.fecha_emision.desc(), Factura.creado_en.desc()).all()
+    facturas = ordenar_documentos(q.all())
 
     listas, con_sugerencia, necesita_revision = [], [], []
     sugerencias_masivas = historial_service.sugerir_cuentas_masivo(db, empresa_id, facturas)
@@ -311,14 +307,18 @@ def panel_clasificacion(empresa_id: str, modulo: str | None = None,
     for f in facturas:
         if f.estado == EstadoFactura.lista_para_contabilizar:
             listas.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
-                            "numero_factura": f.numero_factura, "total": f.total,
-                            "concepto_resumen": f.concepto_resumen})
+                            "numero_factura": f.numero_factura, "prefijo": f.prefijo,
+                            "fecha_emision": f.fecha_emision.isoformat() if f.fecha_emision else None,
+                            "referencia_documento": referencia_documento(f.fecha_emision, f.prefijo, f.numero_factura, f.tercero_nombre),
+                            "total": f.total, "concepto_resumen": f.concepto_resumen})
             continue
 
         if f.naturaleza_documento == "nomina" or not f.tercero_nit:
             necesita_revision.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
-                                       "numero_factura": f.numero_factura, "total": f.total,
-                                       "concepto_resumen": f.concepto_resumen,
+                                       "numero_factura": f.numero_factura, "prefijo": f.prefijo,
+                                       "fecha_emision": f.fecha_emision.isoformat() if f.fecha_emision else None,
+                                       "referencia_documento": referencia_documento(f.fecha_emision, f.prefijo, f.numero_factura, f.tercero_nombre),
+                                       "total": f.total, "concepto_resumen": f.concepto_resumen,
                                        "motivo": "Nómina electrónica — requiere registro manual." if f.naturaleza_documento == "nomina"
                                                  else "Sin NIT de tercero identificado."})
             continue
@@ -328,14 +328,18 @@ def panel_clasificacion(empresa_id: str, modulo: str | None = None,
             motivo = (f"Historial: {sug['usos']} de {sug['total']} uso(s) para este contexto "
                       f"({sug['porcentaje']}%).")
             con_sugerencia.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
-                                    "numero_factura": f.numero_factura, "total": f.total,
-                                    "concepto_resumen": f.concepto_resumen,
+                                    "numero_factura": f.numero_factura, "prefijo": f.prefijo,
+                                    "fecha_emision": f.fecha_emision.isoformat() if f.fecha_emision else None,
+                                    "referencia_documento": referencia_documento(f.fecha_emision, f.prefijo, f.numero_factura, f.tercero_nombre),
+                                    "total": f.total, "concepto_resumen": f.concepto_resumen,
                                     "cuenta_sugerida": sug["cuenta_sugerida"], "motivo_sugerencia": motivo,
                                     "fuente_sugerencia": sug["fuente"]})
         else:
             necesita_revision.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
-                                       "numero_factura": f.numero_factura, "total": f.total,
-                                       "concepto_resumen": f.concepto_resumen,
+                                       "numero_factura": f.numero_factura, "prefijo": f.prefijo,
+                                       "fecha_emision": f.fecha_emision.isoformat() if f.fecha_emision else None,
+                                       "referencia_documento": referencia_documento(f.fecha_emision, f.prefijo, f.numero_factura, f.tercero_nombre),
+                                       "total": f.total, "concepto_resumen": f.concepto_resumen,
                                        "motivo": "Sin sugerencia suficientemente respaldada por el historial real."})
 
     return {"listas": listas, "con_sugerencia": con_sugerencia, "necesita_revision": necesita_revision}
@@ -378,7 +382,7 @@ def listar_facturas(
         q = q.filter(extract("year", Factura.fecha_emision) == anio)
     if mes:
         q = q.filter(extract("month", Factura.fecha_emision) == mes)
-    return q.order_by(Factura.fecha_emision.desc(), Factura.creado_en.desc()).all()
+    return ordenar_documentos(q.all())
 
 
 @router.get("/{factura_id}")

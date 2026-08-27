@@ -7,6 +7,7 @@ del PDF; si no hay texto útil, se recurre a OCR. Todo resultado de PDF
 """
 import io
 import re
+import unicodedata
 from typing import Optional
 
 import pdfplumber
@@ -51,12 +52,35 @@ def _extraer_texto_ocr(contenido: bytes) -> str:
     return texto.strip()
 
 
+def _normalizar_texto(texto: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", texto or "") if not unicodedata.combining(c)).lower()
+
+
+def _detectar_naturaleza(texto: str) -> str:
+    t = _normalizar_texto(texto)
+    if "nota credito" in t or "credit note" in t or re.search(r"\b91\s*[-:]?\s*nota", t):
+        return "nota_credito"
+    if "nota debito" in t or "debit note" in t or re.search(r"\b92\s*[-:]?\s*nota", t):
+        return "nota_debito"
+    if "documento equivalente" in t or "documento soporte" in t:
+        return "documento_equivalente"
+    return "factura"
+
+
 def _buscar_campos(texto: str) -> dict:
     campos = {}
     for campo, patron in _PATRONES.items():
         m = patron.search(texto)
         if m:
             campos[campo] = m.group(1).strip()
+    campos["naturaleza_documento"] = _detectar_naturaleza(texto)
+    # En notas crédito/débito el encabezado puede decir "Nota Crédito No."
+    # en vez de "Factura No.". Recuperar el número sin alterar el parser
+    # histórico de facturas que ya funcionaba.
+    if not campos.get("numero_factura") and campos["naturaleza_documento"] in {"nota_credito", "nota_debito"}:
+        m = re.search(r"nota\s+(?:cr[eé]dito|d[eé]bito)(?:\s+electr[oó]nica)?\s*(?:n[uú]mero|no\.?|#)?\s*[:.\-]?\s*([A-Z]{1,10}[- ]?\d{1,20})", texto, re.IGNORECASE)
+        if m:
+            campos["numero_factura"] = m.group(1).strip()
     return campos
 
 
@@ -77,7 +101,8 @@ def extraer_factura_pdf(contenido: bytes) -> dict:
 
     campos = _buscar_campos(texto)
     total_patrones = len(_PATRONES)
-    confianza = round(len(campos) * 100.0 / total_patrones, 1) if total_patrones else 0.0
+    encontrados = sum(1 for campo in _PATRONES if campo in campos)
+    confianza = round(encontrados * 100.0 / total_patrones, 1) if total_patrones else 0.0
 
     # El OCR es intrínsecamente menos confiable que el texto embebido del
     # PDF, incluso con los mismos campos reconocidos (sección 7).

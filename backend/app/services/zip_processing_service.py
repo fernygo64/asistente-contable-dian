@@ -193,9 +193,13 @@ def agrupar_documentos(pares: list[tuple[str, bytes]], nit_empresa: Optional[str
 
     for clave_archivo, (nombre_pdf, contenido_pdf) in pdf_pendientes.items():
         resultado = extraer_factura_pdf(contenido_pdf)
+        campos_pdf = resultado["campos"]
+        nit_emisor_pdf = str(campos_pdf.get("nit_emisor") or "").replace(".", "").replace("-", "").strip().lstrip("0")
+        direccion_pdf = "emitida" if nit_empresa_norm and nit_emisor_pdf == nit_empresa_norm else "recibida"
         documentos[clave_archivo] = DocumentoExtraido(
             clave_agrupacion=clave_archivo, nombre_pdf=nombre_pdf, pdf_bytes=contenido_pdf,
-            fuente_extraccion=resultado["fuente"], confianza=resultado["confianza"], campos=resultado["campos"],
+            fuente_extraccion=resultado["fuente"], confianza=resultado["confianza"], campos=campos_pdf,
+            naturaleza=campos_pdf.get("naturaleza_documento") or "factura", direccion=direccion_pdf,
         )
 
     return list(documentos.values()) + errores + descartados

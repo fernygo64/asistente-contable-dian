@@ -30,6 +30,13 @@ def _first_child(root, local_name: str):
     return None
 
 
+def _children(root, local_name: str):
+    """Solo hijos DIRECTOS. Evita sumar totales del encabezado y de las líneas a la vez."""
+    if root is None:
+        return []
+    return [child for child in list(root) if _local(child.tag) == local_name]
+
+
 def _text(root, local_name: str) -> str:
     found = _find_all(root, local_name)
     return found[0].text.strip() if found and found[0].text else ""
@@ -139,6 +146,7 @@ def extraer_factura_xml(contenido: bytes) -> dict:
         return {"ok": False, "error": f"XML mal formado: {e}", "campos": {}, "campos_presentes": []}
 
     invoice_root, _tag = _desempaquetar_raiz(root)
+    naturaleza_raiz = {"Invoice": "factura", "CreditNote": "nota_credito", "DebitNote": "nota_debito"}.get(_tag, "factura")
 
     numero = _text(invoice_root, "ID")
     cufe_nodes = _find_all(invoice_root, "UUID")
@@ -194,40 +202,85 @@ def extraer_factura_xml(contenido: bytes) -> dict:
     payable = _amount(legal_total, "PayableAmount")
 
     iva_total = rf_total = ri_total = rv_total = inc_total = 0.0
-    for tt in _find_all(invoice_root, "TaxTotal"):
-        subtotals = _find_all(tt, "TaxSubtotal")
+
+    def _tax_scheme(st):
+        schemes = _find_all(st, "TaxScheme")
+        if not schemes:
+            return "", ""
+        id_node = _first_child(schemes[0], "ID")
+        name_node = _first_child(schemes[0], "Name")
+        tax_id = id_node.text.strip() if id_node is not None and id_node.text else ""
+        tax_name = name_node.text.strip().upper() if name_node is not None and name_node.text else ""
+        return tax_id, tax_name
+
+    def _clasificar_impuesto(tax_id: str, tax_name: str, retencion: bool = False) -> str:
+        nombre = (tax_name or "").upper()
+        codigo = str(tax_id or "").strip()
+        if retencion:
+            if codigo == "05" or "RETEIVA" in nombre or ("RET" in nombre and "IVA" in nombre):
+                return "reteiva"
+            if codigo == "07" or "RETEICA" in nombre or ("RET" in nombre and "ICA" in nombre):
+                return "reteica"
+            if codigo == "06" or "RETEFUENTE" in nombre or "RENTA" in nombre or "FUENTE" in nombre:
+                return "retefuente"
+        if codigo == "04" or "INC" in nombre or "CONSUMO" in nombre:
+            return "inc"
+        if codigo == "03" or ("ICA" in nombre and "RETE" not in nombre):
+            return "ica"
+        if codigo == "01" or "IVA" in nombre or "VAT" in nombre:
+            return "iva"
+        return "iva" if not retencion else "retefuente"
+
+    # UBL repite a menudo TaxTotal dentro de cada línea. Antes se recorría
+    # todo el árbol y se sumaba encabezado + líneas, duplicando el IVA.
+    # Usamos únicamente los TaxTotal DIRECTOS del documento; si un proveedor
+    # excepcional no trae total de encabezado, recién entonces consolidamos
+    # los totales directos de las líneas.
+    tax_totals = _children(invoice_root, "TaxTotal")
+    if not tax_totals:
+        lineas_para_impuestos = (_children(invoice_root, "InvoiceLine")
+                                 + _children(invoice_root, "CreditNoteLine")
+                                 + _children(invoice_root, "DebitNoteLine"))
+        tax_totals = [tt for linea in lineas_para_impuestos for tt in _children(linea, "TaxTotal")]
+
+    for tt in tax_totals:
+        subtotals = _children(tt, "TaxSubtotal")
         if not subtotals:
             iva_total += _amount(tt, "TaxAmount")
             continue
         for st in subtotals:
-            schemes = _find_all(st, "TaxScheme")
-            tax_name = ""
-            if schemes:
-                name_node = _first_child(schemes[0], "Name")
-                if name_node is not None and name_node.text:
-                    tax_name = name_node.text.strip().upper()
+            tax_id, tax_name = _tax_scheme(st)
             amt = _amount(st, "TaxAmount")
-            if "IVA" in tax_name or "VAT" in tax_name:
-                iva_total += amt
-            elif "INC" in tax_name:
+            clase = _clasificar_impuesto(tax_id, tax_name, retencion=False)
+            if clase == "inc":
                 inc_total += amt
-            elif "ICA" in tax_name:
+            elif clase == "ica":
                 ri_total += amt
             else:
                 iva_total += amt
 
-    for wt in _find_all(invoice_root, "WithholdingTaxTotal"):
-        for st in _find_all(wt, "TaxSubtotal"):
-            schemes = _find_all(st, "TaxScheme")
-            tax_name = ""
-            if schemes:
-                name_node = _first_child(schemes[0], "Name")
-                if name_node is not None and name_node.text:
-                    tax_name = name_node.text.strip().upper()
+    withholding_totals = _children(invoice_root, "WithholdingTaxTotal")
+    if not withholding_totals:
+        lineas_para_ret = (_children(invoice_root, "InvoiceLine")
+                           + _children(invoice_root, "CreditNoteLine")
+                           + _children(invoice_root, "DebitNoteLine"))
+        withholding_totals = [wt for linea in lineas_para_ret for wt in _children(linea, "WithholdingTaxTotal")]
+
+    for wt in withholding_totals:
+        subtotals = _children(wt, "TaxSubtotal")
+        # Algunos XML solo traen TaxAmount sin subtotales: no se puede
+        # adivinar el tipo de retención, por lo que se conserva como retefuente
+        # (comportamiento histórico) sin sumarlo más de una vez.
+        if not subtotals:
+            rf_total += _amount(wt, "TaxAmount")
+            continue
+        for st in subtotals:
+            tax_id, tax_name = _tax_scheme(st)
             amt = _amount(st, "TaxAmount")
-            if "ICA" in tax_name:
+            clase = _clasificar_impuesto(tax_id, tax_name, retencion=True)
+            if clase == "reteica":
                 ri_total += amt
-            elif "IVA" in tax_name:
+            elif clase == "reteiva":
                 rv_total += amt
             else:
                 rf_total += amt
@@ -290,6 +343,7 @@ def extraer_factura_xml(contenido: bytes) -> dict:
         "valor_a_pagar": payable,
         "forma_pago": forma_pago,
         "conceptos": conceptos,
+        "naturaleza_documento": naturaleza_raiz,
     }
     campos_presentes = [k for k, v in campos.items() if v not in ("", 0, 0.0, [], {}, None)]
 

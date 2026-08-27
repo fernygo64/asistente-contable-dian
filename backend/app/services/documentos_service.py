@@ -21,6 +21,8 @@ from app.models.models import Factura, FuenteExtraccion, EstadoFactura
 from app.services.zip_processing_service import DocumentoExtraido
 from app.services.excel_utils import resolver_columna, leer_dataframe_excel
 from app.services.clasificacion_dian_service import clasificar_desde_excel, es_tipo_descartable
+from app.services.mapeo_dian_service import detectar_mapeo_excel_dian
+from app.services.document_format_service import folio_sin_prefijo
 
 
 def _leer_excel_dian(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
@@ -52,11 +54,27 @@ def _parse_fecha(v) -> Optional[datetime]:
 
 
 def _parse_valor(v) -> Optional[float]:
-    v = _norm(v)
-    if not v:
+    """Convierte valores DIAN sin perder décimas/centavos por separadores locales."""
+    txt = _norm(v)
+    if not txt:
         return None
+    txt = re.sub(r"[^0-9,.-]", "", txt)
+    if not txt or txt in ("-", ".", ","):
+        return None
+    # Si existen punto y coma, el último separador se toma como decimal.
+    if "," in txt and "." in txt:
+        if txt.rfind(",") > txt.rfind("."):
+            txt = txt.replace(".", "").replace(",", ".")
+        else:
+            txt = txt.replace(",", "")
+    elif "," in txt:
+        partes = txt.split(",")
+        if len(partes) == 2 and 1 <= len(partes[1]) <= 4:
+            txt = partes[0].replace(".", "") + "." + partes[1]
+        else:
+            txt = txt.replace(",", "")
     try:
-        return float(v.replace(",", "").replace("$", ""))
+        return float(txt)
     except ValueError:
         return None
 
@@ -127,7 +145,7 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
                                     excel_fila: Optional[dict],
                                     naturaleza_override: Optional[str] = None,
                                     direccion_override: Optional[str] = None) -> Factura:
-    c = doc.campos
+    c = dict(doc.campos or {})
     cufe = _norm(c.get("cufe"))
     numero = _norm(c.get("numero_factura"))
     prefijo = _norm(c.get("prefijo"))
@@ -186,8 +204,27 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
             prefijo = _norm(excel_fila.get("prefijo"))
         if not fecha_emision:
             fecha_emision = _parse_fecha(excel_fila.get("fecha"))
+
+        # XML/PDF siguen siendo la fuente principal cuando traen el dato.
+        # El Excel DIAN completa únicamente valores ausentes, sin recalcularlos.
+        for campo in ("subtotal", "iva", "inc"):
+            if c.get(campo) in (None, "") and excel_fila.get(campo) not in (None, ""):
+                c[campo] = _parse_valor(excel_fila.get(campo))
+        ret = dict(c.get("retenciones") or {})
+        for campo in ("retefuente", "reteica", "reteiva"):
+            if ret.get(campo) in (None, "", 0, 0.0) and excel_fila.get(campo) not in (None, ""):
+                valor_ret = _parse_valor(excel_fila.get(campo))
+                if valor_ret is not None:
+                    ret[campo] = valor_ret
+        c["retenciones"] = ret
+
     if total is None:
         total = _parse_valor(excel_fila.get("valor_total")) if excel_fila else None
+
+    # Almacenar Prefijo y Folio realmente separados cuando el XML traía ambos
+    # pegados (AR33356 / AR-33356) y el Excel DIAN suministró Prefijo=AR.
+    if prefijo and numero:
+        numero = folio_sin_prefijo(prefijo, numero)
 
     # Si no se pudo extraer un SUBTOTAL (pasa siempre con nómina — su
     # esquema XML no trae desglose de IVA — y a veces con facturas que
@@ -290,14 +327,22 @@ def procesar_carga(db: Session, empresa_id: str, carga_id: str,
     documentos_con_error = [d for d in documentos_zip if d.error is not None]
 
     filas_excel = []
-    if excel_bytes and mapeo_excel:
+    if excel_bytes:
         df = _leer_excel_dian(excel_bytes, excel_nombre or "excel.xlsx")
+        columnas = list(df.columns)
+        automatico = detectar_mapeo_excel_dian(columnas).get("mapeo", {})
+        # El mapeo explícito del usuario manda; lo no indicado se completa
+        # automáticamente con los títulos estándar reconocidos de la DIAN.
+        solicitado = {k: v for k, v in (mapeo_excel or {}).items() if v}
+        combinado = {**automatico, **solicitado}
+        if not combinado:
+            raise ValueError(
+                "No se reconocieron columnas del Excel DIAN. Usa el mapeo avanzado para indicar al menos Folio/CUFE y los campos disponibles."
+            )
         mapeo_resuelto = {}
         no_encontradas = []
-        for c_interno, c_archivo in mapeo_excel.items():
-            if not c_archivo:
-                continue
-            columna_real = resolver_columna(c_archivo, list(df.columns))
+        for c_interno, c_archivo in combinado.items():
+            columna_real = resolver_columna(c_archivo, columnas)
             if not columna_real:
                 no_encontradas.append(f"'{c_archivo}' (campo '{c_interno}')")
             else:
@@ -305,11 +350,13 @@ def procesar_carga(db: Session, empresa_id: str, carga_id: str,
         if no_encontradas:
             raise ValueError(
                 f"No se encontraron estas columnas en el archivo: {', '.join(no_encontradas)}. "
-                f"Columnas disponibles en tu Excel: {list(df.columns)}"
+                f"Columnas disponibles en tu Excel: {columnas}"
             )
         for _, row in df.iterrows():
             fila = {campo: row.get(col) for campo, col in mapeo_resuelto.items()}
-            filas_excel.append(fila)
+            # Ignorar líneas totalmente vacías del reporte.
+            if any(_norm(v) for v in fila.values()):
+                filas_excel.append(fila)
 
     # Filas del Excel que la propia DIAN marca como no-contables (ej.
     # "Application response") — se descartan aquí, antes de intentar
@@ -354,10 +401,21 @@ def procesar_carga(db: Session, empresa_id: str, carga_id: str,
             # en el Excel, marcada explícitamente para revisión.
             campos = {
                 "numero_factura": _norm(fila.get("numero_factura")),
+                "prefijo": _norm(fila.get("prefijo")),
                 "cufe": _norm(fila.get("cufe")),
                 "nit_emisor": _norm(fila.get("nit_emisor")),
                 "nombre_emisor": _norm(fila.get("nombre_emisor")),
+                "nit_receptor": _norm(fila.get("nit_receptor")),
+                "nombre_receptor": _norm(fila.get("nombre_receptor")),
                 "fecha_emision": _norm(fila.get("fecha")),
+                "subtotal": _parse_valor(fila.get("subtotal")),
+                "iva": _parse_valor(fila.get("iva")),
+                "inc": _parse_valor(fila.get("inc")),
+                "retenciones": {
+                    "retefuente": _parse_valor(fila.get("retefuente")) or 0.0,
+                    "reteica": _parse_valor(fila.get("reteica")) or 0.0,
+                    "reteiva": _parse_valor(fila.get("reteiva")) or 0.0,
+                },
                 "total": _parse_valor(fila.get("valor_total")),
             }
             doc_ficticio = DocumentoExtraido(

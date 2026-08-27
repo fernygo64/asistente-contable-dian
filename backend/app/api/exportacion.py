@@ -12,6 +12,7 @@ from app.schemas.schemas import (
     PlantillaCreate, PlantillaOut, GenerarExportacionRequest, ExportacionResumen,
 )
 from app.services import export_service
+from app.services.document_format_service import referencia_documento
 from app.services.auditoria_service import registrar as auditoria_registrar
 from app.services.plantilla_inferencia_service import detectar_estructura_archivo_plano
 from app.services.siigo_pyme_extendido import reprocesar_columnas_siigo
@@ -214,12 +215,13 @@ def facturas_pendientes_exportacion(empresa_id: str, plantilla_id: str, db: Sess
         Factura.empresa_id == empresa_id,
         Factura.estado.in_([EstadoFactura.contabilizada, EstadoFactura.exportada]),
     )
-    facturas = [f for f in q.order_by(Factura.fecha_emision.asc()).all() if f.id not in ya_ids]
+    facturas = [f for f in export_service.agrupar_y_ordenar_facturas(q.all()) if f.id not in ya_ids]
     return [{
         "id": f.id, "numero_factura": f.numero_factura, "prefijo": f.prefijo,
         "fecha_emision": f.fecha_emision.isoformat() if f.fecha_emision else None,
         "tercero_nit": f.tercero_nit, "tercero_nombre": f.tercero_nombre,
         "estado": f.estado.value if hasattr(f.estado, "value") else f.estado,
+        "referencia_documento": referencia_documento(f.fecha_emision, f.prefijo, f.numero_factura, f.tercero_nombre),
     } for f in facturas]
 
 
@@ -271,8 +273,17 @@ def validar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
     if len(facturas) != len(payload.factura_ids):
         raise HTTPException(status_code=422, detail="Alguna factura indicada no existe en esta empresa.")
 
-    errores = export_service.validar_exportacion(db, empresa, plantilla, facturas)
-    return {"valido": len(errores) == 0, "errores": errores}
+    revision = export_service.validar_exportacion_detallada(db, empresa, plantilla, facturas)
+    bloqueantes = revision["bloqueantes"]
+    advertencias = revision["advertencias"]
+    valido = not bloqueantes and (not advertencias or payload.omitir_advertencias)
+    return {
+        "valido": valido,
+        "errores": bloqueantes + ([] if payload.omitir_advertencias else advertencias),
+        "bloqueantes": bloqueantes,
+        "advertencias": advertencias,
+        "puede_generar_bajo_responsabilidad": bool(advertencias and not bloqueantes),
+    }
 
 
 @router.post("/exportaciones/previsualizar")
@@ -294,9 +305,18 @@ def previsualizar_exportacion(empresa_id: str, payload: GenerarExportacionReques
     if len(facturas) != len(payload.factura_ids):
         raise HTTPException(status_code=422, detail="Alguna factura indicada no existe en esta empresa.")
 
-    errores = export_service.validar_exportacion(db, empresa, plantilla, facturas)
-    if errores:
-        return {"valido": False, "errores": errores, "encabezado": [], "filas": []}
+    revision = export_service.validar_exportacion_detallada(db, empresa, plantilla, facturas)
+    bloqueantes = revision["bloqueantes"]
+    advertencias = revision["advertencias"]
+    if bloqueantes or (advertencias and not payload.omitir_advertencias):
+        return {
+            "valido": False,
+            "errores": bloqueantes + ([] if payload.omitir_advertencias else advertencias),
+            "bloqueantes": bloqueantes,
+            "advertencias": advertencias,
+            "puede_generar_bajo_responsabilidad": bool(advertencias and not bloqueantes),
+            "encabezado": [], "filas": [],
+        }
 
     columnas_plantilla = json.loads(plantilla.columnas_json)
     sistema = plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable
@@ -330,6 +350,8 @@ def previsualizar_exportacion(empresa_id: str, payload: GenerarExportacionReques
             else: total_credito += float(m.valor or 0)
     return {
         "valido": True, "errores": [],
+        "bloqueantes": [], "advertencias": advertencias,
+        "puede_generar_bajo_responsabilidad": bool(advertencias),
         "encabezado": encabezado, "filas": filas[:500],
         "total_filas": total_filas, "total_documentos": len(facturas),
         "total_debito": total_debito, "total_credito": total_credito,
@@ -360,23 +382,35 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
     if len(facturas) != len(payload.factura_ids):
         raise HTTPException(status_code=422, detail="Alguna factura indicada no existe en esta empresa.")
 
-    errores = export_service.validar_exportacion(db, empresa, plantilla, facturas)
+    revision = export_service.validar_exportacion_detallada(db, empresa, plantilla, facturas)
+    bloqueantes = revision["bloqueantes"]
+    advertencias = revision["advertencias"]
+    no_aceptadas = bool(advertencias and not payload.omitir_advertencias)
+    errores_rechazo = bloqueantes + (advertencias if no_aceptadas else [])
 
     exportacion = Exportacion(
         empresa_id=empresa_id, plantilla_id=plantilla.id, sistema_contable=plantilla.sistema_contable,
         usuario=payload.usuario or usuario,
         facturas_incluidas_json=json.dumps(payload.factura_ids),
-        estado=EstadoExportacion.error if errores else EstadoExportacion.generada,
-        errores_json=json.dumps(errores, ensure_ascii=False),
+        estado=EstadoExportacion.error if errores_rechazo else EstadoExportacion.generada,
+        errores_json=json.dumps(advertencias if not errores_rechazo else errores_rechazo, ensure_ascii=False),
     )
 
-    if errores:
+    if errores_rechazo:
         db.add(exportacion)
+        mensaje = (
+            "No se generó el archivo porque existen errores contables/estructurales que no se pueden omitir."
+            if bloqueantes else
+            "Hay advertencias corregibles. Activa 'Generar bajo mi responsabilidad' para descargar el archivo y corregirlas en el programa contable."
+        )
         auditoria_registrar(db, empresa_id, "Exportacion", exportacion.id, "exportacion_fallida",
-                             {"errores": errores}, payload.usuario or usuario)
+                             {"bloqueantes": bloqueantes, "advertencias": advertencias}, payload.usuario or usuario)
         db.commit()
-        raise HTTPException(status_code=422, detail={"mensaje": "No se generó el archivo por errores de validación.",
-                                                       "errores": errores})
+        raise HTTPException(status_code=422, detail={
+            "mensaje": mensaje, "errores": errores_rechazo,
+            "bloqueantes": bloqueantes, "advertencias": advertencias,
+            "puede_generar_bajo_responsabilidad": bool(advertencias and not bloqueantes),
+        })
 
     sistema = plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable
     try:
@@ -420,7 +454,8 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
 
         auditoria_registrar(db, empresa_id, "Exportacion", exportacion.id, "exportacion_generada",
                              {"archivo": nombre_archivo, "registros": total_filas,
-                              "facturas": payload.factura_ids, "sistema": sistema},
+                              "facturas": payload.factura_ids, "sistema": sistema,
+                              "advertencias_asumidas": advertencias if payload.omitir_advertencias else []},
                              payload.usuario or usuario)
         db.commit()
     except Exception:
@@ -433,7 +468,8 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
         content=contenido,
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"',
-                 "X-Exportacion-Id": exportacion.id, "X-Cantidad-Registros": str(total_filas)},
+                 "X-Exportacion-Id": exportacion.id, "X-Cantidad-Registros": str(total_filas),
+                 "X-Advertencias-Asumidas": str(len(advertencias) if payload.omitir_advertencias else 0)},
     )
 
 

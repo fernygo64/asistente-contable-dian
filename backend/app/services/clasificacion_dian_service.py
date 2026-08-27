@@ -1,69 +1,87 @@
+"""Clasificación robusta de documentos desde el Excel de la DIAN.
+
+La DIAN puede expresar la misma naturaleza con texto, variantes singular/plural
+o códigos documentales (por ejemplo 91 Nota Crédito y 92 Nota Débito). Esta
+capa normaliza esas variantes antes de que el documento llegue al motor contable.
 """
-Clasificación de documentos a partir de las columnas propias de la DIAN
-en su Excel de descarga ("Tipo de documento", "Grupo").
+from __future__ import annotations
 
-Descubierto al revisar un Excel real de la DIAN (151 filas): la DIAN ya
-clasifica cada fila con su propio "Tipo de documento" (Factura
-electrónica, Application response, Nomina Individual, Documento
-equivalente - X) y su propio "Grupo" (Emitido/Recibido). Usar estas
-columnas es MÁS confiable que derivar todo del XML o comparar el NIT
-del emisor contra el NIT de la empresa — un solo dígito distinto en el
-NIT registrado de la empresa (o un NIT sin normalizar) haría fallar esa
-comparación, mientras que la DIAN ya resolvió esa ambigüedad por su
-cuenta al generar el Excel.
+import re
+import unicodedata
 
-Cuando el Excel trae esta información, tiene prioridad sobre lo que se
-haya inferido del XML.
-"""
 
-_TIPOS_DESCARTAR = {"application response"}  # no son documentos contables (sección 3 del usuario)
-
-_TIPOS_NATURALEZA = {
-    "factura electronica": "factura",
-    "factura electrónica": "factura",
-    "nomina individual": "nomina",
-    "nómina individual": "nomina",
-    "nota credito electronica": "nota_credito",
-    "nota crédito electrónica": "nota_credito",
-    "nota debito electronica": "nota_debito",
-    "nota débito electrónica": "nota_debito",
-}
-
-_GRUPOS_DIRECCION = {
-    "emitido": "emitida",
-    "recibido": "recibida",
+# No son documentos contables que deban generar partida.
+_TIPOS_DESCARTAR = {
+    "application response", "applicationresponse", "acuse de recibo",
+    "evento radian", "respuesta de aplicacion",
 }
 
 
 def _normalizar(texto: str) -> str:
-    import unicodedata
     texto = (texto or "").strip().lower()
-    return "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
+    texto = "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
+    texto = re.sub(r"\s+", " ", texto)
+    return texto.strip()
+
+
+def _codigo_documental(texto_norm: str) -> str:
+    """Extrae un código DIAN corto cuando aparece como 91, 91 - ..., etc."""
+    m = re.search(r"(?:^|\b)(91|92)(?:\b|\D)", texto_norm)
+    return m.group(1) if m else ""
 
 
 def es_tipo_descartable(valor_tipo_documento: str) -> bool:
-    """True si la fila del Excel es un tipo de documento que no debe generar factura (ej. acuse de recibo)."""
-    return _normalizar(valor_tipo_documento) in _TIPOS_DESCARTAR
+    valor = _normalizar(valor_tipo_documento)
+    return any(x in valor for x in _TIPOS_DESCARTAR)
+
+
+def _naturaleza_desde_tipo(valor_tipo_documento: str) -> str:
+    t = _normalizar(valor_tipo_documento)
+    codigo = _codigo_documental(t)
+
+    # Códigos DIAN usuales para documentos de ajuste.
+    if codigo == "91":
+        return "nota_credito"
+    if codigo == "92":
+        return "nota_debito"
+
+    if "creditnote" in t.replace(" ", "") or "nota credito" in t:
+        return "nota_credito"
+    if "debitnote" in t.replace(" ", "") or "nota debito" in t:
+        return "nota_debito"
+    if "nomina" in t or "payroll" in t:
+        return "nomina"
+    if "documento equivalente" in t or "documento soporte" in t:
+        return "documento_equivalente"
+    if "factura" in t or "invoice" in t:
+        return "factura"
+
+    # Compatibilidad con V8: un tipo desconocido no se pierde. Queda como
+    # factura para revisión, pero jamás convierte una Nota Crédito reconocible
+    # en factura por exigir una etiqueta textual exacta.
+    return "factura"
+
+
+def _direccion_desde_grupo(valor_grupo: str) -> str:
+    g = _normalizar(valor_grupo)
+    # Variantes observables en archivos/reportes: "Recibido", "Recibidos",
+    # "Documentos recibidos", "Recibida(s)", y equivalentes emitidos.
+    if re.search(r"\b(recibid[oa]s?|adquirid[oa]s?|compras?)\b", g):
+        return "recibida"
+    if re.search(r"\b(emitid[oa]s?|ventas?)\b", g):
+        return "emitida"
+    return ""
 
 
 def clasificar_desde_excel(valor_tipo_documento: str, valor_grupo: str) -> dict:
-    """
-    Devuelve {"naturaleza": ..., "direccion": ...} a partir de los
-    valores tal como vienen en las columnas del Excel de la DIAN.
-    "Documento equivalente - <lo que sea>" (tiquetes aéreos, servicios
-    públicos, etc.) siempre cae en "documento_equivalente" — se
-    contabiliza igual que una factura recibida normal, pero queda
-    identificado como un tipo distinto para reportes/filtros.
-    Si el tipo no se reconoce, se asume "factura" por defecto (para no
-    perder el registro) pero SIN inventar una dirección si tampoco se
-    reconoce el grupo.
-    """
-    tipo_norm = _normalizar(valor_tipo_documento)
-    if tipo_norm.startswith("documento equivalente"):
-        naturaleza = "documento_equivalente"
-    else:
-        naturaleza = _TIPOS_NATURALEZA.get(tipo_norm, "factura")
+    """Devuelve ``naturaleza`` y ``direccion`` normalizadas.
 
-    direccion = _GRUPOS_DIRECCION.get(_normalizar(valor_grupo), "")
-
-    return {"naturaleza": naturaleza, "direccion": direccion}
+    El tipo documental y la dirección se mantienen separados: una Nota Crédito
+    recibida seguirá siendo ``nota_credito`` + ``recibida`` y por ello usará la
+    configuración contable propia de Nota Crédito recibida.
+    """
+    direccion = _direccion_desde_grupo(valor_grupo) or _direccion_desde_grupo(valor_tipo_documento)
+    return {
+        "naturaleza": _naturaleza_desde_tipo(valor_tipo_documento),
+        "direccion": direccion,
+    }

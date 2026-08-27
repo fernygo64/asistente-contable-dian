@@ -19,6 +19,7 @@ from app.services.siigo_config_service import (
 )
 from app.services.export_adapters import obtener_adaptador
 from app.services.siigo_historial_service import construir_indice_historial_siigo, inferir_parametros_movimiento
+from app.services.document_format_service import ordenar_documentos, referencia_documento
 
 
 def _tipo_comprobante_para_factura(empresa: Empresa, factura: Factura) -> str:
@@ -69,24 +70,17 @@ def _formatear_codigo_cuenta(codigo: str, empresa: Optional[Empresa]) -> str:
 
 
 def _descripcion_exportacion_siigo(factura: Factura) -> str:
-    """Descripción uniforme por comprobante sin alterar Movimiento.descripcion histórico."""
-    prefijo = str(factura.prefijo or "").strip()
-    numero = str(factura.numero_factura or "").strip()
-    # Algunas fuentes DIAN ya entregan el prefijo incluido en numero_factura
-    # (p.ej. ST-172 o BELE40502). No duplicarlo como ST-ST-172.
-    limpio_prefijo = re.sub(r"[^A-Z0-9]", "", prefijo.upper())
-    limpio_numero = re.sub(r"[^A-Z0-9]", "", numero.upper())
-    if prefijo and numero and limpio_numero.startswith(limpio_prefijo):
-        documento = numero
-    elif prefijo and numero:
-        documento = f"{prefijo}-{numero}"
-    else:
-        documento = prefijo or numero
-    concepto = factura.concepto_resumen or ""
-    texto = " ".join(x for x in (documento, concepto) if x).strip()
+    """Referencia canónica: ``DD PREFIJO-FOLIO NOMBRE EMISOR``.
+
+    La fecha completa se usa para ordenar el lote; aquí solo se muestra el día,
+    tal como se acordó para identificar visualmente cada comprobante.
+    """
+    texto = referencia_documento(
+        factura.fecha_emision, factura.prefijo, factura.numero_factura, factura.nombre_emisor
+    )
     if not texto:
         texto = f"Factura {factura.numero_factura or ''}".strip()
-    # El archivo real usa un campo corto de descripción. Se conserva un ancho estable de 50.
+    # El campo del Modelo General SIIGO es corto; conservar el ancho histórico.
     texto = " ".join(texto.upper().split())[:50]
     return texto.ljust(50)
 
@@ -252,28 +246,28 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
     return fijo
 
 
-def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
-                         facturas: list[Factura]) -> list[str]:
-    """Sección 23: nunca se genera el archivo como válido si hay errores."""
-    errores = []
-    adaptador = obtener_adaptador(plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value")
-                                   else plantilla.sistema_contable)
+def validar_exportacion_detallada(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
+                                  facturas: list[Factura]) -> dict[str, list[str]]:
+    """Separa bloqueos contables/estructurales de advertencias corregibles.
+
+    ``bloqueantes`` jamás pueden omitirse (por ejemplo Débito != Crédito).
+    ``advertencias`` pueden asumirse al generar el XLSX bajo responsabilidad
+    del usuario y corregirse posteriormente en el software contable.
+    """
+    bloqueantes: list[str] = []
+    advertencias: list[str] = []
+    sistema = plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable
+    adaptador = obtener_adaptador(sistema)
     columnas = json.loads(plantilla.columnas_json)
 
-    errores += adaptador.validar_plantilla(columnas)
+    bloqueantes += adaptador.validar_plantilla(columnas)
     if not columnas:
-        errores.append("La plantilla no tiene columnas configuradas.")
+        bloqueantes.append("La plantilla no tiene columnas configuradas.")
 
-    es_siigo = (plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable) == "siigo_pyme"
+    es_siigo = sistema == "siigo_pyme"
     cfgs_siigo = configuraciones_empresa(db, empresa) if es_siigo else {}
-    sources = {c.get("source") for c in columnas}
     plantilla_siigo_completa = es_siigo and len(columnas) >= 100
     indice_siigo = construir_indice_historial_siigo(db, empresa.id) if plantilla_siigo_completa else None
-    # Solo bloqueamos por ambigüedades que SIIGO realmente necesita
-    # resolver antes de importar. Ciudad y forma de pago pueden variar por
-    # tercero/documento y SIIGO las corrige/valida por sus propios maestros;
-    # no deben impedir generar el Excel. Centro de costo, producto, bodega y
-    # cruces sí deben conservar exactamente el patrón aprendido del historial.
     campos_criticos = {
         "CENTRO DE COSTO", "SUBCENTRO DE COSTO",
         "LÍNEA PRODUCTO", "GRUPO PRODUCTO", "CÓDIGO PRODUCTO",
@@ -284,7 +278,7 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
     filas_por_validar = []
     for f in facturas:
         if f.estado not in (EstadoFactura.lista_para_contabilizar, EstadoFactura.contabilizada, EstadoFactura.exportada):
-            errores.append(
+            bloqueantes.append(
                 f"La factura {f.numero_factura or f.id} está en estado '{f.estado.value}' — "
                 f"debe generar y aprobar su partida doble antes de exportarla."
             )
@@ -293,27 +287,28 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
             cfg = cfgs_siigo.get(tipo_documento_clave(f), {})
             tipo_efectivo = f.tipo_comprobante_override or cfg.get("tipo_comprobante")
             if not tipo_efectivo:
-                errores.append(f"La factura {f.numero_factura or f.id} no tiene Tipo SIIGO configurado para su clase documental.")
+                bloqueantes.append(f"La factura {f.numero_factura or f.id} no tiene Tipo SIIGO configurado para su clase documental.")
             if not cfg.get("codigo_comprobante"):
-                errores.append(f"La factura {f.numero_factura or f.id} no tiene Código SIIGO configurado para su clase documental.")
+                bloqueantes.append(f"La factura {f.numero_factura or f.id} no tiene Código SIIGO configurado para su clase documental.")
             if cfg.get("modo_numeracion") == "folio_dian" and not folio_dian_factura(f):
-                errores.append(f"La factura {f.numero_factura or f.id} usa numeración Folio DIAN, pero no tiene un Folio numérico utilizable.")
+                bloqueantes.append(f"La factura {f.numero_factura or f.id} usa numeración Folio DIAN, pero no tiene un Folio numérico utilizable.")
+
         movimientos = db.query(Movimiento).filter(Movimiento.factura_id == f.id).order_by(Movimiento.orden).all()
         if not movimientos:
-            errores.append(f"La factura {f.numero_factura or f.id} no tiene movimientos contables generados.")
+            bloqueantes.append(f"La factura {f.numero_factura or f.id} no tiene movimientos contables generados.")
             continue
-        total_d = sum(float(m.valor) for m in movimientos if m.tipo == "debito")
-        total_c = sum(float(m.valor) for m in movimientos if m.tipo == "credito")
+        total_d = sum(float(m.valor) for m in movimientos if str(getattr(m.tipo, "value", m.tipo)) == "debito")
+        total_c = sum(float(m.valor) for m in movimientos if str(getattr(m.tipo, "value", m.tipo)) == "credito")
         if abs(total_d - total_c) >= 0.01:
-            errores.append(f"La factura {f.numero_factura or f.id} no está balanceada (débito {total_d} "
-                            f"vs crédito {total_c}).")
-        if not any(m.tipo == "debito" for m in movimientos) or not any(m.tipo == "credito" for m in movimientos):
-            errores.append(f"La factura {f.numero_factura or f.id} debe tener al menos una línea Débito y una Crédito, incluso si el valor es $0.")
+            bloqueantes.append(f"La factura {f.numero_factura or f.id} no está balanceada (débito {total_d} vs crédito {total_c}).")
+        if not any(str(getattr(m.tipo, "value", m.tipo)) == "debito" for m in movimientos) or not any(str(getattr(m.tipo, "value", m.tipo)) == "credito" for m in movimientos):
+            bloqueantes.append(f"La factura {f.numero_factura or f.id} debe tener al menos una línea Débito y una Crédito, incluso si el valor es $0.")
         if not f.fecha_emision:
-            errores.append(f"La factura {f.numero_factura or f.id} no tiene fecha de emisión válida.")
+            bloqueantes.append(f"La factura {f.numero_factura or f.id} no tiene fecha de emisión válida.")
         if not f.tercero_nit:
-            errores.append(f"La factura {f.numero_factura or f.id} no tiene NIT de tercero "
-                            f"({'receptor' if f.direccion_documento == 'emitida' else 'emisor'}).")
+            mensaje = (f"La factura {f.numero_factura or f.id} no tiene NIT de tercero "
+                       f"({'receptor' if f.direccion_documento == 'emitida' else 'emisor'}).")
+            (advertencias if es_siigo else bloqueantes).append(mensaje)
 
         for m in movimientos:
             if plantilla_siigo_completa and indice_siigo is not None:
@@ -326,105 +321,43 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
                 )
                 ambiguos = [x for x in param.ambiguos if " ".join(str(x).upper().split()) in campos_criticos]
                 if ambiguos:
-                    errores.append(
+                    advertencias.append(
                         f"{f.numero_factura or f.id} · cuenta {m.cuenta.codigo}: el historial muestra más de un valor posible para "
-                        + ", ".join(sorted(set(ambiguos))) + ". Revisa la contabilización antes de exportar."
+                        + ", ".join(sorted(set(ambiguos))) + ". Puedes corregirlo al cargar en el programa contable."
                     )
             filas_por_validar.append({
                 "Fecha": f.fecha_emision.strftime(plantilla.formato_fecha) if f.fecha_emision else "",
                 "Cuenta": m.cuenta.codigo, "Nit": f.tercero_nit or "", "Tercero": f.tercero_nombre or "",
-                "Debito": float(m.valor) if m.tipo == "debito" else 0,
-                "Credito": float(m.valor) if m.tipo == "credito" else 0,
+                "Debito": float(m.valor) if str(getattr(m.tipo, "value", m.tipo)) == "debito" else 0,
+                "Credito": float(m.valor) if str(getattr(m.tipo, "value", m.tipo)) == "credito" else 0,
             })
 
     if filas_por_validar:
-        errores += adaptador.validar_negocio(filas_por_validar)
+        validaciones_destino = adaptador.validar_negocio(filas_por_validar)
+        if es_siigo:
+            advertencias += validaciones_destino
+        else:
+            bloqueantes += validaciones_destino
 
-    return errores
-
-
-_ORDEN_TIPO_DOCUMENTO = {
-    ("recibida", "factura"): 1,
-    ("recibida", "documento_equivalente"): 2,
-    ("recibida", "nota_credito"): 3,
-    ("recibida", "nota_debito"): 4,
-    ("emitida", "factura"): 5,
-    ("emitida", "documento_equivalente"): 6,
-    ("emitida", "nota_credito"): 7,
-    ("emitida", "nota_debito"): 8,
-    ("no_aplica", "nomina"): 9,
-}
+    return {"bloqueantes": bloqueantes, "advertencias": advertencias}
 
 
-def _clave_tipo_documento(f: Factura) -> tuple:
-    direccion = f.direccion_documento or "no_aplica"
-    naturaleza = f.naturaleza_documento or "factura"
-    return _ORDEN_TIPO_DOCUMENTO.get((direccion, naturaleza), 99)
+def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExportacion,
+                         facturas: list[Factura]) -> list[str]:
+    """Compatibilidad con llamadas anteriores: devuelve todos los mensajes."""
+    r = validar_exportacion_detallada(db, empresa, plantilla, facturas)
+    return r["bloqueantes"] + r["advertencias"]
 
 
 def agrupar_y_ordenar_facturas(facturas: list[Factura]) -> list[Factura]:
+    """Compatibilidad de nombre: ya NO agrupa por tipo documental.
+
+    Orden canónico: Fecha Emisión completa ascendente -> Prefijo -> Folio ->
+    Nombre Emisor. La Nota Crédito/Débito conserva su clase y comprobante, pero
+    no altera la secuencia cronológica del lote.
     """
-    Agrupa las facturas por tipo de documento (recibidas, emitidas,
-    notas crédito/débito, nómina — en ese orden) para que el archivo
-    plano no salga "todo mezclado" (pedido explícito del usuario: antes
-    tocaba organizarlo a mano después de exportar). Dentro de cada
-    grupo, ordena según los mismos títulos que usa el Excel de la DIAN,
-    en el orden exacto pedido por el usuario:
-    1. Fecha Emisión (por día) Z-A
-    2. Prefijo Z-A
-    3. Folio Z-A
-    4. Nombre Emisor Z-A
-    5. Nit Emisor Z-A
-    "Z-A" = descendente. Un valor vacío/None siempre queda al final de
-    su grupo (nunca se inventa un valor para ordenar).
-    """
-    return sorted(
-        facturas,
-        key=lambda f: (
-            _clave_tipo_documento(f),
-            f.fecha_emision is None, _NegarFecha(f.fecha_emision),
-            f.prefijo is None or f.prefijo == "", _NegarTexto(f.prefijo),
-            f.numero_factura is None or f.numero_factura == "", _NegarTexto(f.numero_factura),
-            f.nombre_emisor is None or f.nombre_emisor == "", _NegarTexto(f.nombre_emisor),
-            f.nit_emisor is None or f.nit_emisor == "", _NegarTexto(f.nit_emisor),
-        ),
-    )
+    return ordenar_documentos(list(facturas))
 
-
-class _NegarTexto:
-    """Envoltorio para poder ordenar texto de forma descendente (Z-A) dentro de sorted()."""
-    __slots__ = ("valor",)
-
-    def __init__(self, valor):
-        self.valor = valor or ""
-
-    def __lt__(self, otro):
-        return self.valor > otro.valor
-
-    def __eq__(self, otro):
-        return self.valor == otro.valor
-
-
-class _NegarFecha:
-    """Igual que _NegarTexto, pero para fechas (más reciente primero)."""
-    __slots__ = ("valor",)
-
-    def __init__(self, valor):
-        self.valor = valor
-
-    def __lt__(self, otro):
-        a = self.valor.date() if self.valor else None
-        b = otro.valor.date() if otro.valor else None
-        if a is None:
-            return False
-        if b is None:
-            return True
-        return a > b
-
-    def __eq__(self, otro):
-        a = self.valor.date() if self.valor else None
-        b = otro.valor.date() if otro.valor else None
-        return a == b
 
 
 def _calcular_numeros_documento(empresa: Optional[Empresa], facturas: list[Factura]) -> dict[str, str]:
@@ -484,7 +417,7 @@ def generar_filas(db: Session, empresa: Empresa, plantilla: PlantillaExportacion
                     indice_historial_siigo, cuenta_exportada, nit_actual,
                     f.tipo_comprobante_override or (cfg_siigo or {}).get("tipo_comprobante"),
                     (cfg_siigo or {}).get("codigo_comprobante"),
-                    _descripcion_exportacion_siigo(f),
+                    f.concepto_resumen or m.descripcion or _descripcion_exportacion_siigo(f),
                 )
                 if getattr(param_siigo, "coincidencias", 0) == 0 and m.cuenta_id in params_manual_siigo:
                     param_siigo = params_manual_siigo[m.cuenta_id]

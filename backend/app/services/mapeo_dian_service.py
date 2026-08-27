@@ -1,44 +1,37 @@
-"""
-Detección automática de columnas del Excel que la DIAN entrega al
-descargar el histórico de documentos electrónicos — a diferencia de un
-auxiliar contable (que varía mucho según el software), este archivo
-sigue un formato bastante estable con nombres de columna conocidos
-(confirmado contra archivos reales de la DIAN a lo largo de este
-proyecto: "CUFE/CUDE", "Folio", "NIT Emisor", "Nombre Emisor",
-"Fecha Emisión", "Total", "Tipo de documento", "Grupo", etc.).
+"""Detección automática de columnas del Excel de documentos electrónicos DIAN.
 
-Igual que con los balances (balance_service.py, balance_jerarquico_
-service.py): solo se sugiere lo que se reconoce con confianza — nunca
-se inventa una columna que no exista en el archivo real.
+La detección es deliberadamente tolerante a tildes, mayúsculas y pequeñas
+variaciones de título. Si una columna no se reconoce con suficiente confianza,
+no se inventa: queda disponible para mapeo manual.
 """
 import re
 
 from app.services.excel_utils import _normalizar
 
 _PATRONES = {
-    "cufe": re.compile(r"^cufe|^cude|cufe.?cude"),
-    "numero_factura": re.compile(r"^folio$|numero de factura|n[uú]mero factura"),
-    "nit_emisor": re.compile(r"nit emisor|nit del emisor"),
-    "nombre_emisor": re.compile(r"nombre emisor|raz[oó]n social emisor"),
-    "nit_receptor": re.compile(r"nit receptor|nit adquiriente|nit del receptor|nit del adquiriente"),
-    "nombre_receptor": re.compile(r"nombre receptor|raz[oó]n social receptor|nombre adquiriente|raz[oó]n social adquiriente"),
-    "fecha": re.compile(r"fecha emisi[oó]n|fecha de emisi[oó]n"),
-    "valor_total": re.compile(r"^total$|valor total"),
-    "tipo_documento": re.compile(r"tipo de documento|tipo documento"),
-    "grupo": re.compile(r"^grupo$"),
-    "prefijo": re.compile(r"^prefijo$"),
+    "cufe": re.compile(r"^cufe\b|^cude\b|cufe.?cude|codigo unico.*factura"),
+    "numero_factura": re.compile(r"^folio$|\bfolio\b|numero.*factura|num[_ ]?factura|nro.*factura"),
+    "nit_emisor": re.compile(r"nit.*emisor|identificacion.*emisor|documento.*emisor"),
+    "nombre_emisor": re.compile(r"nombre.*emisor|razon social.*emisor"),
+    "nit_receptor": re.compile(r"nit.*receptor|nit.*adquiriente|identificacion.*receptor|identificacion.*adquiriente"),
+    "nombre_receptor": re.compile(r"nombre.*receptor|razon social.*receptor|nombre.*adquiriente|razon social.*adquiriente"),
+    "fecha": re.compile(r"fecha.*emision|fecha documento"),
+    "valor_total": re.compile(r"^total$|valor total|total documento|valor facturado$"),
+    "subtotal": re.compile(r"^subtotal$|valor antes.*iva|total antes.*impuesto|line extension"),
+    "iva": re.compile(r"^iva$|valor.*iva|total.*iva"),
+    "inc": re.compile(r"^inc$|impuesto.*consumo|valor.*inc"),
+    "retefuente": re.compile(r"rete.*fuente|retencion.*fuente"),
+    "reteica": re.compile(r"rete.*ica|retencion.*ica|retencion.*industria.*comercio"),
+    "reteiva": re.compile(r"rete.*iva|retencion.*iva"),
+    "tipo_documento": re.compile(r"tipo.*documento|codigo.*tipo.*documento|document type"),
+    "grupo": re.compile(r"^grupo$|grupo.*documento|tipo.*grupo|direccion.*documento"),
+    "prefijo": re.compile(r"^prefijo$|prefijo.*documento|prefijo.*factura"),
 }
 
 
 def detectar_mapeo_excel_dian(columnas_reales: list[str]) -> dict:
-    """
-    Devuelve {"mapeo": {campo: columna_real, ...}, "reconocidas": [...]}.
-    No exige ningún campo obligatorio (a diferencia del balance) — el
-    usuario puede tener un Excel con solo algunas columnas y de todas
-    formas aprovechar lo que sí se reconoce; el mapeo resultante se usa
-    exactamente igual que si el usuario lo hubiera elegido a mano.
-    """
-    normalizadas = [(c, _normalizar(c)) for c in columnas_reales]
+    """Devuelve ``mapeo`` + lista de campos reconocidos automáticamente."""
+    normalizadas = [(c, _normalizar(str(c))) for c in columnas_reales]
     mapeo = {}
     for campo, patron in _PATRONES.items():
         candidatos = [c for c, n in normalizadas if patron.search(n)]
