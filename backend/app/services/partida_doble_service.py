@@ -92,12 +92,29 @@ def _hist_valor(row: HistorialTecnicoSiigo) -> float:
     return 0.0
 
 
+def _normalizar_codigo_cuenta(codigo: str | None) -> str:
+    txt = str(codigo or "").strip()
+    if txt.isdigit() and len(txt) <= 10:
+        return txt.ljust(10, "0")
+    return txt
+
+
 def _cuenta_por_codigo(db: Session, empresa_id: str, codigo: str | None) -> Optional[CuentaContable]:
     if not codigo:
         return None
-    return db.query(CuentaContable).filter(
-        CuentaContable.empresa_id == empresa_id, CuentaContable.codigo == str(codigo)
-    ).first()
+    objetivo = _normalizar_codigo_cuenta(codigo)
+    cuentas = db.query(CuentaContable).filter(
+        CuentaContable.empresa_id == empresa_id, CuentaContable.activa.is_(True)
+    ).all()
+    equivalentes = [c for c in cuentas if _normalizar_codigo_cuenta(c.codigo) == objetivo]
+    if not equivalentes:
+        return None
+    # Preferir cuenta natural más específica y con nombre real.
+    equivalentes.sort(key=lambda c: (
+        0 if len(str(c.codigo)) < 10 else 1, -len(str(c.codigo)),
+        0 if (c.nombre and c.nombre != c.codigo) else 1, str(c.codigo)
+    ))
+    return equivalentes[0]
 
 
 def _inferir_control_historial(db: Session, empresa: Empresa, factura: Factura,
@@ -126,7 +143,7 @@ def _inferir_control_historial(db: Session, empresa: Empresa, factura: Factura,
 
     grupos_coincidentes = []
     for g in grupos.values():
-        principales = [r for r in g if str(r.cuenta_codigo or "") == str(cuenta_principal.codigo)]
+        principales = [r for r in g if _normalizar_codigo_cuenta(r.cuenta_codigo) == _normalizar_codigo_cuenta(cuenta_principal.codigo)]
         if not principales:
             continue
         if nit_obj:
@@ -147,7 +164,7 @@ def _inferir_control_historial(db: Session, empresa: Empresa, factura: Factura,
         for r in g:
             codigo = str(r.cuenta_codigo or "")
             dc = _hist_dc(r)
-            if codigo == str(cuenta_principal.codigo):
+            if _normalizar_codigo_cuenta(codigo) == _normalizar_codigo_cuenta(cuenta_principal.codigo):
                 continue
             if rol == "iva_descontable" and codigo.startswith("2408") and dc == "D":
                 posibles.append(r)
@@ -309,6 +326,18 @@ def _resolver_contrapartida_inteligente(db: Session, empresa: Empresa, factura: 
     }
     if contrapartida in opciones_validas and mapa.get(contrapartida):
         return db.get(CuentaContable, mapa[contrapartida]), []
+    # También puede venir el código REAL de una cuenta elegido desde el plan
+    # observado de la empresa (p.ej. 110505 Caja o 220501 Proveedores).
+    # Esto evita obligar a parametrizar una cuenta base universal.
+    if contrapartida and contrapartida not in opciones_validas:
+        directa = _cuenta_por_codigo(db, empresa.id, contrapartida)
+        if directa:
+            return directa, []
+    # Una corrección manual previa para este contexto tiene prioridad sobre
+    # la inferencia general del historial.
+    manual = _buscar_regla_control_manual(db, empresa, factura, cuenta_principal, rol_historial)
+    if manual:
+        return manual, []
     # Compatibilidad con empresas antiguas que usaban "solo_gastos":
     # ese control ya no se muestra en la interfaz V5, pero conservamos el
     # comportamiento histórico para no romper datos existentes. Si llega una
@@ -561,12 +590,16 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
 
     total_debito, total_credito_parcial = _totales(lineas)
     valor_contrapartida = round(total_debito - total_credito_parcial, 2)
-    if not errores and cuenta_contra and valor_contrapartida > 0:
+    if not errores and cuenta_contra and valor_contrapartida >= 0:
+        # Incluso una factura en $0 debe conservar la estructura de partida
+        # doble: al menos una línea Débito y una Crédito.
         lineas.append(LineaPartida(cuenta_contra.id, cuenta_contra.codigo, cuenta_contra.nombre,
                                     "credito", valor_contrapartida, descripcion))
 
     total_debito, total_credito = _totales(lineas)
-    balanceado = abs(total_debito - total_credito) < 0.01 and not errores
+    tiene_debito = any(l.tipo == "debito" for l in lineas)
+    tiene_credito = any(l.tipo == "credito" for l in lineas)
+    balanceado = abs(total_debito - total_credito) < 0.01 and not errores and tiene_debito and tiene_credito
     if not errores and not balanceado:
         errores.append(f"El comprobante no cuadra: débito {total_debito} vs crédito {total_credito} "
                         f"(diferencia {round(total_debito - total_credito, 2)}).")
@@ -658,12 +691,14 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
 
     total_debito_parcial, total_credito = _totales(lineas)
     valor_contrapartida = round(total_credito - total_debito_parcial, 2)
-    if not errores and cuenta_contra and valor_contrapartida > 0:
+    if not errores and cuenta_contra and valor_contrapartida >= 0:
         lineas.append(LineaPartida(cuenta_contra.id, cuenta_contra.codigo, cuenta_contra.nombre,
                                     "debito", valor_contrapartida, descripcion))
 
     total_debito, total_credito = _totales(lineas)
-    balanceado = abs(total_debito - total_credito) < 0.01 and not errores
+    tiene_debito = any(l.tipo == "debito" for l in lineas)
+    tiene_credito = any(l.tipo == "credito" for l in lineas)
+    balanceado = abs(total_debito - total_credito) < 0.01 and not errores and tiene_debito and tiene_credito
     if not errores and not balanceado:
         retenciones = json.loads(factura.retenciones_json) if factura.retenciones_json else {}
         tiene_retenciones = any(float(v or 0) > 0 for v in retenciones.values())

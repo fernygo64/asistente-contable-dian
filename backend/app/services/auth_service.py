@@ -17,7 +17,7 @@ from app.core.config import AUTH_TOKEN_HOURS
 from app.models.models import ConfiguracionAplicacion, Usuario, UsuarioEmpresa
 
 PBKDF2_ITERATIONS = 310_000
-ROLES = ("administrador", "contador", "auxiliar", "auditor")
+ROLES = ("contador",)
 
 PERMISOS = (
     "empresa_ver",
@@ -37,20 +37,12 @@ PERMISOS = (
 )
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
-    "administrador": set(PERMISOS),
-    "contador": {
-        "empresa_ver", "empresa_configurar", "historial_ver", "historial_gestionar",
-        "documentos_ver", "documentos_cargar", "documentos_eliminar", "facturas_operar",
-        "empleados_gestionar", "exportaciones_ver", "exportaciones_generar", "auditoria_ver",
-    },
-    "auxiliar": {
-        "empresa_ver", "historial_ver", "documentos_ver", "documentos_cargar",
-        "facturas_operar", "exportaciones_ver",
-    },
-    "auditor": {
-        "empresa_ver", "historial_ver", "documentos_ver", "exportaciones_ver", "auditoria_ver",
-    },
+    # Todos los usuarios no administradores son Contadores con acceso
+    # operativo completo a las empresas asignadas. La única facultad
+    # reservada al Administrador General es crear/editar/eliminar usuarios.
+    "contador": set(PERMISOS) - {"usuarios_gestionar"},
 }
+
 
 
 def _b64e(data: bytes) -> str:
@@ -144,30 +136,16 @@ def decode_token(db: Session, token: str) -> dict[str, Any] | None:
 
 
 def permisos_asignacion(asignacion: UsuarioEmpresa) -> set[str]:
-    permisos = set(ROLE_PERMISSIONS.get(asignacion.rol, set()))
-    try:
-        overrides = json.loads(asignacion.permisos_json or "{}")
-    except Exception:
-        overrides = {}
-    for permiso, enabled in overrides.items():
-        if permiso not in PERMISOS:
-            continue
-        if bool(enabled):
-            permisos.add(permiso)
-        else:
-            permisos.discard(permiso)
-    return permisos
+    # El modelo se simplificó: cualquier usuario asignado a una empresa es
+    # Contador y dispone de todas las funciones operativas, excepto usuarios.
+    return set(ROLE_PERMISSIONS["contador"])
 
 
 def serializar_asignacion(asignacion: UsuarioEmpresa) -> dict[str, Any]:
-    try:
-        overrides = json.loads(asignacion.permisos_json or "{}")
-    except Exception:
-        overrides = {}
     return {
         "empresa_id": asignacion.empresa_id,
-        "rol": asignacion.rol,
+        "rol": "contador",
         "permisos": sorted(permisos_asignacion(asignacion)),
-        "permisos_personalizados": overrides,
+        "permisos_personalizados": {},
         "activo": asignacion.activo,
     }

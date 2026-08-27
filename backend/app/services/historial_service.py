@@ -42,13 +42,43 @@ def get_or_create_proveedor(db: Session, empresa_id: str, nit: str, nombre: Opti
     return prov
 
 
+def _cuenta_equivalente_empresa(db: Session, empresa_id: str, codigo: str) -> Optional[CuentaContable]:
+    """Busca la cuenta canónica sin duplicar la versión SIIGO de 10 dígitos.
+
+    Ej.: 519525 y 5195250000 representan la misma cuenta. Se prefiere
+    la cuenta natural más específica del plan real de la empresa.
+    """
+    codigo = str(codigo or "").strip()
+    if not codigo:
+        return None
+    cuentas = db.query(CuentaContable).filter(
+        CuentaContable.empresa_id == empresa_id, CuentaContable.activa.is_(True)
+    ).all()
+    if codigo.isdigit() and len(codigo) <= 10:
+        objetivo = codigo.ljust(10, "0")
+        equivalentes = [
+            c for c in cuentas
+            if str(c.codigo or "").isdigit() and len(str(c.codigo)) <= 10
+            and str(c.codigo).ljust(10, "0") == objetivo
+        ]
+        if equivalentes:
+            equivalentes.sort(key=lambda c: (
+                0 if len(str(c.codigo)) < 10 else 1,
+                -len(str(c.codigo)),
+                0 if (c.nombre and c.nombre != c.codigo) else 1,
+                str(c.codigo),
+            ))
+            return equivalentes[0]
+    return next((c for c in cuentas if str(c.codigo) == codigo), None)
+
+
 def get_or_create_cuenta(db: Session, empresa_id: str, codigo: str,
                           nombre: Optional[str] = None) -> CuentaContable:
-    codigo = codigo.strip()
-    cta = db.query(CuentaContable).filter(
-        CuentaContable.empresa_id == empresa_id, CuentaContable.codigo == codigo
-    ).first()
+    codigo = str(codigo or "").strip()
+    cta = _cuenta_equivalente_empresa(db, empresa_id, codigo)
     if cta:
+        if nombre and (not cta.nombre or cta.nombre == cta.codigo):
+            cta.nombre = nombre
         return cta
     cta = CuentaContable(empresa_id=empresa_id, codigo=codigo, nombre=nombre or codigo)
     db.add(cta)
@@ -182,14 +212,22 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
                     registros_para_contar = coincidentes
                     fuente = "historial_nit_concepto"
 
+            # Agrupar por cuenta CANÓNICA para no mostrar duplicada la misma
+            # cuenta como 519510 y 5195100000.
             conteo: dict[str, int] = {}
+            canonicas: dict[str, CuentaContable] = {}
             for r in registros_para_contar:
-                conteo[r.cuenta_id] = conteo.get(r.cuenta_id, 0) + 1
+                original = db.get(CuentaContable, r.cuenta_id)
+                if not original:
+                    continue
+                cta = _cuenta_equivalente_empresa(db, empresa_id, original.codigo) or original
+                canonicas[cta.id] = cta
+                conteo[cta.id] = conteo.get(cta.id, 0) + 1
             total_considerado = sum(conteo.values())
 
             opciones = []
             for cuenta_id, usos in conteo.items():
-                cta = db.get(CuentaContable, cuenta_id)
+                cta = canonicas[cuenta_id]
                 opciones.append({
                     "cuenta_codigo": cta.codigo,
                     "cuenta_nombre": cta.nombre,
@@ -282,38 +320,10 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
                     "fuente": "cuentas_propias",
                 }
 
-    # Ni historial, ni regla, ni cuenta propia con nombre reconocible:
-    # buscar candidatos en el catálogo PUC según el concepto — son solo
-    # OPCIONES para que el usuario elija, nunca una decisión automática
-    # (sección 13, 37: nunca se inventa una cuenta).
-    if descripcion:
-        from app.models.models import PucCuenta
-        claves = _palabras_clave(descripcion)
-        if claves:
-            candidatos = []
-            for cta in db.query(PucCuenta).all():
-                if not _es_cuenta_de_resultado(cta.codigo, clases_permitidas):
-                    continue
-                claves_cuenta = _palabras_clave(cta.nombre)
-                if claves_cuenta & claves:
-                    candidatos.append(cta)
-            if candidatos:
-                return {
-                    "proveedor_nit": nit,
-                    "proveedor_nombre": proveedor.nombre if proveedor else None,
-                    "total_documentos_historicos": 0,
-                    "opciones": [
-                        {"cuenta_codigo": c.codigo, "cuenta_nombre": c.nombre, "usos": 0, "porcentaje": 0.0}
-                        for c in candidatos[:8]
-                    ],
-                    "cuenta_sugerida": None,
-                    "motivo": "Sin historial ni regla para este proveedor. Estas son cuentas del catálogo PUC "
-                              "cuyo nombre coincide con el concepto de la factura — revísalas y elige "
-                              "manualmente, no son una decisión automática.",
-                    "fuente": "puc_catalogo",
-                }
-
-    # Ni historial, ni regla, ni coincidencia en el PUC: NO se inventa nada
+    # Sin historial, regla o coincidencia en el PLAN REAL de la empresa:
+    # no se consulta el PUC global. La corrección manual solo ofrece cuentas
+    # observadas en Balance/Movimiento Contable de esta empresa.
+    # Sin evidencia suficiente: NO se inventa nada.
     return {
         "proveedor_nit": nit,
         "proveedor_nombre": proveedor.nombre if proveedor else None,
@@ -323,3 +333,118 @@ def sugerir_cuenta(db: Session, empresa_id: str, nit: str,
         "motivo": "Sin historial suficiente para sugerir una cuenta. Selecciona la cuenta manualmente.",
         "fuente": "sin_informacion",
     }
+
+
+def sugerir_cuentas_masivo(db: Session, empresa_id: str, facturas: list) -> dict[str, dict]:
+    """Sugerencias en lote sin N+1 y sin recalcular equivalencias por factura.
+
+    Precarga proveedores, historial y cuentas una sola vez. Esto evita que la
+    clasificación masiva se vuelva lenta cuando el usuario selecciona decenas o
+    cientos de documentos y, además, mantiene una única cuenta canónica cuando
+    el historial trae la misma cuenta en versión natural y SIIGO de 10 dígitos.
+    """
+    from collections import defaultdict
+
+    resultado: dict[str, dict] = {}
+    validas = [
+        f for f in facturas
+        if getattr(f, "tercero_nit", None)
+        and getattr(f, "naturaleza_documento", None) != "nomina"
+    ]
+    if not validas:
+        return resultado
+
+    nits = {str(f.tercero_nit).strip() for f in validas if str(f.tercero_nit or "").strip()}
+    proveedores = db.query(Proveedor).filter(
+        Proveedor.empresa_id == empresa_id,
+        Proveedor.nit.in_(list(nits)),
+    ).all()
+    prov_por_nit = {p.nit: p for p in proveedores}
+    prov_ids = [p.id for p in proveedores]
+
+    cuentas = db.query(CuentaContable).filter(CuentaContable.empresa_id == empresa_id).all()
+    cuenta_por_id = {c.id: c for c in cuentas}
+
+    # Canonicalización una sola vez para todo el lote. 519525 y 5195250000
+    # pertenecen a la misma cuenta; se prefiere el código natural y el nombre
+    # real aprendido de la contabilidad.
+    por_equivalencia: dict[str, list[CuentaContable]] = defaultdict(list)
+    for c in cuentas:
+        cod = str(c.codigo or "").strip()
+        eq = cod.ljust(10, "0") if cod.isdigit() and len(cod) <= 10 else cod
+        por_equivalencia[eq].append(c)
+    canonica_por_id: dict[str, CuentaContable] = {}
+    for grupo in por_equivalencia.values():
+        grupo.sort(key=lambda c: (
+            0 if len(str(c.codigo or "")) < 10 else 1,
+            -len(str(c.codigo or "")),
+            0 if (c.nombre and c.nombre != c.codigo) else 1,
+            str(c.codigo or ""),
+        ))
+        canon = grupo[0]
+        # Si el código natural solo tiene como nombre el propio código pero una
+        # cuenta equivalente sí trae el nombre real, úsalo para mostrar/aprender.
+        nombre_real = next((x.nombre for x in grupo if x.nombre and x.nombre != x.codigo), None)
+        if nombre_real and (not canon.nombre or canon.nombre == canon.codigo):
+            canon.nombre = nombre_real
+        for c in grupo:
+            canonica_por_id[c.id] = canon
+
+    hist_por_prov: dict[str, list[HistorialContable]] = defaultdict(list)
+    if prov_ids:
+        historiales = db.query(HistorialContable).filter(
+            HistorialContable.empresa_id == empresa_id,
+            HistorialContable.proveedor_id.in_(prov_ids),
+        ).all()
+        for h in historiales:
+            hist_por_prov[h.proveedor_id].append(h)
+
+    for f in validas:
+        nit = str(f.tercero_nit or "").strip()
+        prov = prov_por_nit.get(nit)
+        if not prov:
+            continue
+        clases = ("4",) if f.direccion_documento == "emitida" else ("5", "6", "7")
+        registros = [
+            r for r in hist_por_prov.get(prov.id, [])
+            if r.cuenta_id in cuenta_por_id
+            and _es_cuenta_de_resultado(cuenta_por_id[r.cuenta_id].codigo, clases)
+        ]
+        if not registros:
+            continue
+
+        claves = _palabras_clave(getattr(f, "concepto_resumen", None) or "")
+        usados, fuente = registros, "historial"
+        if claves:
+            coinc = [
+                r for r in registros
+                if r.descripcion and (_palabras_clave(r.descripcion) & claves)
+            ]
+            if coinc:
+                usados, fuente = coinc, "historial_nit_concepto"
+
+        conteo: dict[str, int] = {}
+        canonicas: dict[str, CuentaContable] = {}
+        for r in usados:
+            original = cuenta_por_id.get(r.cuenta_id)
+            if not original:
+                continue
+            cta_canon = canonica_por_id.get(original.id, original)
+            canonicas[cta_canon.id] = cta_canon
+            conteo[cta_canon.id] = conteo.get(cta_canon.id, 0) + 1
+        if not conteo:
+            continue
+
+        orden = sorted(conteo.items(), key=lambda kv: (-kv[1], canonicas[kv[0]].codigo))
+        cuenta_id, usos = orden[0]
+        cta = canonicas[cuenta_id]
+        total = sum(conteo.values())
+        resultado[f.id] = {
+            "cuenta_sugerida": cta.codigo,
+            "cuenta_nombre": cta.nombre,
+            "fuente": fuente,
+            "usos": usos,
+            "total": total,
+            "porcentaje": round(usos * 100.0 / total, 1) if total else 0.0,
+        }
+    return resultado

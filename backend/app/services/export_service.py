@@ -269,8 +269,13 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
     sources = {c.get("source") for c in columnas}
     plantilla_siigo_completa = es_siigo and len(columnas) >= 100
     indice_siigo = construir_indice_historial_siigo(db, empresa.id) if plantilla_siigo_completa else None
+    # Solo bloqueamos por ambigüedades que SIIGO realmente necesita
+    # resolver antes de importar. Ciudad y forma de pago pueden variar por
+    # tercero/documento y SIIGO las corrige/valida por sus propios maestros;
+    # no deben impedir generar el Excel. Centro de costo, producto, bodega y
+    # cruces sí deben conservar exactamente el patrón aprendido del historial.
     campos_criticos = {
-        "CÓDIGO DEL VENDEDOR", "CÓDIGO DE LA CIUDAD", "FORMA DE PAGO",
+        "CENTRO DE COSTO", "SUBCENTRO DE COSTO",
         "LÍNEA PRODUCTO", "GRUPO PRODUCTO", "CÓDIGO PRODUCTO",
         "CÓDIGO DE LA BODEGA", "CÓDIGO DE LA UBICACIÓN",
         "TIPO Y COMPROBANTE CRUCE", "NÚMERO DE DOCUMENTO CRUCE",
@@ -302,6 +307,8 @@ def validar_exportacion(db: Session, empresa: Empresa, plantilla: PlantillaExpor
         if abs(total_d - total_c) >= 0.01:
             errores.append(f"La factura {f.numero_factura or f.id} no está balanceada (débito {total_d} "
                             f"vs crédito {total_c}).")
+        if not any(m.tipo == "debito" for m in movimientos) or not any(m.tipo == "credito" for m in movimientos):
+            errores.append(f"La factura {f.numero_factura or f.id} debe tener al menos una línea Débito y una Crédito, incluso si el valor es $0.")
         if not f.fecha_emision:
             errores.append(f"La factura {f.numero_factura or f.id} no tiene fecha de emisión válida.")
         if not f.tercero_nit:

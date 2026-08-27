@@ -85,7 +85,7 @@ def bootstrap(payload: AuthBootstrapIn, request: Request, response: Response, db
     # aunque el atributo superadmin ya le da acceso global. Esto conserva
     # trazabilidad si luego se le retira el privilegio global.
     for empresa in db.query(Empresa).all():
-        db.add(UsuarioEmpresa(usuario_id=user.id, empresa_id=empresa.id, rol="administrador", permisos_json="{}"))
+        db.add(UsuarioEmpresa(usuario_id=user.id, empresa_id=empresa.id, rol="contador", permisos_json="{}"))
     db.commit()
     db.refresh(user)
     token = create_token(db, user)
@@ -142,11 +142,8 @@ def me(user: Usuario | None = Depends(get_current_user), db: Session = Depends(g
 
 @router.get("/matriz-permisos")
 def matriz_permisos(user: Usuario | None = Depends(get_current_user)):
-    return {
-        "roles": list(ROLES),
-        "permisos": list(PERMISOS),
-        "matriz": {r: {p: p in ROLE_PERMISSIONS[r] for p in PERMISOS} for r in ROLES},
-    }
+    # Compatibilidad con clientes anteriores. Ya no existe una matriz editable.
+    return {"roles": ["contador"], "permisos": [], "matriz": {}}
 
 
 @router.post("/cambiar-password")
@@ -170,29 +167,77 @@ def listar_todos_usuarios(_admin: Usuario | None = Depends(require_superadmin), 
     return [_user_publico(db, u) for u in db.query(Usuario).order_by(Usuario.nombre).all()]
 
 
+def _actualizar_empresas_usuario(db: Session, user: Usuario, empresa_ids: list[str]) -> None:
+    validas = {e.id for e in db.query(Empresa).filter(Empresa.id.in_(empresa_ids or [])).all()} if empresa_ids else set()
+    existentes = {a.empresa_id: a for a in db.query(UsuarioEmpresa).filter(UsuarioEmpresa.usuario_id == user.id).all()}
+    for empresa_id, asig in existentes.items():
+        if empresa_id not in validas:
+            db.delete(asig)
+    for empresa_id in validas:
+        asig = existentes.get(empresa_id)
+        if not asig:
+            asig = UsuarioEmpresa(usuario_id=user.id, empresa_id=empresa_id)
+            db.add(asig)
+        asig.rol = "contador"
+        asig.permisos_json = "{}"
+        asig.activo = True
+
+
+@router.post("/admin/usuarios", status_code=201)
+def crear_usuario_global(payload: dict, _admin: Usuario | None = Depends(require_superadmin), db: Session = Depends(get_db)):
+    try:
+        email = normalizar_email(str(payload.get("email") or ""))
+        password_hash = hash_password(str(payload.get("password") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if db.query(Usuario).filter(Usuario.email == email).first():
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese correo.")
+    user = Usuario(email=email, nombre=str(payload.get("nombre") or email).strip(), password_hash=password_hash, activo=True, es_superadmin=False)
+    db.add(user); db.flush()
+    _actualizar_empresas_usuario(db, user, list(payload.get("empresa_ids") or []))
+    db.commit(); db.refresh(user)
+    return _user_publico(db, user)
+
+
 @router.patch("/admin/usuarios/{usuario_id}")
-def administrar_usuario(usuario_id: str, payload: dict, _admin: Usuario | None = Depends(require_superadmin), db: Session = Depends(get_db)):
+def administrar_usuario(usuario_id: str, payload: dict, admin: Usuario | None = Depends(require_superadmin), db: Session = Depends(get_db)):
     user = db.get(Usuario, usuario_id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    if user.es_superadmin and admin and user.id != admin.id:
+        raise HTTPException(status_code=422, detail="El Administrador General no se administra desde esta ficha.")
     if "nombre" in payload and payload["nombre"]:
         user.nombre = str(payload["nombre"]).strip()
-    quitar_admin = ("activo" in payload and not bool(payload["activo"])) or ("es_superadmin" in payload and not bool(payload["es_superadmin"]))
-    if quitar_admin and user.es_superadmin and user.activo:
-        otros = db.query(Usuario).filter(Usuario.id != user.id, Usuario.es_superadmin.is_(True), Usuario.activo.is_(True)).count()
-        if otros == 0:
-            raise HTTPException(status_code=422, detail="No puedes desactivar o degradar al último administrador general activo.")
-    if "activo" in payload:
+    if "email" in payload and payload["email"]:
+        try: nuevo = normalizar_email(str(payload["email"]))
+        except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc))
+        otro = db.query(Usuario).filter(Usuario.email == nuevo, Usuario.id != user.id).first()
+        if otro: raise HTTPException(status_code=409, detail="Ese correo ya pertenece a otro usuario.")
+        user.email = nuevo
+    if "activo" in payload and not user.es_superadmin:
         user.activo = bool(payload["activo"]); user.token_version = int(user.token_version or 1) + 1
-    if "es_superadmin" in payload:
-        user.es_superadmin = bool(payload["es_superadmin"]); user.token_version = int(user.token_version or 1) + 1
     if payload.get("password_nueva"):
         try:
             user.password_hash = hash_password(str(payload["password_nueva"])); user.token_version = int(user.token_version or 1) + 1
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+    if "empresa_ids" in payload and not user.es_superadmin:
+        _actualizar_empresas_usuario(db, user, list(payload.get("empresa_ids") or []))
+        user.token_version = int(user.token_version or 1) + 1
     db.commit(); db.refresh(user)
     return _user_publico(db, user)
+
+
+@router.delete("/admin/usuarios/{usuario_id}")
+def eliminar_usuario_global(usuario_id: str, admin: Usuario | None = Depends(require_superadmin), db: Session = Depends(get_db)):
+    user = db.get(Usuario, usuario_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    if user.es_superadmin or (admin and user.id == admin.id):
+        raise HTTPException(status_code=422, detail="No puedes eliminar al Administrador General.")
+    db.query(UsuarioEmpresa).filter(UsuarioEmpresa.usuario_id == user.id).delete(synchronize_session=False)
+    db.delete(user); db.commit()
+    return {"eliminado": True, "usuario_id": usuario_id}
 
 
 def _serializar_usuario_empresa(db: Session, user: Usuario, asig: UsuarioEmpresa | None = None):
@@ -221,8 +266,7 @@ def asignar_usuario_empresa(
     empresa_id: str, payload: UsuarioEmpresaAsignacionIn, db: Session = Depends(get_db),
     empresa: Empresa = Depends(get_empresa_activa), actor: Usuario | None = Depends(get_current_user),
 ):
-    if payload.rol not in ROLES:
-        raise HTTPException(status_code=422, detail=f"Rol inválido. Usa: {', '.join(ROLES)}")
+    
     desconocidos = set(payload.permisos) - set(PERMISOS)
     if desconocidos:
         raise HTTPException(status_code=422, detail=f"Permisos desconocidos: {', '.join(sorted(desconocidos))}")
@@ -247,8 +291,8 @@ def asignar_usuario_empresa(
     if not asig:
         asig = UsuarioEmpresa(usuario_id=user.id, empresa_id=empresa_id)
         db.add(asig)
-    asig.rol = payload.rol
-    asig.permisos_json = json.dumps(payload.permisos or {}, ensure_ascii=False)
+    asig.rol = "contador"
+    asig.permisos_json = "{}"
     asig.activo = True
     auditoria_registrar(db, empresa_id, "UsuarioEmpresa", user.id, "usuario_asignado",
                         {"email": user.email, "rol": asig.rol, "permisos": payload.permisos or {}}, actor.email if actor else "test")
@@ -269,7 +313,7 @@ def actualizar_usuario_empresa(
     if payload.rol is not None:
         if payload.rol not in ROLES:
             raise HTTPException(status_code=422, detail="Rol inválido.")
-        asig.rol = payload.rol
+        asig.rol = "contador"
     if payload.permisos is not None:
         desconocidos = set(payload.permisos) - set(PERMISOS)
         if desconocidos:

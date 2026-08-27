@@ -1,12 +1,12 @@
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy import or_
+from sqlalchemy import or_, extract
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.security import get_empresa_activa, usuario_actual
-from app.models.models import Empresa, Factura, CargaDocumentosDian, EstadoFactura, Movimiento, OrigenDecision, ExportacionFactura
+from app.core.security import get_empresa_activa, usuario_actual, get_current_user
+from app.models.models import Empresa, Factura, CargaDocumentosDian, EstadoFactura, Movimiento, OrigenDecision, ExportacionFactura, Usuario
 from app.schemas.schemas import (
     FacturaOut, CargaResumen, CorreccionFactura, ResolucionDuplicado,
     GenerarPartidaRequest, PartidaOut, LineaPartidaOut,
@@ -75,6 +75,23 @@ def listar_cargas(empresa_id: str, db: Session = Depends(get_db),
         {"id": c.id, "archivo_zip_nombre": c.archivo_zip_nombre, "creado_en": c.creado_en}
         for c in cargas
     ]
+
+
+@router.get("/periodos")
+def listar_periodos(empresa_id: str, db: Session = Depends(get_db),
+                     empresa: Empresa = Depends(get_empresa_activa)):
+    """Años/meses con documentos para filtrar los módulos sin mezclar periodos."""
+    filas = db.query(
+        extract("year", Factura.fecha_emision).label("anio"),
+        extract("month", Factura.fecha_emision).label("mes"),
+    ).filter(
+        Factura.empresa_id == empresa_id, Factura.fecha_emision.isnot(None)
+    ).distinct().all()
+    periodos = sorted(
+        [{"anio": int(a), "mes": int(m)} for a, m in filas if a is not None and m is not None],
+        key=lambda x: (x["anio"], x["mes"]), reverse=True
+    )
+    return periodos
 
 
 @router.get("/documentos-cargados")
@@ -246,6 +263,7 @@ async def cargar_documentos(
 
 @router.get("/panel-clasificacion")
 def panel_clasificacion(empresa_id: str, modulo: str | None = None,
+                         anio: int | None = None, mes: int | None = None,
                          db: Session = Depends(get_db),
                          empresa: Empresa = Depends(get_empresa_activa)):
     """
@@ -281,9 +299,14 @@ def panel_clasificacion(empresa_id: str, modulo: str | None = None,
         q = q.filter(or_(Factura.naturaleza_documento == "nomina", Factura.direccion_documento == "recibida"))
     elif modulo == "emitidas":
         q = q.filter(Factura.direccion_documento == "emitida", Factura.naturaleza_documento != "nomina")
-    facturas = q.order_by(Factura.creado_en.desc()).all()
+    if anio:
+        q = q.filter(extract("year", Factura.fecha_emision) == anio)
+    if mes:
+        q = q.filter(extract("month", Factura.fecha_emision) == mes)
+    facturas = q.order_by(Factura.fecha_emision.desc(), Factura.creado_en.desc()).all()
 
     listas, con_sugerencia, necesita_revision = [], [], []
+    sugerencias_masivas = historial_service.sugerir_cuentas_masivo(db, empresa_id, facturas)
 
     for f in facturas:
         if f.estado == EstadoFactura.lista_para_contabilizar:
@@ -300,18 +323,20 @@ def panel_clasificacion(empresa_id: str, modulo: str | None = None,
                                                  else "Sin NIT de tercero identificado."})
             continue
 
-        sug = historial_service.sugerir_cuenta(db, empresa_id, f.tercero_nit, f.concepto_resumen, f.direccion_documento)
-        if sug["fuente"] in ("historial", "historial_nit_concepto", "cuentas_propias") and sug["cuenta_sugerida"]:
+        sug = sugerencias_masivas.get(f.id)
+        if sug and sug.get("cuenta_sugerida"):
+            motivo = (f"Historial: {sug['usos']} de {sug['total']} uso(s) para este contexto "
+                      f"({sug['porcentaje']}%).")
             con_sugerencia.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
                                     "numero_factura": f.numero_factura, "total": f.total,
                                     "concepto_resumen": f.concepto_resumen,
-                                    "cuenta_sugerida": sug["cuenta_sugerida"], "motivo_sugerencia": sug["motivo"],
+                                    "cuenta_sugerida": sug["cuenta_sugerida"], "motivo_sugerencia": motivo,
                                     "fuente_sugerencia": sug["fuente"]})
         else:
             necesita_revision.append({"id": f.id, "tercero_nombre": f.tercero_nombre, "tercero_nit": f.tercero_nit,
                                        "numero_factura": f.numero_factura, "total": f.total,
                                        "concepto_resumen": f.concepto_resumen,
-                                       "motivo": sug["motivo"]})
+                                       "motivo": "Sin sugerencia suficientemente respaldada por el historial real."})
 
     return {"listas": listas, "con_sugerencia": con_sugerencia, "necesita_revision": necesita_revision}
 
@@ -321,7 +346,7 @@ def listar_facturas(
     empresa_id: str, estado: str | None = None, nit_emisor: str | None = None,
     numero_factura: str | None = None, confianza_max: float | None = None,
     naturaleza: str | None = None, direccion: str | None = None,
-    modulo: str | None = None,
+    modulo: str | None = None, anio: int | None = None, mes: int | None = None,
     db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa),
 ):
     """
@@ -349,7 +374,11 @@ def listar_facturas(
         q = q.filter(or_(Factura.naturaleza_documento == "nomina", Factura.direccion_documento == "recibida"))
     elif modulo == "emitidas":
         q = q.filter(Factura.direccion_documento == "emitida", Factura.naturaleza_documento != "nomina")
-    return q.order_by(Factura.creado_en.desc()).all()
+    if anio:
+        q = q.filter(extract("year", Factura.fecha_emision) == anio)
+    if mes:
+        q = q.filter(extract("month", Factura.fecha_emision) == mes)
+    return q.order_by(Factura.fecha_emision.desc(), Factura.creado_en.desc()).all()
 
 
 @router.get("/{factura_id}")
@@ -525,6 +554,11 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
         # se aprende en ese contexto para no volverla a pedir sin convertirla
         # en una cuenta universal de la empresa.
         partida_doble_service.registrar_reglas_control_manual(db, empresa, f, cuenta_gasto, cuentas_control)
+        if contrapartida and contrapartida not in ("proveedores", "clientes", "caja", "banco"):
+            rol_contra = "contrapartida_venta" if f.direccion_documento == "emitida" else "contrapartida_compra"
+            partida_doble_service.registrar_reglas_control_manual(
+                db, empresa, f, cuenta_gasto, {rol_contra: contrapartida}
+            )
 
         auditoria_registrar(db, empresa_id, "Factura", f.id, "partida_generada",
                              {"cuenta_gasto": cuenta_gasto.codigo if cuenta_gasto else "(asiento multilínea de nómina)",
@@ -621,6 +655,7 @@ def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends
 
     resultados = []
     aplicadas = 0
+    sugerencias_masivas = historial_service.sugerir_cuentas_masivo(db, empresa_id, facturas) if usar_sugerencia else {}
     for fid in factura_ids:
         f = encontradas.get(fid)
         if not f:
@@ -640,18 +675,10 @@ def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends
                 resultados.append({"factura_id": fid, "estado": "omitida",
                                     "motivo": "La factura no tiene NIT de tercero."})
                 continue
-            concepto = None
-            if f.conceptos_json:
-                try:
-                    items = json.loads(f.conceptos_json)
-                    concepto = "; ".join(i.get("descripcion", "") for i in items if i.get("descripcion"))[:500] or None
-                except (ValueError, TypeError):
-                    concepto = None
-            sug = historial_service.sugerir_cuenta(db, empresa_id, f.tercero_nit, concepto, f.direccion_documento)
-            if sug["fuente"] not in ("historial", "historial_nit_concepto") or not sug["cuenta_sugerida"]:
+            sug = sugerencias_masivas.get(f.id)
+            if not sug or not sug.get("cuenta_sugerida"):
                 resultados.append({"factura_id": fid, "estado": "omitida",
-                                    "motivo": f"Sin sugerencia confiable del historial (fuente: {sug['fuente']}) "
-                                              f"— revísala manualmente en Facturas."})
+                                    "motivo": "Sin sugerencia confiable del historial — revísala manualmente en Facturas."})
                 continue
             cuenta_codigo = sug["cuenta_sugerida"]
 
@@ -662,9 +689,11 @@ def generar_partida_masivo(empresa_id: str, payload: dict, db: Session = Depends
         if error and resultado is None:
             resultados.append({"factura_id": fid, "estado": "error", "motivo": error})
         elif not resultado.balanceado:
-            db.rollback()
+            # No hacer rollback global: una factura problemática no debe deshacer
+            # las partidas válidas ya preparadas del mismo lote.
             resultados.append({"factura_id": fid, "estado": "descuadrada", "motivo": "; ".join(resultado.errores)})
         else:
+            db.flush()
             aplicadas += 1
             resultados.append({"factura_id": fid, "estado": "aplicada", "cuenta_usada": cuenta_codigo})
 
@@ -793,56 +822,151 @@ def contabilizar_masivo(empresa_id: str, payload: dict, db: Session = Depends(ge
 
 
 @router.delete("/{factura_id}")
-def eliminar_factura(empresa_id: str, factura_id: str, db: Session = Depends(get_db),
-                      empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
-    """
-    Elimina una factura cargada por error o que ya no se necesita (ej.
-    pruebas, duplicados de una carga fallida). Se borran también sus
-    movimientos de partida doble asociados, si los tenía. El historial
-    de aprendizaje (decisiones ya registradas) NO se toca — es una
-    bitácora permanente independiente de si la factura sigue existiendo
-    (secciones 11-12). Queda registro en auditoría de la eliminación.
+def eliminar_factura(empresa_id: str, factura_id: str, motivo: str | None = None,
+                      db: Session = Depends(get_db), empresa: Empresa = Depends(get_empresa_activa),
+                      usuario: str = Depends(usuario_actual), actor: Usuario | None = Depends(get_current_user)):
+    """Elimina un documento del trabajo activo, incluso si fue exportado.
+
+    - Documento no exportado: cualquier Contador autorizado puede eliminarlo.
+    - Documento exportado: solo el Administrador General puede retirarlo.
+
+    Cuando ya hubo exportación se conserva la trazabilidad en ``Exportacion`` y
+    en Auditoría; únicamente se elimina la relación operativa
+    ``ExportacionFactura`` para permitir retirar/reingresar el CUFE. No se borra
+    el archivo/historial de exportación generado anteriormente.
     """
     f = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id == factura_id).first()
     if not f:
         raise HTTPException(status_code=404, detail="Factura no encontrada en esta empresa.")
 
-    ya_exportada = db.query(ExportacionFactura).filter(
-        ExportacionFactura.empresa_id == empresa_id, ExportacionFactura.factura_id == factura_id
-    ).first()
-    if ya_exportada:
-        raise HTTPException(status_code=409, detail="Este documento ya fue exportado y no se puede eliminar sin romper la trazabilidad.")
-    resumen = {"numero_factura": f.numero_factura, "cufe": f.cufe, "nit_emisor": f.nit_emisor, "estado": f.estado.value}
-    db.query(Movimiento).filter(Movimiento.factura_id == factura_id).delete()
+    relaciones = db.query(ExportacionFactura).filter(
+        ExportacionFactura.empresa_id == empresa_id,
+        ExportacionFactura.factura_id == factura_id,
+    ).all()
+    if relaciones and actor is not None and not actor.es_superadmin:
+        raise HTTPException(
+            status_code=403,
+            detail="Este documento ya fue exportado. Solo el Administrador General puede retirarlo conservando la trazabilidad.",
+        )
+
+    exportaciones_previas = [{
+        "exportacion_id": r.exportacion_id,
+        "sistema_contable": r.sistema_contable,
+        "tipo_comprobante": r.tipo_comprobante,
+        "codigo_comprobante": r.codigo_comprobante,
+        "numero_documento": r.numero_documento,
+        "creado_en": r.creado_en.isoformat() if r.creado_en else None,
+    } for r in relaciones]
+    resumen = {
+        "numero_factura": f.numero_factura,
+        "cufe": f.cufe,
+        "nit_emisor": f.nit_emisor,
+        "estado": f.estado.value,
+        "motivo": (motivo or "").strip() or None,
+        "ya_exportada": bool(relaciones),
+        "exportaciones_previas": exportaciones_previas,
+    }
+
+    # La relación por destino tiene FK a Factura; se elimina antes de retirar
+    # la factura. Exportacion permanece como evidencia histórica del archivo.
+    for r in relaciones:
+        db.delete(r)
+    # Si otros documentos estaban marcados como posibles duplicados de este
+    # registro, liberar esa referencia para no violar la FK al retirarlo.
+    db.query(Factura).filter(
+        Factura.empresa_id == empresa_id,
+        Factura.duplicado_de_id == factura_id,
+    ).update({
+        Factura.duplicado_de_id: None,
+        Factura.es_posible_duplicado: False,
+    }, synchronize_session=False)
+    db.query(Movimiento).filter(Movimiento.factura_id == factura_id).delete(synchronize_session=False)
     db.delete(f)
-    auditoria_registrar(db, empresa_id, "Factura", factura_id, "factura_eliminada", resumen, usuario)
+    auditoria_registrar(
+        db, empresa_id, "Factura", factura_id,
+        "factura_exportada_retirada" if relaciones else "factura_eliminada",
+        resumen, usuario,
+    )
     db.commit()
-    return {"eliminada": True, "id": factura_id}
+    return {
+        "eliminada": True,
+        "id": factura_id,
+        "era_exportada": bool(relaciones),
+        "trazabilidad_conservada": bool(relaciones),
+    }
 
 
 @router.post("/eliminar-multiples")
 def eliminar_facturas_multiples(empresa_id: str, factura_ids: list[str], db: Session = Depends(get_db),
                                  empresa: Empresa = Depends(get_empresa_activa),
-                                 usuario: str = Depends(usuario_actual)):
-    """Elimina varias facturas de una vez (ej. limpiar una carga de prueba completa)."""
+                                 usuario: str = Depends(usuario_actual),
+                                 actor: Usuario | None = Depends(get_current_user)):
+    """Elimina varias facturas; las exportadas requieren Administrador General."""
     if not factura_ids:
         raise HTTPException(status_code=422, detail="No se indicó ninguna factura para eliminar.")
-    facturas = db.query(Factura).filter(Factura.empresa_id == empresa_id, Factura.id.in_(factura_ids)).all()
+    facturas = db.query(Factura).filter(
+        Factura.empresa_id == empresa_id, Factura.id.in_(factura_ids)
+    ).all()
     if not facturas:
         raise HTTPException(status_code=404, detail="Ninguna de las facturas indicadas existe en esta empresa.")
 
-    exportadas = {x[0] for x in db.query(ExportacionFactura.factura_id).filter(
-        ExportacionFactura.empresa_id == empresa_id, ExportacionFactura.factura_id.in_([f.id for f in facturas])
-    ).all()}
-    if exportadas:
-        raise HTTPException(status_code=409, detail=f"Hay {len(exportadas)} documento(s) ya exportados; elimínalos del lote para conservar la trazabilidad.")
+    rels = db.query(ExportacionFactura).filter(
+        ExportacionFactura.empresa_id == empresa_id,
+        ExportacionFactura.factura_id.in_([f.id for f in facturas]),
+    ).all()
+    exportadas = {r.factura_id for r in rels}
+    if exportadas and actor is not None and not actor.es_superadmin:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Hay {len(exportadas)} documento(s) ya exportados. Solo el Administrador General puede retirarlos.",
+        )
+
+    rels_por_factura = {}
+    for r in rels:
+        rels_por_factura.setdefault(r.factura_id, []).append({
+            "exportacion_id": r.exportacion_id,
+            "sistema_contable": r.sistema_contable,
+            "tipo_comprobante": r.tipo_comprobante,
+            "codigo_comprobante": r.codigo_comprobante,
+            "numero_documento": r.numero_documento,
+        })
+        db.delete(r)
+
     eliminadas = []
+    ids_a_eliminar = [f.id for f in facturas]
+    db.query(Factura).filter(
+        Factura.empresa_id == empresa_id,
+        Factura.duplicado_de_id.in_(ids_a_eliminar),
+        ~Factura.id.in_(ids_a_eliminar),
+    ).update({
+        Factura.duplicado_de_id: None,
+        Factura.es_posible_duplicado: False,
+    }, synchronize_session=False)
     for f in facturas:
-        db.query(Movimiento).filter(Movimiento.factura_id == f.id).delete()
-        eliminadas.append({"numero_factura": f.numero_factura, "cufe": f.cufe})
+        db.query(Movimiento).filter(Movimiento.factura_id == f.id).delete(synchronize_session=False)
+        detalle = {
+            "id": f.id,
+            "numero_factura": f.numero_factura,
+            "cufe": f.cufe,
+            "ya_exportada": f.id in exportadas,
+            "exportaciones_previas": rels_por_factura.get(f.id, []),
+        }
+        eliminadas.append(detalle)
+        auditoria_registrar(
+            db, empresa_id, "Factura", f.id,
+            "factura_exportada_retirada" if f.id in exportadas else "factura_eliminada",
+            detalle, usuario,
+        )
         db.delete(f)
 
-    auditoria_registrar(db, empresa_id, "Factura", None, "facturas_eliminadas_lote",
-                         {"cantidad": len(eliminadas), "facturas": eliminadas}, usuario)
+    auditoria_registrar(
+        db, empresa_id, "Factura", None, "facturas_eliminadas_lote",
+        {"cantidad": len(eliminadas), "exportadas_retiradas": len(exportadas), "facturas": eliminadas}, usuario,
+    )
     db.commit()
-    return {"eliminadas": len(facturas), "no_encontradas": len(factura_ids) - len(facturas)}
+    return {
+        "eliminadas": len(facturas),
+        "exportadas_retiradas": len(exportadas),
+        "no_encontradas": len(factura_ids) - len(facturas),
+    }
+

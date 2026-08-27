@@ -417,7 +417,7 @@
             <option value="exportada">Exportada</option>
             <option value="duplicada">Duplicada</option>
           </select></div>
-          <div><select id="filtroNaturaleza" onchange="guardarFiltrosActuales();cargarFacturas()">
+          <div><select id="filtroNaturaleza" onchange="guardarFiltrosActuales();cargarFacturas();cargarPanelClasificacion()">
             <option value="">Todos los tipos</option>
             <option value="factura">Factura</option>
             <option value="nota_credito">Nota crédito</option>
@@ -425,7 +425,9 @@
             <option value="documento_equivalente">Documento equivalente</option>
             <option value="nomina">Nómina</option>
           </select></div>
-          <div><button class="btn ghost" onclick="cargarFacturas()">Actualizar</button></div>
+          <div><select id="filtroAnio" onchange="guardarFiltrosActuales();actualizarMesesPeriodo();cargarFacturas();cargarPanelClasificacion()"><option value="">Todos los años</option></select></div>
+          <div><select id="filtroMes" onchange="guardarFiltrosActuales();cargarFacturas();cargarPanelClasificacion()"><option value="">Todos los meses</option></select></div>
+          <div><button class="btn ghost" onclick="cargarFacturas();cargarPanelClasificacion()">Actualizar</button></div>
         </div>
       </div>
       <div class="selection-bar">
@@ -438,8 +440,8 @@
           </div>
         </div>
         <details style="margin-top:8px;background:transparent;border-color:#40506b;"><summary style="color:#dce6f4;padding:7px 9px;display:block;">Corrección masiva manual</summary><div class="detail-body">
-          <div class="row" style="margin:0"><div><label>Cuenta</label><input id="masivoCuenta" placeholder="Código de cuenta" list="dl-masivoCuenta" oninput="buscarPuc(this)"><datalist id="dl-masivoCuenta"></datalist></div>
-          <div><label>Contrapartida</label><select id="masivoContrapartida"><option value="">Aprendida / automática</option><option value="proveedores">Proveedores</option><option value="clientes">Clientes</option><option value="caja">Caja</option><option value="banco">Banco</option></select></div>
+          <div class="row" style="margin:0"><div><label>Cuenta</label><input id="masivoCuenta" placeholder="Buscar cuenta" list="dl-cuentasEmpresa"></div>
+          <div><label>Contrapartida</label><input id="masivoContrapartida" list="dl-cuentasEmpresa" placeholder="Automática / cuenta real"></div>
           <div><button class="btn ghost" onclick="generarPartidaMasivoConCuenta()">Aplicar corrección</button></div></div>
         </div></details>
         <div id="resultadoMasivo" style="margin-top:8px"></div>
@@ -510,26 +512,20 @@ Credito=credito</textarea>
 
   <!-- USUARIOS -->
   <section id="tab-usuarios" class="hidden">
-    <p class="module-intro"><strong>Usuarios</strong> · Controla quién puede entrar a la empresa activa.</p>
+    <p class="module-intro"><strong>Usuarios</strong> · Solo el Administrador General gestiona accesos.</p>
     <div class="card">
-      <div class="flex-between"><div><h2>Accesos de la empresa</h2><p class="module-intro">Roles y permisos por empresa.</p></div><span class="pill ok">Acceso protegido</span></div>
+      <div class="flex-between"><div><h2>Crear usuario</h2><p class="module-intro">Todos los usuarios creados son Contadores.</p></div><span class="pill ok">Administración global</span></div>
       <div class="row">
-        <div><label>Correo</label><input id="usrEmail" type="email" placeholder="auxiliar@empresa.com"></div>
-        <div><label>Nombre</label><input id="usrNombre" placeholder="Nombre del usuario"></div>
-        <div><label>Contraseña inicial (solo usuario nuevo)</label><input id="usrPassword" type="password" placeholder="Mínimo 10 caracteres"></div>
-        <div><label>Rol</label><select id="usrRol" onchange="renderPermisosNuevoUsuario()"><option value="administrador">Administrador</option><option value="contador">Contador</option><option value="auxiliar" selected>Auxiliar</option><option value="auditor">Auditor</option></select></div>
-        <div><button class="btn" onclick="guardarUsuarioEmpresa()">Asignar</button></div>
+        <div><label>Nombre</label><input id="usrNombre" placeholder="Nombre del contador"></div>
+        <div><label>Correo</label><input id="usrEmail" type="email" placeholder="contador@empresa.com"></div>
+        <div><label>Contraseña inicial</label><input id="usrPassword" type="password" placeholder="Mínimo 10 caracteres"></div>
       </div>
-      <details><summary><span></span><strong>Permisos personalizados</strong><span class="muted">Opcional</span></summary><div class="detail-body"><div id="permisosNuevoUsuario" class="permission-grid"></div></div></details>
+      <div><label>Empresas autorizadas</label><div id="usrEmpresasLista" class="permission-grid"></div></div>
+      <div style="margin-top:10px"><button class="btn" onclick="crearUsuarioGlobal()">Crear usuario</button></div>
     </div>
     <div class="card">
-      <h2>Usuarios autorizados</h2>
-      <div class="table-scroll"><table><thead><tr><th>Usuario</th><th>Correo</th><th>Rol</th><th>Permisos efectivos</th><th>Estado</th><th></th></tr></thead><tbody id="tablaUsuariosEmpresa"></tbody></table></div>
-    </div>
-    <div class="card hidden" id="globalUsersCard">
       <h2>Administración general de usuarios</h2>
-      <p class="module-intro">Activa, bloquea o restablece credenciales.</p>
-      <div class="table-scroll"><table><thead><tr><th>Usuario</th><th>Correo</th><th>Administrador general</th><th>Estado</th><th></th></tr></thead><tbody id="tablaUsuariosGlobal"></tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>Usuario</th><th>Correo</th><th>Tipo</th><th>Empresas</th><th>Estado</th><th></th></tr></thead><tbody id="tablaUsuariosGlobal"></tbody></table></div>
     </div>
   </section>
 
@@ -551,20 +547,43 @@ Credito=credito</textarea>
 <script>
 let authToken = ''; // La sesión real vive en cookie HttpOnly; no se expone a JavaScript.
 let authUser = null;
-let authMatrix = null;
 let empresas = [];
 let empresaActivaId = null;
 let moduloFacturasActivo = 'recibidas';
 let seleccionesFacturas = {recibidas: new Set(), emitidas: new Set()};
-let filtrosFacturas = {recibidas:{estado:'',naturaleza:''}, emitidas:{estado:'',naturaleza:''}};
+let filtrosFacturas = {recibidas:{estado:'',naturaleza:'',anio:'',mes:''}, emitidas:{estado:'',naturaleza:'',anio:'',mes:''}};
+let periodosEmpresa = [];
 let cuentasEmpresaCache = [];
 function seleccionFacturasActual(){ return seleccionesFacturas[moduloFacturasActivo] || seleccionesFacturas.recibidas; }
 function guardarFiltrosActuales(){
-  filtrosFacturas[moduloFacturasActivo]={estado:document.getElementById('filtroEstado')?.value||'', naturaleza:document.getElementById('filtroNaturaleza')?.value||''};
+  filtrosFacturas[moduloFacturasActivo]={
+    estado:document.getElementById('filtroEstado')?.value||'',
+    naturaleza:document.getElementById('filtroNaturaleza')?.value||'',
+    anio:document.getElementById('filtroAnio')?.value||'',
+    mes:document.getElementById('filtroMes')?.value||''
+  };
 }
 function restaurarFiltrosActuales(){
-  const f=filtrosFacturas[moduloFacturasActivo]||{estado:'',naturaleza:''};
-  const e=document.getElementById('filtroEstado'), n=document.getElementById('filtroNaturaleza'); if(e)e.value=f.estado;if(n)n.value=f.naturaleza;
+  const f=filtrosFacturas[moduloFacturasActivo]||{estado:'',naturaleza:'',anio:'',mes:''};
+  const e=document.getElementById('filtroEstado'), n=document.getElementById('filtroNaturaleza'), a=document.getElementById('filtroAnio'), m=document.getElementById('filtroMes');
+  if(e)e.value=f.estado;if(n)n.value=f.naturaleza;if(a)a.value=f.anio||''; actualizarMesesPeriodo(); if(m)m.value=f.mes||'';
+}
+function nombreMes(m){return ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][Number(m)]||m;}
+async function cargarPeriodosEmpresa(){
+  if(!empresaActivaId) return;
+  try{ periodosEmpresa=await req(`/empresas/${empresaActivaId}/documentos/periodos`); }catch(e){ periodosEmpresa=[]; }
+  const a=document.getElementById('filtroAnio'); if(!a)return;
+  const anios=[...new Set(periodosEmpresa.map(p=>String(p.anio)))];
+  a.innerHTML='<option value="">Todos los años</option>'+anios.map(x=>`<option value="${x}">${x}</option>`).join('');
+  // Primera vez en la empresa: abrir automáticamente el periodo más reciente.
+  for(const mod of ['recibidas','emitidas']){ if(!filtrosFacturas[mod].anio && periodosEmpresa.length){ filtrosFacturas[mod].anio=String(periodosEmpresa[0].anio); filtrosFacturas[mod].mes=String(periodosEmpresa[0].mes); } }
+  restaurarFiltrosActuales();
+}
+function actualizarMesesPeriodo(){
+  const a=document.getElementById('filtroAnio')?.value||''; const m=document.getElementById('filtroMes'); if(!m)return;
+  const meses=[...new Set(periodosEmpresa.filter(p=>!a||String(p.anio)===a).map(p=>Number(p.mes)))].sort((x,y)=>y-x);
+  const actual=m.value; m.innerHTML='<option value="">Todos los meses</option>'+meses.map(x=>`<option value="${x}">${nombreMes(x)}</option>`).join('');
+  if([...m.options].some(o=>o.value===actual))m.value=actual;
 }
 
 function api(){ return document.getElementById('apiBase').value.replace(/\/$/, ''); }
@@ -658,7 +677,6 @@ async function cambiarMiClave(){
 }
 async function despuesDeAutenticar(){
   if(!authUser) authUser=await req('/auth/me');
-  try{authMatrix=await req('/auth/matriz-permisos');}catch(e){authMatrix=null;}
   ocultarLogin();
   document.getElementById('usuarioNombre').textContent=authUser.nombre||authUser.email;
   document.getElementById('usuarioAvatar').textContent=(authUser.nombre||authUser.email||'U').trim().charAt(0).toUpperCase();
@@ -674,11 +692,13 @@ function puede(permiso){
   const a=asignacionActiva(); return !!(a&&(a.permisos||[]).includes(permiso));
 }
 function aplicarPermisosUI(){
-  const navU=document.getElementById('navUsuarios'); if(navU)navU.classList.toggle('hidden',!empresaActivaId||!puede('usuarios_gestionar'));
-  const crear=document.getElementById('crearEmpresaCard');if(crear)crear.classList.toggle('hidden',!authUser?.es_superadmin); const gu=document.getElementById('globalUsersCard');if(gu)gu.classList.toggle('hidden',!authUser?.es_superadmin);
-  const role=authUser?.es_superadmin?'Administrador general':(asignacionActiva()?.rol||'Sin empresa activa');
-  const r=document.getElementById('usuarioRol');if(r)r.textContent=role;
+  const navU=document.getElementById('navUsuarios');
+  if(navU) navU.classList.toggle('hidden', !authUser?.es_superadmin);
+  const crear=document.getElementById('crearEmpresaCard'); if(crear) crear.classList.remove('hidden');
+  const role=authUser?.es_superadmin?'Administrador general':'Contador';
+  const r=document.getElementById('usuarioRol'); if(r) r.textContent=role;
 }
+
 
 // ---------- navegación ----------
 document.getElementById('tabs').addEventListener('click', e=>{
@@ -699,7 +719,7 @@ document.getElementById('tabs').addEventListener('click', e=>{
     cargarFacturas(); cargarPanelClasificacion();
   }
   if(tab==='plantillas'){cargarPlantillas();cargarExportaciones();cargarFacturasContabilizadas();}
-  if(tab==='usuarios'){cargarUsuariosEmpresa();if(authUser?.es_superadmin)cargarUsuariosGlobales();}
+  if(tab==='usuarios'&&authUser?.es_superadmin){renderEmpresasUsuario();cargarUsuariosGlobales();}
   if(tab==='auditoria') cargarAuditoria();
 });
 
@@ -810,21 +830,24 @@ async function seleccionarEmpresa(id){
   await cargarComprobantesPorTipo();
   await cargarEmpleados();
   await cargarResumenAprendizaje();
+  await cargarCuentasEmpresaCache();
+  await cargarPeriodosEmpresa();
   await prepararModuloExportar();
   await cargarDashboard();
 }
 
 function buscarPuc(input){
+  // Compatibilidad con campos antiguos: ya NO consulta el catálogo PUC global.
+  // Busca únicamente en el plan real aprendido de Balance/Movimiento.
   clearTimeout(_pucBuscarTimeout);
-  const texto = input.value.trim();
-  const datalist = document.getElementById('dl-' + input.id);
-  if(!datalist || texto.length < 2) return;
-  _pucBuscarTimeout = setTimeout(async ()=>{
-    try{
-      const resultados = await req(`/puc/buscar?q=${encodeURIComponent(texto)}`);
-      datalist.innerHTML = resultados.map(c=>`<option value="${c.codigo}">${c.codigo} — ${c.nombre}</option>`).join('');
-    }catch(e){ /* silencioso: el campo sigue aceptando texto libre igual */ }
-  }, 200);
+  const texto=(input.value||'').trim().toLowerCase();
+  const datalist=document.getElementById('dl-'+input.id);
+  if(!datalist)return;
+  _pucBuscarTimeout=setTimeout(async()=>{
+    if(!cuentasEmpresaCache.length) await cargarCuentasEmpresaCache();
+    const resultados=cuentasEmpresaCache.filter(c=>!texto||String(c.codigo).toLowerCase().includes(texto)||String(c.nombre||'').toLowerCase().includes(texto)).slice(0,80);
+    datalist.innerHTML=resultados.map(c=>`<option value="${c.codigo}">${c.codigo} — ${c.nombre||''}</option>`).join('');
+  },80);
 }
 
 const COMPROBANTE_UI = {
@@ -1212,10 +1235,20 @@ async function cargarResumenPorTipo(){
   }catch(e){ el.innerHTML = `<p class="muted">No se pudo cargar el resumen: ${e.message}</p>`; }
 }
 
-async function eliminarFacturaDesdeCarga(id){
-  if(!confirm('¿Eliminar este documento? Se eliminará también su partida si aún no fue exportado.')) return;
-  try{ await req(`/empresas/${empresaActivaId}/documentos/${id}`,{method:'DELETE'}); toast('Documento eliminado'); cargarListadoCargas(); cargarResumenPorTipo(); }
-  catch(e){ toast(e.message,true); }
+async function eliminarFacturaDesdeCarga(id, exportada=false){
+  if(exportada && !authUser?.es_superadmin){ toast('Solo el Administrador General puede retirar un documento ya exportado.',true); return; }
+  const aviso=exportada
+    ? 'Este documento ya fue exportado. Se retirará del trabajo activo, pero el archivo de exportación y la auditoría se conservarán. ¿Continuar?'
+    : '¿Eliminar este documento? También se eliminará su partida registrada.';
+  if(!confirm(aviso)) return;
+  let motivo='';
+  if(exportada && authUser?.es_superadmin) motivo=prompt('Motivo del retiro (opcional):','')||'';
+  try{
+    const qs=motivo?`?motivo=${encodeURIComponent(motivo)}`:'';
+    const r=await req(`/empresas/${empresaActivaId}/documentos/${id}${qs}`,{method:'DELETE'});
+    toast(r.era_exportada?'Documento exportado retirado; trazabilidad conservada':'Documento eliminado');
+    cargarListadoCargas(); cargarResumenPorTipo(); cargarFacturas();
+  } catch(e){ toast(e.message,true); }
 }
 
 async function cargarListadoCargas(){
@@ -1227,7 +1260,9 @@ async function cargarListadoCargas(){
       <td>${etiquetaNaturaleza(d.naturaleza_documento)}</td><td>${d.direccion_documento||'—'}</td>
       <td class="mono">${d.prefijo||''}${d.numero_factura||'—'}</td><td>${d.tercero_nombre||d.tercero_nit||'—'}</td>
       <td class="mono" title="${d.cufe||''}">${d.cufe ? d.cufe.slice(0,16)+'…' : '—'}</td><td><span class="pill ${estadoPill(d.estado)}">${d.estado}</span></td>
-      <td>${d.exportada?'<span class="pill ok">Exportado</span>':`<button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}')">Eliminar</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin documentos cargados.</td></tr>';
+      <td>${d.exportada
+        ? `<span class="pill ok">Exportado</span>${authUser?.es_superadmin?` <button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}',true)">Retirar</button>`:''}`
+        : `<button class="btn danger" onclick="eliminarFacturaDesdeCarga('${d.id}',false)">Eliminar</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin documentos cargados.</td></tr>';
   }catch(e){ document.getElementById('tablaCargas').innerHTML=`<tr><td colspan="8" class="muted">${e.message}</td></tr>`; }
 }
 
@@ -1277,6 +1312,7 @@ async function cargarDocumentos(){
     toast('Carga procesada');
     cargarResumenPorTipo();
     cargarListadoCargas();
+    await cargarPeriodosEmpresa();
   }catch(e){ toast(e.message, true); }
 }
 
@@ -1311,7 +1347,7 @@ async function importarBalanceAutomatico(){
       <div class="pill warn">Rechazados: ${body.registros_rechazados}</div>
       <div class="muted">De ${body.total_registros} filas totales — columnas detectadas automáticamente.</div>
     `;
-    toast('Balance importado — ya se puede usar en la sugerencia de cuentas');
+    toast('Balance importado — plan de cuentas actualizado'); await cargarCuentasEmpresaCache();
     cargarImportacionesHistorial();
   }catch(e){ toast(e.message, true); }
 }
@@ -1424,7 +1460,7 @@ async function importarHistorico(){
       <div class="muted">De ${body.total_registros} filas totales en el archivo.</div>
       ${body.detalle_rechazos && body.detalle_rechazos.length ? '<p class="muted">'+body.detalle_rechazos.slice(0,10).join('<br>')+'</p>' : ''}
     `;
-    toast(body.filas_tecnicas_siigo ? 'Historial importado — cuentas y parámetros técnicos SIIGO aprendidos automáticamente' : 'Historial importado — ya se puede usar en la sugerencia de cuentas');
+    toast(body.filas_tecnicas_siigo ? 'Historial importado — cuentas y parámetros SIIGO aprendidos' : 'Historial importado'); await cargarCuentasEmpresaCache();
     cargarImportacionesHistorial();
   }catch(e){ toast(e.message, true); }
 }
@@ -1456,7 +1492,7 @@ async function cargarPanelClasificacion(){
   if(!empresaActivaId) return;
   const el = document.getElementById('panelClasificacion');
   try{
-    const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?modulo=${moduloFacturasActivo}`);
+    const pf=filtrosFacturas[moduloFacturasActivo]||{}; const pp=new URLSearchParams({modulo:moduloFacturasActivo}); if(pf.anio)pp.set('anio',pf.anio);if(pf.mes)pp.set('mes',pf.mes); const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?${pp.toString()}`);
     const filaFactura = (f, extra) => `
       <div class="row" style="align-items:center; padding:4px 0; border-bottom:1px solid var(--line);">
         <span style="flex:2;"><strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${f.numero_factura||'—'}
@@ -1496,7 +1532,7 @@ async function cargarPanelClasificacion(){
 }
 
 async function contabilizarBloque(bloque){
-  const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?modulo=${moduloFacturasActivo}`);
+  const pf=filtrosFacturas[moduloFacturasActivo]||{}; const pp=new URLSearchParams({modulo:moduloFacturasActivo}); if(pf.anio)pp.set('anio',pf.anio);if(pf.mes)pp.set('mes',pf.mes); const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?${pp.toString()}`);
   const ids = panel[bloque].map(f=>f.id);
   if(ids.length === 0) return;
   try{
@@ -1511,7 +1547,7 @@ async function contabilizarBloque(bloque){
 }
 
 async function generarPropuestasBloque(){
-  const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?modulo=${moduloFacturasActivo}`);
+  const pf=filtrosFacturas[moduloFacturasActivo]||{}; const pp=new URLSearchParams({modulo:moduloFacturasActivo}); if(pf.anio)pp.set('anio',pf.anio);if(pf.mes)pp.set('mes',pf.mes); const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?${pp.toString()}`);
   const ids = panel.con_sugerencia.map(f=>f.id);
   if(ids.length === 0) return;
   if(!confirm(`Se generará la propuesta de partida para ${ids.length} factura(s) usando la sugerencia del historial de cada una. Quedan pendientes de tu aprobación (Contabilizar), no se contabilizan solas. ¿Continuar?`)) return;
@@ -1530,10 +1566,14 @@ async function cargarFacturas(){
   if(!empresaActivaId){ document.getElementById('listaFacturas').innerHTML = '<p class="muted">Selecciona una empresa primero.</p>'; return; }
   const estado = document.getElementById('filtroEstado').value;
   const naturaleza = document.getElementById('filtroNaturaleza').value;
-  filtrosFacturas[moduloFacturasActivo] = {estado, naturaleza};
+  const anio = document.getElementById('filtroAnio')?.value||'';
+  const mes = document.getElementById('filtroMes')?.value||'';
+  filtrosFacturas[moduloFacturasActivo] = {estado, naturaleza, anio, mes};
   const params = new URLSearchParams();
   if(estado) params.set('estado', estado);
   if(naturaleza) params.set('naturaleza', naturaleza);
+  if(anio) params.set('anio', anio);
+  if(mes) params.set('mes', mes);
   params.set('modulo', moduloFacturasActivo);
   const qs = params.toString() ? `?${params.toString()}` : '';
   try{
@@ -1579,20 +1619,15 @@ async function cargarFacturas(){
           ` : ''}
 
           <div class="row">
-            <div><label>${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? 'Corrección cuenta de ingreso' : 'Corrección cuenta de gasto'}${f.naturaleza_documento === 'nomina' ? ' (solo si no aplica el asiento automático)' : ''}</label><input id="cuenta-${f.id}" placeholder="${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? '413595' : '513595'}"></div>
+            <div><label>${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? 'Corrección cuenta de ingreso' : 'Corrección cuenta de gasto'}${f.naturaleza_documento === 'nomina' ? ' (solo si no aplica el asiento automático)' : ''}</label><input id="cuenta-${f.id}" list="dl-cuentasEmpresa" placeholder="Buscar cuenta por código o nombre"></div>
             <div><label>Centro de costo (opcional)</label><input id="cc-${f.id}" placeholder="CC01"></div>
             <div><button class="btn" onclick="generarPartida('${f.id}', '${f.naturaleza_documento||''}')">Generar / actualizar partida</button></div>
             <div><button class="btn ghost" onclick="contabilizar('${f.id}')">✓ Aprobar contabilización</button></div>
           </div>
           ${f.naturaleza_documento === 'nomina' ? '' : `
           <details style="margin-top:4px;">
-            <summary class="muted" style="cursor:pointer; font-size:12px;">Contrapartida manual (solo si quieres corregir el aprendizaje)</summary>
-            <select id="contra-${f.id}" style="margin-top:6px;">
-              <option value="">— usar la configurada automáticamente —</option>
-              <option value="proveedores">Proveedores</option>
-              <option value="clientes">Clientes</option>
-              <option value="caja">Caja</option><option value="banco">Banco</option>
-            </select>
+            <summary class="muted" style="cursor:pointer; font-size:12px;">Corregir contrapartida</summary>
+            <div style="margin-top:6px;max-width:520px"><label>Cuenta contrapartida</label><input id="contra-${f.id}" list="dl-cuentasEmpresa" placeholder="Automática · o busca cuenta por código/nombre"></div>
           </details>
           `}
           <div id="partida-${f.id}"></div>
@@ -1687,7 +1722,7 @@ async function verSugerencia(facturaId, nit, direccion, naturaleza){
       div.innerHTML = `<p><strong>Sugerido: ${sug.cuenta_sugerida}</strong> — ${sug.motivo}</p>
         <ul>${sug.opciones.map(o=>`<li>${o.cuenta_codigo} (${o.cuenta_nombre}): ${o.usos} usos — ${o.porcentaje}%</li>`).join('')}</ul>
         <button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${sug.cuenta_sugerida}'">Usar esta cuenta</button>`;
-    } else if((sug.fuente === 'puc_catalogo' || sug.fuente === 'cuentas_propias') && sug.opciones.length){
+    } else if(sug.opciones && sug.opciones.length){
       div.innerHTML = `<p class="muted">${sug.motivo}</p>
         <ul>${sug.opciones.map(o=>`<li><button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${o.cuenta_codigo}'">${o.cuenta_codigo} — ${o.cuenta_nombre}</button></li>`).join('')}</ul>`;
     } else {
@@ -1699,8 +1734,11 @@ async function verSugerencia(facturaId, nit, direccion, naturaleza){
 async function cargarCuentasEmpresaCache(){
   if(!empresaActivaId) return [];
   try{
-    cuentasEmpresaCache = await req(`/empresas/${empresaActivaId}/cuentas`);
+    cuentasEmpresaCache = await req(`/empresas/${empresaActivaId}/cuentas-operativas`);
   }catch(e){ cuentasEmpresaCache=[]; }
+  let dl=document.getElementById('dl-cuentasEmpresa');
+  if(!dl){ dl=document.createElement('datalist');dl.id='dl-cuentasEmpresa';document.body.appendChild(dl); }
+  dl.innerHTML=cuentasEmpresaCache.map(c=>`<option value="${c.codigo}">${c.codigo} — ${c.nombre||''}</option>`).join('');
   return cuentasEmpresaCache;
 }
 function leerCuentasControl(facturaId){
@@ -1744,7 +1782,7 @@ async function generarPartida(facturaId, naturaleza){
       const direccionEfectiva=naturaleza==='nomina'?'recibida':(detalle.direccion_documento||'');
       const qs=new URLSearchParams({nit}); if(descripcion)qs.set('descripcion',descripcion); if(direccionEfectiva)qs.set('direccion',direccionEfectiva);
       const sug=await req(`/empresas/${empresaActivaId}/historial/sugerencia?${qs.toString()}`);
-      if(sug.cuenta_sugerida && ['historial','historial_nit_concepto','cuentas_propias'].includes(sug.fuente)){
+      if(sug.cuenta_sugerida && ['historial','historial_nit_concepto'].includes(sug.fuente)){
         cuenta=sug.cuenta_sugerida; document.getElementById('cuenta-'+facturaId).value=cuenta; origen='sugerencia_aceptada';
       }
     }
@@ -1787,12 +1825,17 @@ async function guardarValorNomina(facturaId){
 }
 
 async function eliminarFactura(facturaId){
-  if(!confirm('¿Eliminar esta factura? Esta acción no se puede deshacer.')) return;
+  const aviso=authUser?.es_superadmin
+    ? '¿Eliminar/retirar esta factura? Si ya fue exportada, se conservará la trazabilidad del archivo generado.'
+    : '¿Eliminar esta factura? Si ya fue exportada necesitarás que lo haga el Administrador General.';
+  if(!confirm(aviso)) return;
+  let motivo=''; if(authUser?.es_superadmin) motivo=prompt('Motivo (opcional):','')||'';
   try{
-    await req(`/empresas/${empresaActivaId}/documentos/${facturaId}`, {method:'DELETE'});
-    toast('Factura eliminada');
+    const qs=motivo?`?motivo=${encodeURIComponent(motivo)}`:'';
+    const r=await req(`/empresas/${empresaActivaId}/documentos/${facturaId}${qs}`, {method:'DELETE'});
+    toast(r.era_exportada?'Factura exportada retirada; trazabilidad conservada':'Factura eliminada');
     seleccionFacturasActual().delete(facturaId);
-    cargarFacturas();
+    cargarFacturas(); cargarListadoCargas(); cargarResumenPorTipo();
   }catch(e){ toast(e.message, true); }
 }
 
@@ -2072,33 +2115,44 @@ async function eliminarExportacion(id){
   }catch(e){ toast(e.message, true); }
 }
 
-// ---------- usuarios y permisos ----------
-function permisosOverrideDesdeUI(prefix, rol){
-  if(!authMatrix) return {}; const base=authMatrix.matriz?.[rol]||{}; const out={};
-  (authMatrix.permisos||[]).forEach(p=>{const el=document.getElementById(prefix+p);if(!el)return;const val=!!el.checked;if(val!==!!base[p])out[p]=val;});
-  return out;
+// ---------- usuarios ----------
+function renderEmpresasUsuario(seleccionadas){
+  const box=document.getElementById('usrEmpresasLista'); if(!box)return;
+  const sel=new Set(seleccionadas||[]);
+  box.innerHTML=empresas.map(e=>`<label><input type="checkbox" class="usrEmpresaChk" value="${e.id}" ${sel.has(e.id)?'checked':''}> ${e.nombre}</label>`).join('')||'<span class="muted">Primero crea una empresa.</span>';
 }
-function renderPermisosNuevoUsuario(){
-  const box=document.getElementById('permisosNuevoUsuario');if(!box||!authMatrix)return;const rol=document.getElementById('usrRol').value;const base=authMatrix.matriz?.[rol]||{};
-  box.innerHTML=(authMatrix.permisos||[]).map(p=>`<label><input type="checkbox" id="permNuevo_${p}" ${base[p]?'checked':''}> ${p.replaceAll('_',' ')}</label>`).join('');
+function empresasUsuarioSeleccionadas(){return Array.from(document.querySelectorAll('.usrEmpresaChk:checked')).map(x=>x.value);}
+async function crearUsuarioGlobal(){
+  if(!authUser?.es_superadmin)return;
+  const payload={nombre:document.getElementById('usrNombre').value.trim(),email:document.getElementById('usrEmail').value.trim(),password:document.getElementById('usrPassword').value,empresa_ids:empresasUsuarioSeleccionadas()};
+  if(!payload.nombre||!payload.email||!payload.password){toast('Nombre, correo y contraseña son obligatorios',true);return;}
+  try{await req('/auth/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});toast('Usuario creado');document.getElementById('usrNombre').value='';document.getElementById('usrEmail').value='';document.getElementById('usrPassword').value='';renderEmpresasUsuario();cargarUsuariosGlobales();}catch(e){toast(e.message,true);}
 }
-async function cargarUsuariosEmpresa(){
-  if(!empresaActivaId||!puede('usuarios_gestionar'))return; try{
-    const rows=await req(`/empresas/${empresaActivaId}/usuarios`); const tb=document.getElementById('tablaUsuariosEmpresa');
-    tb.innerHTML=rows.map(u=>`<tr><td><strong>${u.nombre||'—'}</strong></td><td>${u.email}</td><td><select id="rolUsr_${u.id}" onchange="cambiarRolUsuario('${u.id}')"><option value="administrador" ${u.rol==='administrador'?'selected':''}>Administrador</option><option value="contador" ${u.rol==='contador'?'selected':''}>Contador</option><option value="auxiliar" ${u.rol==='auxiliar'?'selected':''}>Auxiliar</option><option value="auditor" ${u.rol==='auditor'?'selected':''}>Auditor</option></select></td><td class="muted">${(u.permisos||[]).length} permisos</td><td><span class="pill ${u.activo?'ok':'err'}">${u.activo?'Activo':'Inactivo'}</span></td><td><button class="btn danger" onclick="quitarUsuarioEmpresa('${u.id}')">Quitar</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">Sin usuarios asignados.</td></tr>';
-    renderPermisosNuevoUsuario();
+async function cargarUsuariosGlobales(){
+  if(!authUser?.es_superadmin)return;
+  try{
+    const rows=await req('/auth/admin/usuarios'); const tb=document.getElementById('tablaUsuariosGlobal');
+    tb.innerHTML=rows.map(u=>{
+      const emps=(u.asignaciones||[]).map(a=>a.empresa_nombre).join(', ')|| (u.es_superadmin?'Todas':'Sin empresa');
+      return `<tr><td><strong>${u.nombre||'—'}</strong></td><td>${u.email}</td><td>${u.es_superadmin?'Administrador':'Contador'}</td><td>${emps}</td><td><span class="pill ${u.activo?'ok':'err'}">${u.activo?'Activo':'Inactivo'}</span></td><td style="white-space:nowrap">${u.es_superadmin?'—':`<button class="btn ghost" onclick="editarUsuarioGlobal('${u.id}')">Editar</button> <button class="btn ghost" onclick="alternarUsuarioGlobal('${u.id}',${u.activo?'false':'true'})">${u.activo?'Desactivar':'Activar'}</button> <button class="btn ghost" onclick="resetClaveUsuario('${u.id}')">Clave</button> <button class="btn danger" onclick="eliminarUsuarioGlobal('${u.id}')">Eliminar</button>`}</td></tr>`;
+    }).join('')||'<tr><td colspan="6" class="muted">Sin usuarios.</td></tr>';
+    window._usuariosGlobales=rows;
   }catch(e){toast(e.message,true);}
 }
-async function guardarUsuarioEmpresa(){
-  if(!empresaActivaId)return; try{const rol=document.getElementById('usrRol').value;const payload={email:document.getElementById('usrEmail').value.trim(),nombre:document.getElementById('usrNombre').value.trim()||null,password:document.getElementById('usrPassword').value||null,rol,permisos:permisosOverrideDesdeUI('permNuevo_',rol)};
-    await req(`/empresas/${empresaActivaId}/usuarios`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});toast('Usuario asignado');document.getElementById('usrPassword').value='';cargarUsuariosEmpresa();
-  }catch(e){toast(e.message,true);}
+async function editarUsuarioGlobal(id){
+  const u=(window._usuariosGlobales||[]).find(x=>x.id===id); if(!u)return;
+  const nombre=prompt('Nombre:',u.nombre||''); if(nombre===null)return;
+  const email=prompt('Correo:',u.email||''); if(email===null)return;
+  const actuales=new Set((u.asignaciones||[]).map(a=>a.empresa_id));
+  const lista=empresas.map((e,i)=>`${i+1}. ${e.nombre}${actuales.has(e.id)?' ✓':''}`).join('\n');
+  const elegidas=prompt(`Empresas autorizadas. Escribe números separados por coma.\n${lista}`, empresas.map((e,i)=>actuales.has(e.id)?i+1:null).filter(Boolean).join(','));
+  if(elegidas===null)return;
+  const indices=elegidas.split(',').map(x=>parseInt(x.trim())).filter(n=>n>=1&&n<=empresas.length);
+  const empresa_ids=[...new Set(indices.map(n=>empresas[n-1].id))];
+  try{await req(`/auth/admin/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre:nombre.trim(),email:email.trim(),empresa_ids})});toast('Usuario actualizado');cargarUsuariosGlobales();}catch(e){toast(e.message,true);}
 }
-async function cambiarRolUsuario(id){try{const rol=document.getElementById('rolUsr_'+id).value;await req(`/empresas/${empresaActivaId}/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({rol})});toast('Rol actualizado');cargarUsuariosEmpresa();}catch(e){toast(e.message,true);}}
-async function quitarUsuarioEmpresa(id){if(!confirm('¿Quitar el acceso de este usuario a la empresa?'))return;try{await req(`/empresas/${empresaActivaId}/usuarios/${id}`,{method:'DELETE'});toast('Acceso retirado');cargarUsuariosEmpresa();}catch(e){toast(e.message,true);}}
-
-async function cargarUsuariosGlobales(){if(!authUser?.es_superadmin)return;try{const rows=await req('/auth/admin/usuarios');const tb=document.getElementById('tablaUsuariosGlobal');tb.innerHTML=rows.map(u=>`<tr><td><strong>${u.nombre||'—'}</strong></td><td>${u.email}</td><td>${u.es_superadmin?'Sí':'No'}</td><td><span class="pill ${u.activo?'ok':'err'}">${u.activo?'Activo':'Bloqueado'}</span></td><td><button class="btn ghost" onclick="alternarUsuarioGlobal('${u.id}',${u.activo?'false':'true'})">${u.activo?'Bloquear':'Activar'}</button> <button class="btn ghost" onclick="resetClaveUsuario('${u.id}')">Nueva clave</button></td></tr>`).join('');}catch(e){toast(e.message,true);}}
 async function alternarUsuarioGlobal(id,activo){try{await req(`/auth/admin/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo})});toast('Usuario actualizado');cargarUsuariosGlobales();}catch(e){toast(e.message,true);}}
+async function eliminarUsuarioGlobal(id){if(!confirm('¿Eliminar este usuario y sus accesos?'))return;try{await req(`/auth/admin/usuarios/${id}`,{method:'DELETE'});toast('Usuario eliminado');cargarUsuariosGlobales();}catch(e){toast(e.message,true);}}
 async function resetClaveUsuario(id){const clave=prompt('Nueva contraseña (mínimo 10 caracteres, letras y números):');if(!clave)return;try{await req(`/auth/admin/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password_nueva:clave})});toast('Contraseña restablecida');}catch(e){toast(e.message,true);}}
 
 // ---------- auditoría ----------

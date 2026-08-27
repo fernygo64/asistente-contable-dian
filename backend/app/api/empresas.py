@@ -13,7 +13,7 @@ router = APIRouter(prefix="/empresas", tags=["empresas"])
 @router.post("", response_model=EmpresaOut, status_code=201)
 def crear_empresa(payload: EmpresaCreate, db: Session = Depends(get_db),
                    usuario: str = Depends(usuario_actual),
-                   admin_user: Usuario | None = Depends(require_superadmin)):
+                   admin_user: Usuario | None = Depends(get_current_user)):
     existente = db.query(Empresa).filter(Empresa.nit == payload.nit).first()
     if existente:
         raise HTTPException(status_code=409, detail=f"Ya existe una empresa con NIT {payload.nit}.")
@@ -27,7 +27,7 @@ def crear_empresa(payload: EmpresaCreate, db: Session = Depends(get_db),
     db.add(empresa)
     db.flush()
     if admin_user is not None:
-        db.add(UsuarioEmpresa(usuario_id=admin_user.id, empresa_id=empresa.id, rol="administrador", permisos_json="{}"))
+        db.add(UsuarioEmpresa(usuario_id=admin_user.id, empresa_id=empresa.id, rol="contador", permisos_json="{}"))
     auditoria_registrar(db, empresa.id, "Empresa", empresa.id, "creacion_empresa",
                          {"nit": empresa.nit, "nombre": empresa.nombre}, usuario)
     db.commit()
