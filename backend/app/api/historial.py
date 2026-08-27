@@ -12,7 +12,7 @@ from app.services.excel_utils import leer_columnas_excel
 from app.services.excel_utils import leer_columnas_excel, leer_dataframe_excel
 from app.services.mapeo_conocido_service import sugerir_mapeo
 from app.services.balance_service import detectar_mapeo_balance
-from app.services.balance_jerarquico_service import detectar_columnas_balance_terceros, parsear_balance_terceros_jerarquico
+from app.services.balance_jerarquico_service import detectar_columnas_balance_terceros, parsear_balance_terceros_jerarquico, extraer_catalogo_cuentas_jerarquico
 
 router = APIRouter(prefix="/empresas/{empresa_id}/historial", tags=["historial"])
 
@@ -42,6 +42,8 @@ async def importar_balance_automatico(
 
     columnas_jerarquicas = detectar_columnas_balance_terceros(columnas)
     if columnas_jerarquicas:
+        catalogo = extraer_catalogo_cuentas_jerarquico(df, columnas_jerarquicas)
+        importacion_service.sincronizar_catalogo_cuentas(db, empresa_id, catalogo)
         registros_crudos = parsear_balance_terceros_jerarquico(df, columnas_jerarquicas)
         if not registros_crudos:
             raise HTTPException(

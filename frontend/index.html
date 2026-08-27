@@ -21,7 +21,7 @@
   nav button{background:transparent;border:0;color:#aebbd1;text-align:left;padding:11px 13px;border-radius:10px;font-size:13px;cursor:pointer;transition:.18s ease;white-space:nowrap}
   nav button:hover{background:rgba(255,255,255,.07);color:#fff;transform:translateX(2px)}
   nav button.active{background:linear-gradient(135deg,#1d70e8,#4c85e8);color:#fff;font-weight:700;box-shadow:0 8px 18px rgba(20,105,224,.22)}
-  nav button[data-tab="dashboard"]::before{content:'◈  '} nav button[data-tab="empresas"]::before{content:'▦  '} nav button[data-tab="historial"]::before{content:'◫  '} nav button[data-tab="cargar"]::before{content:'⇧  '} nav button[data-tab="facturas-recibidas"]::before{content:'↓  '} nav button[data-tab="facturas-emitidas"]::before{content:'↑  '} nav button[data-tab="plantillas"]::before{content:'⇄  '} nav button[data-tab="auditoria"]::before{content:'◎  '}
+  nav button[data-tab="dashboard"]::before{content:'◈  '} nav button[data-tab="empresas"]::before{content:'▦  '} nav button[data-tab="historial"]::before{content:'◫  '} nav button[data-tab="cargar"]::before{content:'⇧  '} nav button[data-tab="facturas-recibidas"]::before{content:'↓  '} nav button[data-tab="facturas-emitidas"]::before{content:'↑  '} nav button[data-tab="plantillas"]::before{content:'⇄  '} nav button[data-tab="usuarios"]::before{content:'♟  '} nav button[data-tab="auditoria"]::before{content:'◎  '}
   main{margin-left:218px;padding:92px 28px 34px;max-width:1550px}
   .card{background:var(--paper-2);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow);transition:box-shadow .18s ease,transform .18s ease}
   .card:hover{box-shadow:0 12px 34px rgba(15,31,61,.09)}
@@ -46,18 +46,51 @@
   .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--success);margin-right:5px}.section-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.table-scroll{overflow:auto;max-height:540px;border:1px solid var(--line);border-radius:10px}
   .mode-choice{display:flex;gap:6px}.mode-choice label{margin:0;text-transform:none;letter-spacing:0;font-size:11px;display:flex;align-items:center;gap:4px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;cursor:pointer}.mode-choice input{width:auto;margin:0}
   .help-tip{display:inline-flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#edf2f8;color:#65738a;font-size:10px;cursor:help}
+
+  .auth-overlay{position:fixed;inset:0;background:radial-gradient(circle at 20% 20%,#264d84 0,#13213c 45%,#0b1426 100%);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px}.auth-card{width:min(430px,100%);background:#fff;border-radius:18px;padding:28px;box-shadow:0 28px 80px rgba(0,0,0,.35)}.auth-card h2{font-size:22px;margin:0 0 6px}.auth-card .brand{display:inline-flex;align-items:center;gap:9px;font-weight:800;color:var(--accent);margin-bottom:20px}.auth-card .row{display:block}.auth-card .row>div{margin-bottom:11px}.auth-actions{display:flex;gap:8px;align-items:center;margin-top:15px}.user-chip{display:flex;align-items:center;gap:9px;background:#f4f7fb;border:1px solid var(--line);border-radius:11px;padding:7px 9px}.user-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#1769e0,#6d56d9);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800}.user-meta{line-height:1.15}.user-meta b{font-size:12px;display:block}.user-meta span{font-size:10px;color:#718096}.permission-grid{display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:6px 12px;margin-top:9px}.permission-grid label{display:flex;align-items:center;gap:7px;text-transform:none;letter-spacing:0;font-size:11px;font-weight:600;color:#53627a;margin:0}.permission-grid input{width:auto}.role-badge{font-size:10px;font-weight:800;padding:3px 7px;border-radius:12px;background:#eef4ff;color:#3264a8}.access-denied{opacity:.45;pointer-events:none}.login-note{font-size:11px;color:#748196;margin-top:10px}.security-banner{background:#edf8f4;border:1px solid #c9e8dc;color:#28654f;border-radius:10px;padding:8px 11px;font-size:11.5px}
   @media(max-width:980px){nav{position:fixed;top:68px;left:0;right:0;bottom:auto;width:auto;height:50px;flex-direction:row;padding:5px 10px;overflow-x:auto}nav button{padding:8px 10px}main{margin-left:0;padding:135px 14px 28px}.kpi-grid{grid-template-columns:repeat(2,1fr)}summary{grid-template-columns:28px 1fr}.summary-meta{grid-column:2}.row>div{min-width:140px}}
 </style>
 </head>
 <body>
+
+<div id="authOverlay" class="auth-overlay">
+  <div class="auth-card">
+    <div class="brand">◆ Asistente Contable DIAN</div>
+    <div id="loginPanel">
+      <h2>Iniciar sesión</h2>
+      <p class="muted">Accede solo a las empresas que tienes autorizadas.</p>
+      <div class="row">
+        <div><label>Correo</label><input id="loginEmail" type="email" autocomplete="username" placeholder="contador@empresa.com"></div>
+        <div><label>Contraseña</label><input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••••"></div>
+      </div>
+      <div class="auth-actions"><button class="btn" onclick="iniciarSesion()">Entrar</button></div>
+    </div>
+    <div id="bootstrapPanel" class="hidden">
+      <h2>Crear administrador inicial</h2>
+      <p class="muted">Solo aparece una vez. Este usuario podrá administrar empresas y accesos.</p>
+      <div class="row">
+        <div><label>Nombre</label><input id="bootstrapNombre" autocomplete="name" placeholder="Administrador"></div>
+        <div><label>Correo</label><input id="bootstrapEmail" type="email" autocomplete="username" placeholder="admin@empresa.com"></div>
+        <div><label>Contraseña</label><input id="bootstrapPassword" type="password" autocomplete="new-password" placeholder="Mínimo 10 caracteres, letras y números"></div>
+      </div>
+      <div class="auth-actions"><button class="btn" onclick="crearAdministradorInicial()">Crear y entrar</button></div>
+      <div class="login-note">La contraseña se guarda cifrada; nunca se almacena en texto plano.</div>
+    </div>
+  </div>
+</div>
 
 <header>
   <div>
     <h1>Asistente Contable DIAN</h1>
     <div class="sub">DIAN → aprendizaje → contabilización → exportación</div>
   </div>
-  <div class="row" style="margin:0; align-items:center;">
-    <div style="min-width:220px;"><label style="color:#cbd5e1;">API</label><input id="apiBase" value=""></div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <input id="apiBase" value="" class="hidden">
+    <div id="usuarioChip" class="user-chip hidden">
+      <div class="user-avatar" id="usuarioAvatar">U</div>
+      <div class="user-meta"><b id="usuarioNombre">Usuario</b><span id="usuarioRol">—</span></div>
+      <button class="btn ghost" style="padding:5px 8px" onclick="cambiarMiClave()">Clave</button><button class="btn ghost" style="padding:5px 8px" onclick="cerrarSesion()">Salir</button>
+    </div>
   </div>
 </header>
 
@@ -69,6 +102,7 @@
   <button data-tab="facturas-recibidas">Facturas Recibidas</button>
   <button data-tab="facturas-emitidas">Facturas Emitidas</button>
   <button data-tab="plantillas">Exportar</button>
+  <button data-tab="usuarios" id="navUsuarios" class="hidden">Usuarios</button>
   <button data-tab="auditoria">Auditoría</button>
 </nav>
 
@@ -102,7 +136,7 @@
   <!-- EMPRESAS -->
   <section id="tab-empresas" class="hidden">
     <p class="module-intro"><strong>Empresas</strong> · Configura datos básicos y comprobantes.</p>
-    <div class="card">
+    <div class="card" id="crearEmpresaCard">
       <h2>Crear empresa</h2>
       <div class="row">
         <div><label>NIT</label><input id="nuevaNit" placeholder="900123456"></div>
@@ -473,6 +507,32 @@ Credito=credito</textarea>
     </div>
   </section>
 
+
+  <!-- USUARIOS -->
+  <section id="tab-usuarios" class="hidden">
+    <p class="module-intro"><strong>Usuarios</strong> · Controla quién puede entrar a la empresa activa.</p>
+    <div class="card">
+      <div class="flex-between"><div><h2>Accesos de la empresa</h2><p class="module-intro">Roles y permisos por empresa.</p></div><span class="pill ok">Acceso protegido</span></div>
+      <div class="row">
+        <div><label>Correo</label><input id="usrEmail" type="email" placeholder="auxiliar@empresa.com"></div>
+        <div><label>Nombre</label><input id="usrNombre" placeholder="Nombre del usuario"></div>
+        <div><label>Contraseña inicial (solo usuario nuevo)</label><input id="usrPassword" type="password" placeholder="Mínimo 10 caracteres"></div>
+        <div><label>Rol</label><select id="usrRol" onchange="renderPermisosNuevoUsuario()"><option value="administrador">Administrador</option><option value="contador">Contador</option><option value="auxiliar" selected>Auxiliar</option><option value="auditor">Auditor</option></select></div>
+        <div><button class="btn" onclick="guardarUsuarioEmpresa()">Asignar</button></div>
+      </div>
+      <details><summary><span></span><strong>Permisos personalizados</strong><span class="muted">Opcional</span></summary><div class="detail-body"><div id="permisosNuevoUsuario" class="permission-grid"></div></div></details>
+    </div>
+    <div class="card">
+      <h2>Usuarios autorizados</h2>
+      <div class="table-scroll"><table><thead><tr><th>Usuario</th><th>Correo</th><th>Rol</th><th>Permisos efectivos</th><th>Estado</th><th></th></tr></thead><tbody id="tablaUsuariosEmpresa"></tbody></table></div>
+    </div>
+    <div class="card hidden" id="globalUsersCard">
+      <h2>Administración general de usuarios</h2>
+      <p class="module-intro">Activa, bloquea o restablece credenciales.</p>
+      <div class="table-scroll"><table><thead><tr><th>Usuario</th><th>Correo</th><th>Administrador general</th><th>Estado</th><th></th></tr></thead><tbody id="tablaUsuariosGlobal"></tbody></table></div>
+    </div>
+  </section>
+
   <!-- AUDITORIA -->
   <section id="tab-auditoria" class="hidden">
     <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
@@ -489,11 +549,15 @@ Credito=credito</textarea>
 </main>
 
 <script>
+let authToken = ''; // La sesión real vive en cookie HttpOnly; no se expone a JavaScript.
+let authUser = null;
+let authMatrix = null;
 let empresas = [];
 let empresaActivaId = null;
 let moduloFacturasActivo = 'recibidas';
 let seleccionesFacturas = {recibidas: new Set(), emitidas: new Set()};
 let filtrosFacturas = {recibidas:{estado:'',naturaleza:''}, emitidas:{estado:'',naturaleza:''}};
+let cuentasEmpresaCache = [];
 function seleccionFacturasActual(){ return seleccionesFacturas[moduloFacturasActivo] || seleccionesFacturas.recibidas; }
 function guardarFiltrosActuales(){
   filtrosFacturas[moduloFacturasActivo]={estado:document.getElementById('filtroEstado')?.value||'', naturaleza:document.getElementById('filtroNaturaleza')?.value||''};
@@ -543,16 +607,77 @@ async function errorDeRespuesta(resp){
   }
 }
 
+function authHeaders(extra){
+  const h=Object.assign({},extra||{});
+  if(authToken) h['Authorization']='Bearer '+authToken;
+  return h;
+}
 async function req(path, options){
   options = options || {};
-  options.headers = Object.assign({'X-User': 'contador@app.local'}, options.headers || {});
+  options.headers = authHeaders(options.headers || {});
   const resp = await fetch(api() + path, options);
-  if(!resp.ok){
-    throw new Error(await errorDeRespuesta(resp));
+  if(resp.status===401){
+    authToken=''; authUser=null; mostrarLogin(false);
+    throw new Error('Tu sesión venció. Inicia sesión nuevamente.');
   }
+  if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
   const ct = resp.headers.get('content-type') || '';
   if(ct.includes('application/json')) return jsonSeguro(resp);
   return resp;
+}
+
+function mostrarLogin(bootstrap){
+  document.getElementById('authOverlay').classList.remove('hidden');
+  document.getElementById('loginPanel').classList.toggle('hidden',!!bootstrap);
+  document.getElementById('bootstrapPanel').classList.toggle('hidden',!bootstrap);
+  document.getElementById('usuarioChip').classList.add('hidden');
+}
+function ocultarLogin(){document.getElementById('authOverlay').classList.add('hidden');document.getElementById('usuarioChip').classList.remove('hidden');}
+async function iniciarSesion(){
+  try{
+    const email=document.getElementById('loginEmail').value.trim(), password=document.getElementById('loginPassword').value;
+    const resp=await fetch(api()+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    if(!resp.ok) throw new Error(await errorDeRespuesta(resp));
+    const d=await resp.json(); authUser=d.usuario;
+    await despuesDeAutenticar();
+  }catch(e){toast(e.message,true);}
+}
+async function crearAdministradorInicial(){
+  try{
+    const payload={nombre:document.getElementById('bootstrapNombre').value.trim(),email:document.getElementById('bootstrapEmail').value.trim(),password:document.getElementById('bootstrapPassword').value};
+    const resp=await fetch(api()+'/auth/bootstrap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!resp.ok) throw new Error(await errorDeRespuesta(resp));
+    const d=await resp.json(); authUser=d.usuario;
+    await despuesDeAutenticar();
+  }catch(e){toast(e.message,true);}
+}
+async function cerrarSesion(){try{await fetch(api()+'/auth/logout',{method:'POST'});}catch(e){}authToken='';authUser=null;empresaActivaId=null;mostrarLogin(false);}
+async function cambiarMiClave(){
+  const actual=prompt('Contraseña actual:'); if(!actual)return; const nueva=prompt('Nueva contraseña (mínimo 10 caracteres, letras y números):'); if(!nueva)return;
+  try{await req('/auth/cambiar-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password_actual:actual,password_nueva:nueva})});toast('Contraseña actualizada. Inicia sesión nuevamente.');await cerrarSesion();}catch(e){toast(e.message,true);}
+}
+async function despuesDeAutenticar(){
+  if(!authUser) authUser=await req('/auth/me');
+  try{authMatrix=await req('/auth/matriz-permisos');}catch(e){authMatrix=null;}
+  ocultarLogin();
+  document.getElementById('usuarioNombre').textContent=authUser.nombre||authUser.email;
+  document.getElementById('usuarioAvatar').textContent=(authUser.nombre||authUser.email||'U').trim().charAt(0).toUpperCase();
+  document.getElementById('usuarioRol').textContent=authUser.es_superadmin?'Administrador general':authUser.email;
+  await cargarEmpresas(); await cargarDashboard(); aplicarPermisosUI();
+}
+function asignacionActiva(){
+  if(!authUser||authUser.es_superadmin) return null;
+  return (authUser.asignaciones||[]).find(a=>a.empresa_id===empresaActivaId)||null;
+}
+function puede(permiso){
+  if(!authUser) return false; if(authUser.es_superadmin) return true;
+  const a=asignacionActiva(); return !!(a&&(a.permisos||[]).includes(permiso));
+}
+function aplicarPermisosUI(){
+  const navU=document.getElementById('navUsuarios'); if(navU)navU.classList.toggle('hidden',!empresaActivaId||!puede('usuarios_gestionar'));
+  const crear=document.getElementById('crearEmpresaCard');if(crear)crear.classList.toggle('hidden',!authUser?.es_superadmin); const gu=document.getElementById('globalUsersCard');if(gu)gu.classList.toggle('hidden',!authUser?.es_superadmin);
+  const role=authUser?.es_superadmin?'Administrador general':(asignacionActiva()?.rol||'Sin empresa activa');
+  const r=document.getElementById('usuarioRol');if(r)r.textContent=role;
 }
 
 // ---------- navegación ----------
@@ -574,6 +699,7 @@ document.getElementById('tabs').addEventListener('click', e=>{
     cargarFacturas(); cargarPanelClasificacion();
   }
   if(tab==='plantillas'){cargarPlantillas();cargarExportaciones();cargarFacturasContabilizadas();}
+  if(tab==='usuarios'){cargarUsuariosEmpresa();if(authUser?.es_superadmin)cargarUsuariosGlobales();}
   if(tab==='auditoria') cargarAuditoria();
 });
 
@@ -673,6 +799,7 @@ async function seleccionarEmpresa(id){
   empresaActivaId = id;
   const emp = empresas.find(e=>e.id===id);
   document.getElementById('empresaActivaBanner').innerHTML = `<span class="status-dot"></span><strong>${emp.nombre}</strong> · NIT ${emp.nit} · ${emp.sistema_contable}${emp.regimen_simple?' · RST':''}`;
+  aplicarPermisosUI();
   const nombreSistema = emp.sistema_contable === 'siigo_pyme' ? 'Siigo Pyme' : (emp.sistema_contable === 'world_office' ? 'World Office' : emp.sistema_contable);
   const elBoton = document.getElementById('histSistemaNombre'); if(elBoton) elBoton.textContent = nombreSistema;
   const elTexto = document.getElementById('histSistemaNombre2'); if(elTexto) elTexto.textContent = nombreSistema;
@@ -1033,7 +1160,7 @@ document.getElementById('excelInput').addEventListener('change', async e=>{
   fd.append('archivo', excelFile);
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-sugerir-mapeo`, {
-      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+      method:'POST', headers:authHeaders(), body: fd,
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
@@ -1123,7 +1250,7 @@ async function cargarDocumentos(){
     }
   }
   try{
-    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/cargar`, {method:'POST', headers:{'X-User':'contador@app.local'}, body: fd});
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/cargar`, {method:'POST', headers:authHeaders(), body: fd});
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
     const etiquetasClasificacion = {
@@ -1175,7 +1302,7 @@ async function importarBalanceAutomatico(){
   fd.append('archivo', archivo);
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/importar-balance`, {
-      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+      method:'POST', headers:authHeaders(), body: fd,
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
@@ -1206,7 +1333,7 @@ async function detectarColumnasHistorial(){
   fd.append('archivo', archivo);
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-columnas`, {
-      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+      method:'POST', headers:authHeaders(), body: fd,
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
@@ -1224,7 +1351,7 @@ async function usarPlantillaConocidaHistorial(){
   fd.append('archivo', archivo);
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/sugerir-mapeo`, {
-      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+      method:'POST', headers:authHeaders(), body: fd,
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
@@ -1286,7 +1413,7 @@ async function importarHistorico(){
   try{
     toast('Importando... si el archivo es grande puede tardar unos segundos');
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/importar`, {
-      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+      method:'POST', headers:authHeaders(), body: fd,
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
@@ -1569,6 +1696,40 @@ async function verSugerencia(facturaId, nit, direccion, naturaleza){
   }catch(e){ toast(e.message, true); }
 }
 
+async function cargarCuentasEmpresaCache(){
+  if(!empresaActivaId) return [];
+  try{
+    cuentasEmpresaCache = await req(`/empresas/${empresaActivaId}/cuentas`);
+  }catch(e){ cuentasEmpresaCache=[]; }
+  return cuentasEmpresaCache;
+}
+function leerCuentasControl(facturaId){
+  const out={};
+  document.querySelectorAll(`[data-control-factura="${facturaId}"]`).forEach(inp=>{
+    const rol=inp.dataset.controlRol, valor=inp.value.trim();
+    if(rol && valor) out[rol]=valor;
+  });
+  return out;
+}
+async function renderCuentasControlPendientes(facturaId, pendientes, errores){
+  const div=document.getElementById('partida-'+facturaId); if(!div) return;
+  if(!pendientes || !pendientes.length){
+    div.innerHTML=`<p class="pill err">Requiere revisión</p><ul>${(errores||[]).map(e=>'<li>'+e+'</li>').join('')}</ul>`;
+    return;
+  }
+  if(!cuentasEmpresaCache.length) await cargarCuentasEmpresaCache();
+  const opciones=cuentasEmpresaCache.map(c=>`<option value="${c.codigo}">${c.nombre||''}</option>`).join('');
+  const money=v=>Number(v||0).toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2});
+  div.innerHTML=`<div class="accounting-box"><div class="accounting-head"><strong>Cuentas pendientes</strong><span class="pill warn">${pendientes.length} por resolver</span></div>
+    <p class="module-intro">El historial no fue concluyente. Elige solo las cuentas faltantes; la corrección quedará aprendida para casos similares.</p>
+    <div class="table-scroll"><table><thead><tr><th>Concepto</th><th>Valor</th><th>D/C</th><th>Cuenta</th></tr></thead><tbody>
+    ${pendientes.map((x,i)=>{const dl=`dl-control-${facturaId}-${i}`; return `<tr><td><strong>${x.etiqueta}</strong></td><td class="mono">$${money(x.valor)}</td><td>${x.naturaleza==='debito'?'Débito':'Crédito'}</td><td><input data-control-factura="${facturaId}" data-control-rol="${x.rol}" list="${dl}" placeholder="Buscar o escribir cuenta"><datalist id="${dl}">${opciones}</datalist></td></tr>`}).join('')}
+    </tbody></table></div>
+    <div style="margin-top:10px"><button class="btn" onclick="generarPartida('${facturaId}','')">Reintentar partida</button></div>
+    ${(errores||[]).length?`<details style="margin-top:8px"><summary><strong>Detalle</strong></summary><div class="detail-body"><ul>${errores.map(e=>'<li>'+e+'</li>').join('')}</ul></div></details>`:''}
+  </div>`;
+}
+
 async function generarPartida(facturaId, naturaleza){
   let cuenta = document.getElementById('cuenta-'+facturaId).value.trim();
   const elContra=document.getElementById('contra-'+facturaId); const contra=elContra?elContra.value:'';
@@ -1588,10 +1749,10 @@ async function generarPartida(facturaId, naturaleza){
       }
     }
     if(!cuenta && naturaleza!=='nomina'){toast('El historial no tiene una cuenta suficientemente confiable. Indica una corrección manual.',true);return;}
-    const r=await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/partida/generar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cuenta_gasto_codigo:cuenta||null,contrapartida:contra||null,origen_decision:origen,centro_costo_codigo:centroCosto||null})});
+    const r=await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/partida/generar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cuenta_gasto_codigo:cuenta||null,contrapartida:contra||null,origen_decision:origen,centro_costo_codigo:centroCosto||null,cuentas_control:leerCuentasControl(facturaId)})});
     const div=document.getElementById('partida-'+facturaId);
     if(r.balanceado){ div.innerHTML=`<p class="pill ok">✓ Partida balanceada</p>`; toast('Partida generada y balanceada'); await cargarPartidaGuardada(facturaId); cargarPanelClasificacion(); }
-    else{ div.innerHTML=`<p class="pill err">Requiere revisión</p><ul>${r.errores.map(e=>'<li>'+e+'</li>').join('')}</ul>`; }
+    else{ await renderCuentasControlPendientes(facturaId,r.cuentas_pendientes||[],r.errores||[]); }
   }catch(e){toast(e.message,true);}
 }
 async function contabilizar(facturaId){
@@ -1734,7 +1895,7 @@ async function detectarColumnasDesdeEjemplo(){
   fd.append('archivo', archivo);
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/plantillas/inferir-desde-ejemplo`, {
-      method:'POST', headers:{'X-User':'contador@app.local'}, body: fd,
+      method:'POST', headers:authHeaders(), body: fd,
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
@@ -1874,7 +2035,7 @@ async function generarExportacion(){
   if(!plantillaId || ids.length===0){ toast('Elige una plantilla y asegúrate de tener facturas contabilizadas (o escribe IDs manualmente)', true); return; }
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/exportaciones/generar`, {
-      method:'POST', headers:{'Content-Type':'application/json', 'X-User':'contador@app.local'},
+      method:'POST', headers:authHeaders({'Content-Type':'application/json'}),
       body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids}),
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
@@ -1911,6 +2072,35 @@ async function eliminarExportacion(id){
   }catch(e){ toast(e.message, true); }
 }
 
+// ---------- usuarios y permisos ----------
+function permisosOverrideDesdeUI(prefix, rol){
+  if(!authMatrix) return {}; const base=authMatrix.matriz?.[rol]||{}; const out={};
+  (authMatrix.permisos||[]).forEach(p=>{const el=document.getElementById(prefix+p);if(!el)return;const val=!!el.checked;if(val!==!!base[p])out[p]=val;});
+  return out;
+}
+function renderPermisosNuevoUsuario(){
+  const box=document.getElementById('permisosNuevoUsuario');if(!box||!authMatrix)return;const rol=document.getElementById('usrRol').value;const base=authMatrix.matriz?.[rol]||{};
+  box.innerHTML=(authMatrix.permisos||[]).map(p=>`<label><input type="checkbox" id="permNuevo_${p}" ${base[p]?'checked':''}> ${p.replaceAll('_',' ')}</label>`).join('');
+}
+async function cargarUsuariosEmpresa(){
+  if(!empresaActivaId||!puede('usuarios_gestionar'))return; try{
+    const rows=await req(`/empresas/${empresaActivaId}/usuarios`); const tb=document.getElementById('tablaUsuariosEmpresa');
+    tb.innerHTML=rows.map(u=>`<tr><td><strong>${u.nombre||'—'}</strong></td><td>${u.email}</td><td><select id="rolUsr_${u.id}" onchange="cambiarRolUsuario('${u.id}')"><option value="administrador" ${u.rol==='administrador'?'selected':''}>Administrador</option><option value="contador" ${u.rol==='contador'?'selected':''}>Contador</option><option value="auxiliar" ${u.rol==='auxiliar'?'selected':''}>Auxiliar</option><option value="auditor" ${u.rol==='auditor'?'selected':''}>Auditor</option></select></td><td class="muted">${(u.permisos||[]).length} permisos</td><td><span class="pill ${u.activo?'ok':'err'}">${u.activo?'Activo':'Inactivo'}</span></td><td><button class="btn danger" onclick="quitarUsuarioEmpresa('${u.id}')">Quitar</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">Sin usuarios asignados.</td></tr>';
+    renderPermisosNuevoUsuario();
+  }catch(e){toast(e.message,true);}
+}
+async function guardarUsuarioEmpresa(){
+  if(!empresaActivaId)return; try{const rol=document.getElementById('usrRol').value;const payload={email:document.getElementById('usrEmail').value.trim(),nombre:document.getElementById('usrNombre').value.trim()||null,password:document.getElementById('usrPassword').value||null,rol,permisos:permisosOverrideDesdeUI('permNuevo_',rol)};
+    await req(`/empresas/${empresaActivaId}/usuarios`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});toast('Usuario asignado');document.getElementById('usrPassword').value='';cargarUsuariosEmpresa();
+  }catch(e){toast(e.message,true);}
+}
+async function cambiarRolUsuario(id){try{const rol=document.getElementById('rolUsr_'+id).value;await req(`/empresas/${empresaActivaId}/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({rol})});toast('Rol actualizado');cargarUsuariosEmpresa();}catch(e){toast(e.message,true);}}
+async function quitarUsuarioEmpresa(id){if(!confirm('¿Quitar el acceso de este usuario a la empresa?'))return;try{await req(`/empresas/${empresaActivaId}/usuarios/${id}`,{method:'DELETE'});toast('Acceso retirado');cargarUsuariosEmpresa();}catch(e){toast(e.message,true);}}
+
+async function cargarUsuariosGlobales(){if(!authUser?.es_superadmin)return;try{const rows=await req('/auth/admin/usuarios');const tb=document.getElementById('tablaUsuariosGlobal');tb.innerHTML=rows.map(u=>`<tr><td><strong>${u.nombre||'—'}</strong></td><td>${u.email}</td><td>${u.es_superadmin?'Sí':'No'}</td><td><span class="pill ${u.activo?'ok':'err'}">${u.activo?'Activo':'Bloqueado'}</span></td><td><button class="btn ghost" onclick="alternarUsuarioGlobal('${u.id}',${u.activo?'false':'true'})">${u.activo?'Bloquear':'Activar'}</button> <button class="btn ghost" onclick="resetClaveUsuario('${u.id}')">Nueva clave</button></td></tr>`).join('');}catch(e){toast(e.message,true);}}
+async function alternarUsuarioGlobal(id,activo){try{await req(`/auth/admin/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo})});toast('Usuario actualizado');cargarUsuariosGlobales();}catch(e){toast(e.message,true);}}
+async function resetClaveUsuario(id){const clave=prompt('Nueva contraseña (mínimo 10 caracteres, letras y números):');if(!clave)return;try{await req(`/auth/admin/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password_nueva:clave})});toast('Contraseña restablecida');}catch(e){toast(e.message,true);}}
+
 // ---------- auditoría ----------
 async function cargarAuditoria(){
   if(!empresaActivaId){ document.getElementById('tablaAuditoria').innerHTML=''; return; }
@@ -1930,8 +2120,15 @@ async function cargarAuditoria(){
 // desplegado (https://tu-app.onrender.com) — así nunca queda apuntando
 // por error a 127.0.0.1 cuando se abre desde otro lugar.
 document.getElementById('apiBase').value = window.location.origin;
-cargarEmpresas();
-cargarDashboard();
+(async function iniciarAplicacion(){
+  try{
+    const estadoResp=await fetch(api()+'/auth/estado'); const estado=await estadoResp.json();
+    if(estado.requiere_bootstrap){mostrarLogin(true);return;}
+    const meResp=await fetch(api()+'/auth/me',{headers:authHeaders()});
+    if(!meResp.ok){authToken='';mostrarLogin(false);return;}
+    authUser=await meResp.json(); await despuesDeAutenticar();
+  }catch(e){mostrarLogin(false);toast('No fue posible verificar la sesión: '+e.message,true);}
+})();
 </script>
 </body>
 </html>

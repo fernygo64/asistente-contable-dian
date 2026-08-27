@@ -212,7 +212,17 @@ def _normalizar_nit(valor: Optional[str]) -> str:
 
 
 def _normalizar_cuenta(valor: Optional[str]) -> str:
-    return _texto(valor)
+    """Normaliza para comparar contra el Movimiento Contable SIIGO.
+
+    El Balance conserva el código natural (p. ej. 519525), mientras el modelo
+    de Movimiento Contable exige 10 dígitos (5195250000). El aprendizaje
+    técnico compara ambos en la representación SIIGO sin modificar el código
+    natural guardado en el plan de cuentas.
+    """
+    txt = _texto(valor)
+    if txt.isdigit() and len(txt) <= 10:
+        return txt.ljust(10, "0")
+    return txt
 
 
 def _zero_like(valor: Optional[str]) -> bool:

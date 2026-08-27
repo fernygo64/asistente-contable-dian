@@ -358,6 +358,37 @@ class HistorialContable(Base):
     )
 
 
+
+class ReglaCuentaControl(Base):
+    """
+    Cuenta auxiliar de control (IVA/INC/retenciones/etc.) confirmada por el usuario
+    cuando el historial/balance no fue concluyente. La regla queda limitada al
+    contexto empresa + rol + dirección + naturaleza + cuenta principal + tercero.
+    """
+    __tablename__ = "reglas_cuentas_control"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    empresa_id = Column(String(36), ForeignKey("empresas.id"), nullable=False, index=True)
+    rol = Column(String(40), nullable=False, index=True)
+    direccion_documento = Column(String(20), nullable=True)
+    naturaleza_documento = Column(String(40), nullable=True)
+    cuenta_principal_codigo = Column(String(30), nullable=True, index=True)
+    tercero_nit = Column(String(30), nullable=True, index=True)
+    cuenta_control_id = Column(String(36), ForeignKey("cuentas_contables.id"), nullable=False)
+    usos = Column(Integer, nullable=False, default=1)
+    origen = Column(String(30), nullable=False, default="manual")
+    creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    cuenta_control = relationship("CuentaContable")
+
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "rol", "direccion_documento", "naturaleza_documento",
+                         "cuenta_principal_codigo", "tercero_nit", name="uq_regla_cuenta_control_contexto"),
+        Index("ix_regla_control_busqueda", "empresa_id", "rol", "cuenta_principal_codigo", "tercero_nit"),
+    )
+
+
 # --------------------------------------------------- Documentos DIAN (Etapa 2)
 class CargaDocumentosDian(Base):
     """
@@ -735,6 +766,56 @@ class Exportacion(Base):
     __table_args__ = (
         Index("ix_exportacion_empresa_creado", "empresa_id", "creado_en"),
     )
+
+
+# ------------------------------------------------------- Usuarios y acceso --
+class Usuario(Base):
+    """Usuario real de la aplicación. Las contraseñas nunca se guardan en texto plano."""
+    __tablename__ = "usuarios"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    email = Column(String(200), nullable=False, unique=True, index=True)
+    nombre = Column(String(200), nullable=False)
+    password_hash = Column(String(500), nullable=False)
+    activo = Column(Boolean, nullable=False, default=True)
+    es_superadmin = Column(Boolean, nullable=False, default=False)
+    token_version = Column(Integer, nullable=False, default=1)
+    intentos_fallidos = Column(Integer, nullable=False, default=0)
+    bloqueado_hasta = Column(DateTime(timezone=True), nullable=True)
+    ultimo_acceso = Column(DateTime(timezone=True), nullable=True)
+    creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+
+class UsuarioEmpresa(Base):
+    """Rol y permisos de un usuario dentro de una empresa concreta."""
+    __tablename__ = "usuarios_empresas"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    usuario_id = Column(String(36), ForeignKey("usuarios.id"), nullable=False, index=True)
+    empresa_id = Column(String(36), ForeignKey("empresas.id"), nullable=False, index=True)
+    rol = Column(String(30), nullable=False, default="auxiliar")
+    permisos_json = Column(Text, nullable=False, default="{}")
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    usuario = relationship("Usuario")
+    empresa = relationship("Empresa")
+
+    __table_args__ = (
+        UniqueConstraint("usuario_id", "empresa_id", name="uq_usuario_empresa"),
+        Index("ix_usuario_empresa_activo", "usuario_id", "empresa_id", "activo"),
+    )
+
+
+class ConfiguracionAplicacion(Base):
+    """Configuración global no contable (por ejemplo, secreto de sesiones)."""
+    __tablename__ = "configuracion_aplicacion"
+
+    clave = Column(String(100), primary_key=True)
+    valor = Column(Text, nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
 
 
 # ----------------------------------------------------------------- Audit --

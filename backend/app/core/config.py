@@ -35,3 +35,8 @@ DATABASE_URL = _normalizar_database_url(os.environ.get(
 # siempre particionada por empresa: storage/<empresa_id>/...
 STORAGE_DIR = Path(os.environ.get("STORAGE_DIR", BASE_DIR / "storage"))
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Autenticación real. En producción queda activa por defecto. Las pruebas
+# heredadas pueden ejecutar con AUTH_REQUIRED=0 para aislar lógica contable.
+AUTH_REQUIRED = os.environ.get("AUTH_REQUIRED", "1").strip().lower() not in {"0", "false", "no", "off"}
+AUTH_TOKEN_HOURS = int(os.environ.get("AUTH_TOKEN_HOURS", "12"))

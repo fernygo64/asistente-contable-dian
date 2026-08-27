@@ -67,6 +67,53 @@ def _fecha_desde_partes(anio, mes, dia) -> Optional[datetime]:
         return None
 
 
+def _mapa_codigo_siigo_a_natural(db: Session, empresa_id: str) -> dict[str, str]:
+    """Mapea el código SIIGO exportado de 10 dígitos a la cuenta natural más específica ya aprendida del balance.
+
+    Ej.: si el balance conoce 519525, el movimiento contable 5195250000 se asocia
+    a 519525 para el aprendizaje contable. La huella técnica SIIGO conserva el
+    código original de 10 dígitos por separado.
+    """
+    mapa: dict[str, str] = {}
+    for c in db.query(CuentaContable).filter(CuentaContable.empresa_id == empresa_id).all():
+        codigo = str(c.codigo or "").strip()
+        if not codigo.isdigit() or len(codigo) > 10:
+            continue
+        exportado = codigo.ljust(10, "0")
+        actual = mapa.get(exportado)
+        if actual is None or len(codigo) > len(actual):
+            mapa[exportado] = codigo
+    return mapa
+
+
+def sincronizar_catalogo_cuentas(db: Session, empresa_id: str, catalogo: list[dict]) -> int:
+    """
+    Carga/actualiza el plan de cuentas observado en un balance jerárquico.
+    Guarda el código natural (2/4/6/8/10 dígitos según el nivel); el
+    adaptador SIIGO es quien rellena ceros a la derecha hasta 10 al exportar.
+    """
+    catalogo_limpio = {str(x.get("codigo") or "").strip(): str(x.get("nombre") or "").strip() for x in catalogo if str(x.get("codigo") or "").strip()}
+    if not catalogo_limpio:
+        return 0
+    existentes = {c.codigo: c for c in db.query(CuentaContable).filter(
+        CuentaContable.empresa_id == empresa_id, CuentaContable.codigo.in_(list(catalogo_limpio.keys()))
+    ).all()}
+    cambios = 0
+    for codigo, nombre in catalogo_limpio.items():
+        c = existentes.get(codigo)
+        if not c:
+            db.add(CuentaContable(id=str(uuid.uuid4()), empresa_id=empresa_id, codigo=codigo, nombre=nombre or codigo))
+            cambios += 1
+        elif nombre and (not c.nombre or c.nombre == c.codigo):
+            c.nombre = nombre
+            cambios += 1
+    # La sesión usa autoflush=False. Hay que materializar aquí las cuentas
+    # nuevas para que la importación de terceros inmediatamente posterior
+    # pueda encontrarlas y no intente insertar el mismo código otra vez.
+    db.flush()
+    return cambios
+
+
 def importar_registros_historico(db: Session, empresa_id: str, nombre_archivo: str,
                                   registros: list[dict], mapeo_descripcion: dict,
                                   usuario: Optional[str], total_filas_original: int,
@@ -229,6 +276,7 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
     columna_valor_credito = mapeo_resuelto.get("valor_credito")
 
     prefijos_excluir = [p.strip() for p in (cuentas_excluir or []) if p.strip()]
+    mapa_siigo_natural = _mapa_codigo_siigo_a_natural(db, empresa_id)
 
     total = len(df)
     rechazos: list[str] = []
@@ -238,7 +286,8 @@ def importar_historico(db: Session, empresa_id: str, contenido: bytes, nombre_ar
     excluidos_por_cuenta = 0
     for i, row in df.iterrows():
         nit = str(row.get(columna_nit, "")).strip()
-        cuenta_codigo = str(row.get(columna_cuenta, "")).strip()
+        cuenta_codigo_original = str(row.get(columna_cuenta, "")).strip()
+        cuenta_codigo = mapa_siigo_natural.get(cuenta_codigo_original, cuenta_codigo_original)
         if not nit or not cuenta_codigo:
             rechazos.append(f"Fila {i + 2}: falta NIT o cuenta.")
             continue

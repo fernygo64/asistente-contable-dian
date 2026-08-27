@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import empresas, config_empresa, historial, auditoria, documentos, exportacion, puc, siigo_config
+from app.api import empresas, config_empresa, historial, auditoria, documentos, exportacion, puc, siigo_config, auth
 
 # El esquema de base de datos se gestiona con Alembic (carpeta alembic/),
 # no con Base.metadata.create_all(). Antes de levantar el servidor por
@@ -31,22 +32,48 @@ async def _lifespan(app: FastAPI):
     yield
 
 
+_api_docs = os.environ.get("ENABLE_API_DOCS", "0").strip().lower() in {"1", "true", "yes"}
+
 app = FastAPI(
     title="Asistente Contable DIAN — API",
     description="Backend multiempresa: historial contable explicable, "
                 "reglas, plan de cuentas, importación de históricos y auditoría.",
-    version="0.1.0-etapa5",
+    version="0.2.0-multiusuario",
     lifespan=_lifespan,
+    docs_url="/docs" if _api_docs else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if _api_docs else None,
 )
 
 # CORS abierto: este proyecto corre local, sin desplegar (ver README).
 # Antes de exponerlo en una red compartida o desplegarlo, restringe
 # allow_origins a los dominios reales.
+_cors_env = os.environ.get("CORS_ORIGINS", "").strip()
+_cors_origins = [x.strip() for x in _cors_env.split(",") if x.strip()] if _cors_env else [
+    "http://127.0.0.1:8000", "http://localhost:8000",
+]
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware, allow_origins=_cors_origins, allow_methods=["*"], allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    )
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+app.include_router(auth.router)
 app.include_router(empresas.router)
+app.include_router(auth.usuarios_router)
 app.include_router(config_empresa.router)
 app.include_router(historial.router)
 app.include_router(documentos.router)

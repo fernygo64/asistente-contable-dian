@@ -332,6 +332,7 @@ class GenerarPartidaRequest(BaseModel):
     origen_decision: str = "manual"      # "manual" | "sugerencia_aceptada"
     centro_costo_codigo: Optional[str] = None
     usuario: Optional[str] = None
+    cuentas_control: Dict[str, str] = Field(default_factory=dict)  # impuestos/retenciones si historial/balance no resolvió
 
 
 class LineaPartidaOut(BaseModel):
@@ -350,6 +351,7 @@ class PartidaOut(BaseModel):
     total_credito: float
     balanceado: bool
     errores: List[str] = []
+    cuentas_pendientes: List[Dict[str, Any]] = []
 
 
 # ---------------------------------------------------- Plantillas de exportación
@@ -423,3 +425,40 @@ class SugerenciaCuenta(BaseModel):
     cuenta_sugerida: Optional[str] = None
     motivo: str
     fuente: str  # "historial" | "regla" | "sin_informacion"
+
+# -------------------------------------------------------- Autenticación/RBAC
+class AuthBootstrapIn(BaseModel):
+    nombre: str = Field(min_length=2, max_length=200)
+    email: str = Field(min_length=5, max_length=200)
+    password: str = Field(min_length=10, max_length=200)
+
+
+class AuthLoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class CambioPasswordIn(BaseModel):
+    password_actual: str
+    password_nueva: str = Field(min_length=10, max_length=200)
+
+
+class UsuarioEmpresaAsignacionIn(BaseModel):
+    email: str
+    nombre: Optional[str] = None
+    password: Optional[str] = None
+    rol: str = "auxiliar"
+    permisos: Dict[str, bool] = {}
+
+
+class UsuarioEmpresaUpdateIn(BaseModel):
+    rol: Optional[str] = None
+    permisos: Optional[Dict[str, bool]] = None
+    activo: Optional[bool] = None
+
+
+class UsuarioUpdateIn(BaseModel):
+    nombre: Optional[str] = None
+    activo: Optional[bool] = None
+    es_superadmin: Optional[bool] = None
+    password_nueva: Optional[str] = None

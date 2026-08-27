@@ -1,25 +1,13 @@
 """
-Balance de Prueba por Terceros — formato real de Siigo NUBE (distinto
-del "Movimiento Contable" de Siigo Pyme, y distinto del balance plano
-genérico que ya soporta balance_service.py).
+Balance de Prueba por Terceros — formatos jerárquicos de Siigo.
 
-Confirmado contra un archivo real de 974 filas: el código de cuenta NO
-viene en una sola columna — se arma progresivamente en 5 columnas
-jerárquicas (GRUPO, CUENTA, SUBCUENTA, AUXILIAR, SUBAUXILIAR). Cada fila
-de "total de cuenta" solo llena el/los niveles que le corresponden;
-las filas de DETALLE POR TERCERO (con NIT) no repiten ningún nivel —
-heredan el código más profundo que esté vigente en ese momento del
-recorrido de arriba hacia abajo. La columna DESCRIPCION significa cosas
-distintas según el tipo de fila: nombre de la CUENTA en una fila de
-total, pero nombre del TERCERO en una fila de detalle con NIT.
-
-Ejemplo real verificado:
-  GRUPO=13                                    -> código "13"    DEUDORES
-  GRUPO=13 CUENTA=05                          -> código "1305"  CLIENTES
-  GRUPO=13 CUENTA=05 SUBCUENTA=06              -> código "130506" CLIENTES
-  NIT=31398514 (sin GRUPO/CUENTA/SUBCUENTA)   -> hereda "130506", tercero
-                                                  "HERNANDEZ OSPINA ESPERANZA"
+Siigo Pyme/Siigo puede presentar el código repartido en hasta cinco columnas
+jerárquicas (grupo/cuenta/subcuenta/auxiliar/subauxiliar). En archivos reales
+cada tramo suele ser de dos dígitos. Las filas con NIT heredan la cuenta más
+profunda vigente y la columna DESCRIPCIÓN sirve tanto para el nombre de la
+cuenta (filas jerárquicas) como para el nombre del tercero (filas con NIT).
 """
+import re
 import pandas as pd
 
 
@@ -28,14 +16,31 @@ def _es_hoja_valida(nombre_col: str, palabras: list[str]) -> bool:
     return any(p in n for p in palabras)
 
 
+def _segmento(v, primer_nivel: bool = False) -> str:
+    """Normaliza un tramo jerárquico. La clase raíz (1-9) conserva un dígito; los demás tramos usan dos."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return ""
+    txt = str(v).strip()
+    if not txt or txt.lower() == "nan":
+        return ""
+    # Excel/pandas puede entregar 5.0 aun cuando visualmente la celda sea 05.
+    try:
+        n = int(float(txt.replace(",", ".")))
+        if 0 <= n <= 99:
+            if primer_nivel and n < 10:
+                return str(n)
+            return str(n).zfill(2)
+    except (ValueError, TypeError):
+        pass
+    digitos = re.sub(r"\D", "", txt)
+    if not digitos:
+        return ""
+    if primer_nivel and len(digitos) == 1:
+        return digitos
+    return digitos.zfill(2) if len(digitos) <= 2 else digitos
+
+
 def detectar_columnas_balance_terceros(columnas_reales: list[str]) -> dict | None:
-    """
-    Reconoce las columnas típicas de este formato (GRUPO/CUENTA/
-    SUBCUENTA o similar). Devuelve None si el archivo no tiene esta
-    forma — quien llama debe entonces probar el detector de balance
-    plano genérico en su lugar, nunca forzar este parser sobre un
-    archivo que no le corresponde.
-    """
     def buscar(palabras):
         for c in columnas_reales:
             if _es_hoja_valida(c, palabras):
@@ -46,29 +51,17 @@ def detectar_columnas_balance_terceros(columnas_reales: list[str]) -> dict | Non
     cuenta_candidata = buscar(["CUENTA"])
     cuenta = cuenta_candidata if cuenta_candidata != grupo else None
     subcuenta = buscar(["SUBCUENT"])
-    auxiliar = None
-    for c in columnas_reales:
-        cu = c.strip().upper()
-        if cu.startswith("AUXILIAR"):
-            auxiliar = c
-            break
+    auxiliar = next((c for c in columnas_reales if c.strip().upper().startswith("AUXILIAR")), None)
     subauxiliar = buscar(["SUBAUXIL"])
-    nit = buscar(["NIT"])
+    nit = buscar(["NIT", "IDENTIFICACION", "IDENTIFICACIÓN"])
     descripcion = buscar(["DESCRIPCION", "DESCRIPCIÓN"])
-    saldo = None
-    for c in columnas_reales:
-        if "NUEVO SALDO" in c.strip().upper():
-            saldo = c
-            break
+    saldo = next((c for c in columnas_reales if "NUEVO SALDO" in c.strip().upper()), None)
     if not saldo:
-        for c in columnas_reales:
-            if c.strip().upper().startswith("SALDO"):
-                saldo = c
-                break
+        saldo = next((c for c in columnas_reales if c.strip().upper().startswith("SALDO")), None)
 
+    # Formato real esperado: al menos nivel principal + NIT + descripción.
     if not grupo or not nit or not descripcion:
         return None
-
     return {
         "grupo": grupo, "cuenta": cuenta, "subcuenta": subcuenta,
         "auxiliar": auxiliar, "subauxiliar": subauxiliar,
@@ -76,31 +69,19 @@ def detectar_columnas_balance_terceros(columnas_reales: list[str]) -> dict | Non
     }
 
 
-def parsear_balance_terceros_jerarquico(df: pd.DataFrame, columnas: dict) -> list[dict]:
-    """
-    Devuelve una lista de {"nit", "nombre_tercero", "cuenta_codigo",
-    "nombre_cuenta", "valor"} — una por cada línea de detalle con
-    tercero real, con el código de cuenta ya reconstruido.
-    """
-    niveles_cols = [columnas["grupo"], columnas["cuenta"], columnas["subcuenta"],
-                     columnas["auxiliar"], columnas["subauxiliar"]]
-    niveles_actuales = [None, None, None, None, None]
+def _recorrer(df: pd.DataFrame, columnas: dict):
+    niveles_cols = [columnas["grupo"], columnas["cuenta"], columnas["subcuenta"], columnas["auxiliar"], columnas["subauxiliar"]]
+    niveles_actuales = [None] * 5
     nombres_por_codigo: dict[str, str] = {}
-    registros = []
+    catalogo: dict[str, str] = {}
+    detalles = []
 
     for _, fila in df.iterrows():
-        valores_nivel = []
-        for col in niveles_cols:
-            if col is None:
-                valores_nivel.append("")
-                continue
-            v = fila.get(col)
-            valores_nivel.append(str(v).strip() if pd.notna(v) and str(v).strip().lower() != "nan" else "")
-
-        nit_val = fila.get(columnas["nit"])
-        nit = str(nit_val).strip() if pd.notna(nit_val) and str(nit_val).strip().lower() != "nan" else ""
-        desc_val = fila.get(columnas["descripcion"])
-        desc = str(desc_val).strip() if pd.notna(desc_val) else ""
+        valores_nivel = [_segmento(fila.get(c), primer_nivel=(i == 0)) if c else "" for i, c in enumerate(niveles_cols)]
+        nit_raw = fila.get(columnas["nit"])
+        nit = str(nit_raw).strip() if pd.notna(nit_raw) and str(nit_raw).strip().lower() != "nan" else ""
+        desc_raw = fila.get(columnas["descripcion"])
+        desc = str(desc_raw).strip() if pd.notna(desc_raw) else ""
 
         if any(valores_nivel):
             for i, val in enumerate(valores_nivel):
@@ -110,23 +91,33 @@ def parsear_balance_terceros_jerarquico(df: pd.DataFrame, columnas: dict) -> lis
                         niveles_actuales[j] = None
             codigo = "".join(n for n in niveles_actuales if n)
             if codigo:
-                nombres_por_codigo[codigo] = desc
-            continue  # fila de total de cuenta, no de detalle por tercero
+                if desc:
+                    nombres_por_codigo[codigo] = desc
+                    catalogo[codigo] = desc
+            continue
 
         if nit:
             codigo = "".join(n for n in niveles_actuales if n)
             if not codigo:
-                continue  # NIT sin ninguna cuenta vigente todavía -> se ignora, no se inventa
+                continue
             valor = None
-            if columnas["saldo"]:
+            if columnas.get("saldo"):
                 v = fila.get(columnas["saldo"])
                 try:
-                    valor = float(v)
+                    valor = float(str(v).replace(",", ""))
                 except (ValueError, TypeError):
                     valor = None
-            registros.append({
+            detalles.append({
                 "nit": nit, "nombre_tercero": desc, "cuenta_codigo": codigo,
                 "nombre_cuenta": nombres_por_codigo.get(codigo, ""), "valor": valor,
             })
+    return detalles, [{"codigo": c, "nombre": n} for c, n in catalogo.items()]
 
-    return registros
+
+def parsear_balance_terceros_jerarquico(df: pd.DataFrame, columnas: dict) -> list[dict]:
+    return _recorrer(df, columnas)[0]
+
+
+def extraer_catalogo_cuentas_jerarquico(df: pd.DataFrame, columnas: dict) -> list[dict]:
+    """Devuelve todas las cuentas/nombres visibles en las filas jerárquicas, incluso sin NIT."""
+    return _recorrer(df, columnas)[1]

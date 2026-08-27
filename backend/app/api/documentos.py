@@ -460,7 +460,7 @@ def resolver_duplicado(empresa_id: str, factura_id: str, payload: ResolucionDupl
 # --------------------------------------------------------------- Partida doble
 def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f: Factura,
                                 cuenta_gasto_codigo: Optional[str], contrapartida: str, origen_decision: str,
-                                centro_costo_codigo: Optional[str], usuario: str):
+                                centro_costo_codigo: Optional[str], usuario: str, cuentas_control: dict | None = None):
     """
     Lógica compartida entre el endpoint individual y el masivo — genera
     la partida, la persiste si cuadra, y alimenta el historial. Devuelve
@@ -493,7 +493,7 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
             return None, f"El centro de costo '{centro_costo_codigo}' no existe en esta empresa."
 
     resultado = partida_doble_service.generar_partida(
-        db, empresa, f, cuenta_gasto.id if cuenta_gasto else None, contrapartida, centro_costo
+        db, empresa, f, cuenta_gasto.id if cuenta_gasto else None, contrapartida, centro_costo, cuentas_control
     )
 
     if resultado.balanceado:
@@ -520,6 +520,11 @@ def _aplicar_partida_a_factura(db: Session, empresa: Empresa, empresa_id: str, f
                 descripcion=concepto_factura,
                 valor=f.subtotal, importacion_id=None,
             )
+
+        # Si el usuario resolvió manualmente una cuenta de impuesto/retención,
+        # se aprende en ese contexto para no volverla a pedir sin convertirla
+        # en una cuenta universal de la empresa.
+        partida_doble_service.registrar_reglas_control_manual(db, empresa, f, cuenta_gasto, cuentas_control)
 
         auditoria_registrar(db, empresa_id, "Factura", f.id, "partida_generada",
                              {"cuenta_gasto": cuenta_gasto.codigo if cuenta_gasto else "(asiento multilínea de nómina)",
@@ -550,7 +555,7 @@ def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaReq
 
     resultado, error = _aplicar_partida_a_factura(
         db, empresa, empresa_id, f, payload.cuenta_gasto_codigo, payload.contrapartida,
-        payload.origen_decision, payload.centro_costo_codigo, payload.usuario or usuario,
+        payload.origen_decision, payload.centro_costo_codigo, payload.usuario or usuario, payload.cuentas_control,
     )
     if error and resultado is None:
         raise HTTPException(status_code=422, detail=error)
@@ -568,6 +573,7 @@ def generar_partida(empresa_id: str, factura_id: str, payload: GenerarPartidaReq
                 for l in resultado.lineas],
         total_debito=resultado.total_debito, total_credito=resultado.total_credito,
         balanceado=resultado.balanceado, errores=resultado.errores,
+        cuentas_pendientes=resultado.cuentas_pendientes,
     )
 
 
@@ -687,7 +693,7 @@ def obtener_partida(empresa_id: str, factura_id: str, db: Session = Depends(get_
                                  centro_costo_codigo=m.centro_costo.codigo if m.centro_costo else None)
                 for m in movimientos],
         total_debito=round(total_debito, 2), total_credito=round(total_credito, 2),
-        balanceado=abs(total_debito - total_credito) < 0.01, errores=[],
+        balanceado=abs(total_debito - total_credito) < 0.01, errores=[], cuentas_pendientes=[],
     )
 
 

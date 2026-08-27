@@ -2,17 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.models import Empresa
+from app.models.models import Empresa, Usuario, UsuarioEmpresa
 from app.schemas.schemas import EmpresaCreate, EmpresaOut, EmpresaCuentasBase, EmpresaComprobantesPorTipo, EmpleadoCreate, EmpleadoOut
 from app.services.auditoria_service import registrar as auditoria_registrar
-from app.core.security import usuario_actual, get_empresa_activa
+from app.core.security import usuario_actual, get_empresa_activa, get_current_user, require_superadmin, verificar_permiso_empresa
 
 router = APIRouter(prefix="/empresas", tags=["empresas"])
 
 
 @router.post("", response_model=EmpresaOut, status_code=201)
 def crear_empresa(payload: EmpresaCreate, db: Session = Depends(get_db),
-                   usuario: str = Depends(usuario_actual)):
+                   usuario: str = Depends(usuario_actual),
+                   admin_user: Usuario | None = Depends(require_superadmin)):
     existente = db.query(Empresa).filter(Empresa.nit == payload.nit).first()
     if existente:
         raise HTTPException(status_code=409, detail=f"Ya existe una empresa con NIT {payload.nit}.")
@@ -25,6 +26,8 @@ def crear_empresa(payload: EmpresaCreate, db: Session = Depends(get_db),
     )
     db.add(empresa)
     db.flush()
+    if admin_user is not None:
+        db.add(UsuarioEmpresa(usuario_id=admin_user.id, empresa_id=empresa.id, rol="administrador", permisos_json="{}"))
     auditoria_registrar(db, empresa.id, "Empresa", empresa.id, "creacion_empresa",
                          {"nit": empresa.nit, "nombre": empresa.nombre}, usuario)
     db.commit()
@@ -33,15 +36,18 @@ def crear_empresa(payload: EmpresaCreate, db: Session = Depends(get_db),
 
 
 @router.get("", response_model=list[EmpresaOut])
-def listar_empresas(db: Session = Depends(get_db)):
-    return db.query(Empresa).order_by(Empresa.nombre).all()
+def listar_empresas(db: Session = Depends(get_db), user: Usuario | None = Depends(get_current_user)):
+    q = db.query(Empresa)
+    if user is not None and not user.es_superadmin:
+        ids = db.query(UsuarioEmpresa.empresa_id).filter(
+            UsuarioEmpresa.usuario_id == user.id, UsuarioEmpresa.activo.is_(True)
+        )
+        q = q.filter(Empresa.id.in_(ids))
+    return q.order_by(Empresa.nombre).all()
 
 
 @router.get("/{empresa_id}", response_model=EmpresaOut)
-def obtener_empresa(empresa_id: str, db: Session = Depends(get_db)):
-    empresa = db.query(Empresa).filter(Empresa.id == empresa_id).first()
-    if not empresa:
-        raise HTTPException(status_code=404, detail="Empresa no encontrada.")
+def obtener_empresa(empresa_id: str, empresa: Empresa = Depends(get_empresa_activa)):
     return empresa
 
 
@@ -215,7 +221,9 @@ def desactivar_empresa(empresa_id: str, db: Session = Depends(get_db),
 
 
 @router.patch("/{empresa_id}/reactivar", response_model=EmpresaOut)
-def reactivar_empresa(empresa_id: str, db: Session = Depends(get_db), usuario: str = Depends(usuario_actual)):
+def reactivar_empresa(empresa_id: str, db: Session = Depends(get_db), usuario: str = Depends(usuario_actual),
+                       user: Usuario | None = Depends(get_current_user)):
+    verificar_permiso_empresa(db, user, empresa_id, "empresa_administrar")
     empresa = db.query(Empresa).filter(Empresa.id == empresa_id).first()
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa no encontrada.")
@@ -228,7 +236,8 @@ def reactivar_empresa(empresa_id: str, db: Session = Depends(get_db), usuario: s
 
 @router.delete("/{empresa_id}")
 def eliminar_empresa(empresa_id: str, confirmar: bool = False, db: Session = Depends(get_db),
-                      usuario: str = Depends(usuario_actual)):
+                      usuario: str = Depends(usuario_actual), user: Usuario | None = Depends(get_current_user)):
+    verificar_permiso_empresa(db, user, empresa_id, "empresa_administrar")
     """
     Elimina la empresa y TODO lo que le pertenece (cuentas, proveedores,
     facturas, movimientos, historial, reglas, centros de costo,
@@ -241,7 +250,7 @@ def eliminar_empresa(empresa_id: str, confirmar: bool = False, db: Session = Dep
         CuentaContable, Proveedor, CentroCosto, ReglaContable, ImportacionHistorico,
         HistorialContable, CargaDocumentosDian, Factura, Movimiento, PlantillaExportacion,
         Exportacion, Auditoria, Empleado, ConfiguracionComprobanteSiigo, ConsecutivoSiigo,
-        ParametrizacionCuentaSiigo, HistorialTecnicoSiigo, ExportacionFactura,
+        ParametrizacionCuentaSiigo, HistorialTecnicoSiigo, ExportacionFactura, UsuarioEmpresa, ReglaCuentaControl,
     )
 
     empresa = db.query(Empresa).filter(Empresa.id == empresa_id).first()
@@ -266,9 +275,11 @@ def eliminar_empresa(empresa_id: str, confirmar: bool = False, db: Session = Dep
         setattr(empresa, campo, None)
     db.flush()
 
+    db.query(UsuarioEmpresa).filter(UsuarioEmpresa.empresa_id == empresa_id).delete()
     db.query(ExportacionFactura).filter(ExportacionFactura.empresa_id == empresa_id).delete()
     db.query(ParametrizacionCuentaSiigo).filter(ParametrizacionCuentaSiigo.empresa_id == empresa_id).delete()
     db.query(HistorialTecnicoSiigo).filter(HistorialTecnicoSiigo.empresa_id == empresa_id).delete()
+    db.query(ReglaCuentaControl).filter(ReglaCuentaControl.empresa_id == empresa_id).delete()
     db.query(ConsecutivoSiigo).filter(ConsecutivoSiigo.empresa_id == empresa_id).delete()
     db.query(ConfiguracionComprobanteSiigo).filter(ConfiguracionComprobanteSiigo.empresa_id == empresa_id).delete()
     db.query(Movimiento).filter(Movimiento.empresa_id == empresa_id).delete()

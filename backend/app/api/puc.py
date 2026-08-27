@@ -4,12 +4,13 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.models import PucCuenta
 from app.services.excel_utils import _normalizar
+from app.core.security import require_authenticated
 
 router = APIRouter(prefix="/puc", tags=["puc"])
 
 
 @router.get("/buscar")
-def buscar_cuentas_puc(q: str = "", limite: int = 20, db: Session = Depends(get_db)):
+def buscar_cuentas_puc(q: str = "", limite: int = 20, db: Session = Depends(get_db), _user=Depends(require_authenticated)):
     """
     Busca en el catálogo PUC base por código o por nombre (sección
     "Cuentas base de la empresa activa" — ayuda a elegir el código
