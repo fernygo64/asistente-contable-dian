@@ -490,6 +490,33 @@ def _descripcion_comprobante(factura: Factura) -> str:
     return f"Factura {factura.numero_factura or ''}".strip()
 
 
+def _conciliar_linea_principal_con_total(lineas: list[LineaPartida], total_objetivo: float,
+                                           naturaleza_principal: str) -> Optional[str]:
+    """Hace que gasto/ingreso + impuestos reproduzcan el total DIAN final.
+
+    Descuentos, recargos y redondeos globales no se convierten en una cuenta
+    inventada: ajustan la línea principal de gasto/ingreso, tal como exige la
+    operación real. Las retenciones se agregan DESPUÉS porque no cambian el
+    valor fiscal de la factura, sino su forma de pago/compensación.
+    """
+    if not lineas or total_objetivo is None:
+        return None
+    total_objetivo = round(float(total_objetivo or 0), 2)
+    bruto = round(sum(float(l.valor or 0) for l in lineas if l.tipo == naturaleza_principal), 2)
+    diferencia = round(total_objetivo - bruto, 2)
+    if abs(diferencia) < 0.01:
+        return None
+    principal = next((l for l in lineas if l.tipo == naturaleza_principal), None)
+    if principal is None:
+        return "No se encontró la línea principal para conciliar el total DIAN."
+    nuevo = round(float(principal.valor or 0) + diferencia, 2)
+    if nuevo < 0:
+        return (f"El ajuste necesario para respetar el total DIAN ({diferencia}) dejaría "
+                f"la cuenta principal con valor negativo; requiere revisión manual.")
+    principal.valor = nuevo
+    return None
+
+
 def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
                              cuenta_gasto_id: str, contrapartida: str,
                              centro_costo=None, cuentas_control: dict | None = None) -> ResultadoPartida:
@@ -558,6 +585,13 @@ def _generar_partida_compra(db: Session, empresa: Empresa, factura: Factura,
             pendientes.append(_pendiente("inc", "Impuesto al consumo (INC)", inc, "debito"))
         else:
             lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "debito", inc, descripcion))
+
+    # El valor final DIAN (PayableAmount / Total del reporte) manda. Si un
+    # descuento, recargo o redondeo global hace que subtotal+impuestos difiera,
+    # la diferencia se incorpora a la cuenta principal, no se inventa otra cuenta.
+    error_ajuste = _conciliar_linea_principal_con_total(lineas, float(factura.total or 0), "debito")
+    if error_ajuste:
+        errores.append(error_ajuste)
 
     if retefuente > 0:
         cta = _resolver_cuenta_control(db, empresa, factura, cuenta_gasto, "retefuente", cuentas_control, empresa.cuenta_retefuente_id)
@@ -666,6 +700,12 @@ def _generar_partida_venta(db: Session, empresa: Empresa, factura: Factura,
             pendientes.append(_pendiente("inc", "Impuesto al consumo (INC)", inc, "credito"))
         else:
             lineas.append(LineaPartida(cta.id, cta.codigo, cta.nombre, "credito", inc, descripcion))
+
+    # Igual que en compras, el total final DIAN se reproduce antes de aplicar
+    # retenciones del cliente. Cualquier descuento/recargo/redondeo ajusta el ingreso.
+    error_ajuste = _conciliar_linea_principal_con_total(lineas, float(factura.total or 0), "credito")
+    if error_ajuste:
+        errores.append(error_ajuste)
 
     # Retenciones que el cliente practica a una VENTA son anticipos/impuestos a favor (débito).
     retenciones = json.loads(factura.retenciones_json) if factura.retenciones_json else {}

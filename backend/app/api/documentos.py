@@ -416,7 +416,7 @@ def obtener_factura(empresa_id: str, factura_id: str, db: Session = Depends(get_
         "nombre_emisor": f.nombre_emisor, "direccion_emisor": f.direccion_emisor,
         "tercero_nit": f.tercero_nit, "tercero_nombre": f.tercero_nombre,
         "direccion_documento": f.direccion_documento, "naturaleza_documento": f.naturaleza_documento,
-        "concepto_resumen": f.concepto_resumen,
+        "concepto_resumen": f.concepto_resumen, "alertas": f.alertas,
         "fecha_emision": f.fecha_emision, "subtotal": f.subtotal, "iva": f.iva, "inc": f.inc,
         "retenciones": json.loads(f.retenciones_json) if f.retenciones_json else {},
         "total": f.total, "conceptos": json.loads(f.conceptos_json) if f.conceptos_json else [],
@@ -443,6 +443,20 @@ def corregir_factura(empresa_id: str, factura_id: str, payload: CorreccionFactur
         raise HTTPException(status_code=404, detail="Factura no encontrada en esta empresa.")
 
     cambios = payload.model_dump(exclude={"nuevo_estado", "usuario"}, exclude_none=True)
+    campos_fiscales = {"subtotal", "iva", "inc", "retenciones", "total"}
+    fiscales_solicitados = campos_fiscales.intersection(cambios)
+    if fiscales_solicitados and f.naturaleza_documento != "nomina":
+        raise HTTPException(
+            status_code=422,
+            detail=("Los valores fiscales originales de documentos DIAN no se editan manualmente. "
+                    "Corrige o vuelve a cargar la fuente XML/Excel/PDF; la clasificación, cuenta y "
+                    "contrapartida sí pueden ajustarse sin alterar el documento fiscal."),
+        )
+    if f.naturaleza_documento == "nomina":
+        no_permitidos = fiscales_solicitados - {"total"}
+        if no_permitidos:
+            raise HTTPException(status_code=422, detail="En nómina solo se permite corregir manualmente el valor total.")
+
     if cambios:
         for campo, valor in cambios.items():
             if hasattr(f, campo):

@@ -283,6 +283,7 @@ class FacturaOut(BaseModel):
     tercero_nit: Optional[str] = None
     tercero_nombre: Optional[str] = None
     concepto_resumen: Optional[str] = None
+    alertas: List[str] = []
     estado: str
     creado_en: datetime
 
@@ -400,6 +401,8 @@ class GenerarExportacionRequest(BaseModel):
     plantilla_id: str
     factura_ids: List[str]
     usuario: Optional[str] = None
+    # Primer número interno para ESTE archivo. No se persiste ni se recuerda.
+    consecutivo_inicial: int = Field(default=1, ge=1)
     # Permite generar con advertencias técnicas corregibles en SIIGO, pero
     # NUNCA omite bloqueos contables/estructurales como Débito != Crédito.
     omitir_advertencias: bool = False

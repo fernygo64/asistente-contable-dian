@@ -67,6 +67,36 @@ def _clave_desde_nombre(nombre: str) -> str:
     return base.strip().lower()
 
 
+def _nit_base(valor: Optional[str]) -> str:
+    """Normaliza NIT para comparar XML/DIAN/empresa sin confundir el dígito de verificación.
+
+    ``900123456-7`` y ``900123456`` representan la misma identificación base.
+    Si no hay guion se conservan todos los dígitos: no se elimina a ciegas el
+    último número porque podría pertenecer al NIT real.
+    """
+    texto = str(valor or "").strip()
+    if "-" in texto:
+        texto = texto.split("-", 1)[0]
+    digitos = "".join(ch for ch in texto if ch.isdigit())
+    return digitos.lstrip("0") or digitos
+
+
+
+def _anexar_pdf(doc: DocumentoExtraido, nombre_pdf: str, contenido_pdf: bytes, resultado_pdf: Optional[dict] = None) -> None:
+    """Adjunta el PDF y conserva sus datos clave para contraste entre fuentes."""
+    resultado_pdf = resultado_pdf or extraer_factura_pdf(contenido_pdf)
+    doc.nombre_pdf = nombre_pdf
+    doc.pdf_bytes = contenido_pdf
+    campos_pdf = resultado_pdf.get("campos") or {}
+    if campos_pdf.get("total") not in (None, ""):
+        doc.campos["_pdf_total"] = campos_pdf.get("total")
+    if campos_pdf.get("naturaleza_documento"):
+        doc.campos["_pdf_naturaleza"] = campos_pdf.get("naturaleza_documento")
+    if campos_pdf.get("numero_factura"):
+        doc.campos["_pdf_numero_factura"] = campos_pdf.get("numero_factura")
+    doc.campos["_pdf_confianza"] = resultado_pdf.get("confianza", 0)
+
+
 def extraer_pares_de_zip(nombre_zip: str, contenido_zip: bytes) -> tuple[list[tuple[str, bytes]], list[DocumentoExtraido]]:
     """
     Abre un ZIP y devuelve sus archivos XML/PDF como pares (nombre, bytes),
@@ -113,7 +143,7 @@ def agrupar_documentos(pares: list[tuple[str, bytes]], nit_empresa: Optional[str
     pdfs = {n: c for n, c in pares if n.lower().endswith(".pdf")}
     pdf_pendientes = {_clave_desde_nombre(n): (n, c) for n, c in pdfs.items()}
 
-    nit_empresa_norm = (nit_empresa or "").strip().lstrip("0") or (nit_empresa or "").strip()
+    nit_empresa_norm = _nit_base(nit_empresa)
 
     for nombre_xml, contenido in xmls:
         clasificacion = clasificar_documento_xml(contenido)
@@ -158,7 +188,7 @@ def agrupar_documentos(pares: list[tuple[str, bytes]], nit_empresa: Optional[str
         cufe = resultado["campos"].get("cufe") or ""
         clave = cufe.lower() if cufe else clave_archivo
 
-        nit_emisor = (resultado["campos"].get("nit_emisor") or "").strip().lstrip("0")
+        nit_emisor = _nit_base(resultado["campos"].get("nit_emisor"))
         direccion = "recibida"
         if nit_empresa_norm and nit_emisor and nit_emisor == nit_empresa_norm:
             direccion = "emitida"
@@ -172,8 +202,7 @@ def agrupar_documentos(pares: list[tuple[str, bytes]], nit_empresa: Optional[str
 
         if clave_archivo in pdf_pendientes:
             nombre_pdf, contenido_pdf = pdf_pendientes.pop(clave_archivo)
-            doc.nombre_pdf = nombre_pdf
-            doc.pdf_bytes = contenido_pdf
+            _anexar_pdf(doc, nombre_pdf, contenido_pdf)
 
     for clave_archivo, (nombre_pdf, contenido_pdf) in list(pdf_pendientes.items()):
         # El PDF no coincidió por NOMBRE con ningún XML — antes de crearlo
@@ -187,14 +216,13 @@ def agrupar_documentos(pares: list[tuple[str, bytes]], nit_empresa: Optional[str
         cufe_pdf = (resultado_pdf["campos"].get("cufe") or "").lower()
         if cufe_pdf and cufe_pdf in documentos:
             doc_existente = documentos[cufe_pdf]
-            doc_existente.nombre_pdf = nombre_pdf
-            doc_existente.pdf_bytes = contenido_pdf
+            _anexar_pdf(doc_existente, nombre_pdf, contenido_pdf, resultado_pdf)
             pdf_pendientes.pop(clave_archivo)
 
     for clave_archivo, (nombre_pdf, contenido_pdf) in pdf_pendientes.items():
         resultado = extraer_factura_pdf(contenido_pdf)
         campos_pdf = resultado["campos"]
-        nit_emisor_pdf = str(campos_pdf.get("nit_emisor") or "").replace(".", "").replace("-", "").strip().lstrip("0")
+        nit_emisor_pdf = _nit_base(campos_pdf.get("nit_emisor"))
         direccion_pdf = "emitida" if nit_empresa_norm and nit_emisor_pdf == nit_empresa_norm else "recibida"
         documentos[clave_archivo] = DocumentoExtraido(
             clave_agrupacion=clave_archivo, nombre_pdf=nombre_pdf, pdf_bytes=contenido_pdf,

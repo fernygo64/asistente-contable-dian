@@ -20,7 +20,10 @@ _PATRONES = {
     "cufe": re.compile(r"CUFE[:\.\s]*([a-fA-F0-9]{60,100})", re.IGNORECASE),
     "numero_factura": re.compile(r"(?:(?:factura|invoice)\s*(?:electr[oó]nica)?\s*)?(?:n[uú]mero|no\.?|#)\s*[:\.\s]+([A-Z]{0,4}\s?-?\s?\d{2,12})", re.IGNORECASE),
     "nit_emisor": re.compile(r"NIT[:\.\s]*([\d\.]{6,15}-?\d?)", re.IGNORECASE),
-    "total": re.compile(r"(?:valor\s+total|total\s+a\s+pagar|total\s+factura)[:\.\s]*\$?\s*([\d\.,]{4,18})", re.IGNORECASE),
+    # La representación gráfica DIAN suele imprimir "Total factura (=)".
+    # El (=) es parte del rótulo, no del valor: se tolera sin confundirlo
+    # con descuentos/recargos.
+    "total": re.compile(r"(?:valor\s+total|total\s+a\s+pagar|total\s+factura)\s*(?:\(\s*=\s*\)|=)?[^0-9]{0,90}?([0-9][\d\.,]{0,17})", re.IGNORECASE),
     "fecha_emision": re.compile(r"(?:fecha\s+de\s+)?(?:emisi[oó]n|expedici[oó]n)[:\.\s]*(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})", re.IGNORECASE),
     "iva": re.compile(r"IVA[:\.\s]*\$?\s*([\d\.,]{2,18})", re.IGNORECASE),
 }

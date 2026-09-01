@@ -516,6 +516,18 @@ class Factura(Base):
         return self.nombre_emisor
 
     @property
+    def alertas(self) -> list[str]:
+        """Avisos de conciliación/clasificación conservados con el snapshot original."""
+        if not self.datos_originales_json:
+            return []
+        try:
+            datos = json.loads(self.datos_originales_json)
+        except (ValueError, TypeError):
+            return []
+        valor = datos.get("alertas") or []
+        return [str(x) for x in valor] if isinstance(valor, list) else []
+
+    @property
     def concepto_resumen(self) -> str | None:
         """
         Breve descripción de qué se compró/vendió — sección pedida por
@@ -630,7 +642,7 @@ class ConfiguracionComprobanteSiigo(Base):
     subcentro_costo_default = Column(String(30), nullable=True)
     sucursal_default = Column(String(20), nullable=True)
     # Forma de obtener el NÚMERO DE DOCUMENTO del comprobante SIIGO:
-    # "interna" = consecutivo persistente de la contabilidad;
+    # "interna" = consecutivo indicado para cada archivo (sin memoria entre exportaciones);
     # "folio_dian" = toma el Folio del Excel/Documento DIAN y conserva solo dígitos.
     modo_numeracion = Column(String(20), nullable=False, default="interna")
     creado_en = Column(DateTime(timezone=True), default=_now, nullable=False)
@@ -643,7 +655,7 @@ class ConfiguracionComprobanteSiigo(Base):
 
 
 class ConsecutivoSiigo(Base):
-    """Último consecutivo usado por empresa + tipo + código SIIGO."""
+    """Tabla legacy conservada por compatibilidad; V10 ya no la usa para numerar exportaciones."""
     __tablename__ = "consecutivos_siigo"
 
     id = Column(String(36), primary_key=True, default=_uuid)

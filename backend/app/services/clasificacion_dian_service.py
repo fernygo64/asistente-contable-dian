@@ -45,9 +45,10 @@ def _naturaleza_desde_tipo(valor_tipo_documento: str) -> str:
     if codigo == "92":
         return "nota_debito"
 
-    if "creditnote" in t.replace(" ", "") or "nota credito" in t:
+    compacta = re.sub(r"[^a-z0-9]", "", t)
+    if "creditnote" in compacta or "nota credito" in t:
         return "nota_credito"
-    if "debitnote" in t.replace(" ", "") or "nota debito" in t:
+    if "debitnote" in compacta or "nota debito" in t:
         return "nota_debito"
     if "nomina" in t or "payroll" in t:
         return "nomina"
@@ -56,10 +57,10 @@ def _naturaleza_desde_tipo(valor_tipo_documento: str) -> str:
     if "factura" in t or "invoice" in t:
         return "factura"
 
-    # Compatibilidad con V8: un tipo desconocido no se pierde. Queda como
-    # factura para revisión, pero jamás convierte una Nota Crédito reconocible
-    # en factura por exigir una etiqueta textual exacta.
-    return "factura"
+    # Un tipo vacío/desconocido NO se convierte automáticamente en factura:
+    # si existe XML, su raíz estructural decide; si solo existe Excel quedará
+    # como documento para revisión en la capa de carga.
+    return ""
 
 
 def _direccion_desde_grupo(valor_grupo: str) -> str:

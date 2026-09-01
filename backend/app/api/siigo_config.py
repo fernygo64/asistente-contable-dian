@@ -5,14 +5,13 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.security import get_empresa_activa, usuario_actual
 from app.models.models import (
-    Empresa, CuentaContable, ConfiguracionComprobanteSiigo, ConsecutivoSiigo,
-    ParametrizacionCuentaSiigo,
+    Empresa, CuentaContable, ConfiguracionComprobanteSiigo, ParametrizacionCuentaSiigo,
 )
 from app.schemas.schemas import (
     ConfiguracionComprobantesSiigoUpdate, ParametrizacionCuentaSiigoUpdate,
 )
 from app.services.auditoria_service import registrar as auditoria_registrar
-from app.services.siigo_config_service import TIPOS_DOCUMENTO, configuraciones_empresa, _obtener_consecutivo_bloqueado
+from app.services.siigo_config_service import TIPOS_DOCUMENTO, configuraciones_empresa
 
 router = APIRouter(prefix="/empresas/{empresa_id}/siigo", tags=["configuracion-siigo"])
 
@@ -24,16 +23,8 @@ def obtener_configuraciones_comprobante(empresa_id: str, db: Session = Depends(g
     salida = []
     for clave in TIPOS_DOCUMENTO:
         cfg = dict(cfgs[clave])
-        tipo, codigo = cfg.get("tipo_comprobante") or "", cfg.get("codigo_comprobante") or ""
-        cons = None
-        if tipo and codigo:
-            fila = db.query(ConsecutivoSiigo).filter(
-                ConsecutivoSiigo.empresa_id == empresa_id,
-                ConsecutivoSiigo.tipo_comprobante == tipo,
-                ConsecutivoSiigo.codigo_comprobante == codigo,
-            ).first()
-            cons = int(fila.ultimo_consecutivo_usado) if fila else 0
-        cfg["ultimo_consecutivo_usado"] = cons
+        # La numeración interna ya no tiene memoria persistente.
+        cfg["ultimo_consecutivo_usado"] = None
         salida.append(cfg)
     return salida
 
@@ -55,12 +46,6 @@ def guardar_configuraciones_comprobante(empresa_id: str, payload: ConfiguracionC
         "documento_equivalente_emitido": None,
     }
     cambios = []
-    # Varias clases documentales pueden compartir el mismo tipo+código SIIGO
-    # (por ejemplo nota débito recibida y emitida ambas en D-1). La sesión usa
-    # autoflush=False, por lo que crear el consecutivo dentro del bucle podía
-    # dejar dos INSERT pendientes para la misma clave y fallar al hacer commit.
-    # Agrupamos las solicitudes y tocamos cada consecutivo una sola vez.
-    solicitudes_consecutivo: dict[tuple[str, str], list[int]] = {}
     for item in payload.configuraciones:
         if item.tipo_documento not in TIPOS_DOCUMENTO:
             raise HTTPException(status_code=422, detail=f"Tipo documental SIIGO desconocido: {item.tipo_documento}")
@@ -82,28 +67,9 @@ def guardar_configuraciones_comprobante(empresa_id: str, payload: ConfiguracionC
         if attr_legacy:
             setattr(empresa, attr_legacy, item.tipo_comprobante)
 
-        if (item.modo_numeracion or "interna") == "interna" and item.ultimo_consecutivo_usado is not None and item.tipo_comprobante and item.codigo_comprobante:
-            clave = (str(item.tipo_comprobante), str(item.codigo_comprobante))
-            solicitudes_consecutivo.setdefault(clave, []).append(max(0, int(item.ultimo_consecutivo_usado)))
         cambios.append(item.model_dump())
 
-    # Crear/actualizar una sola fila por clave. En PostgreSQL el helper toma un
-    # advisory lock transaccional y SELECT ... FOR UPDATE, evitando que dos
-    # usuarios concurrentes creen o incrementen la misma clave simultáneamente.
-    for (tipo, codigo), valores in solicitudes_consecutivo.items():
-        cons = _obtener_consecutivo_bloqueado(db, empresa_id, tipo, codigo)
-        actual = int(cons.ultimo_consecutivo_usado or 0)
-        solicitado = max(valores) if valores else actual
-        if solicitado < actual:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"El último consecutivo SIIGO {tipo}-{codigo} ya está en {actual}; "
-                    f"no se puede reducir a {solicitado} porque podría duplicar documentos."
-                ),
-            )
-        cons.ultimo_consecutivo_usado = solicitado
-
+    # El número inicial se informa al generar cada archivo; aquí no se guarda ningún contador.
     auditoria_registrar(db, empresa_id, "ConfiguracionComprobanteSiigo", None,
                          "configuracion_siigo_comprobantes", {"configuraciones": cambios}, usuario)
     db.commit()

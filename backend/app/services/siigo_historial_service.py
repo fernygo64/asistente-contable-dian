@@ -262,6 +262,11 @@ class ParametrosSiigoInferidos:
     centro_costo: Optional[str] = None
     subcentro_costo: Optional[str] = None
     sucursal: Optional[str] = None
+    # Plantilla semántica aprendida de DESCRIPCIÓN DE LA SECUENCIA. Se
+    # conservan solo el prefijo/sufijo estables alrededor del número real
+    # de factura; nunca se copia el número histórico.
+    descripcion_prefijo: Optional[str] = None
+    descripcion_sufijo: Optional[str] = None
     valores_tecnicos: dict[str, str] = field(default_factory=dict)
     relaciones_tecnicas: dict[str, str] = field(default_factory=dict)
     ambiguos: list[str] = field(default_factory=list)
@@ -346,6 +351,39 @@ _GENERIC_DESC = {
 def _tokens_descripcion(texto: Optional[str]) -> set[str]:
     normal = _norm_label(texto or "")
     return {t for t in normal.split() if len(t) >= 4 and t not in _GENERIC_DESC and not t.isdigit()}
+
+_PATRON_DOCUMENTO_EN_DESCRIPCION = re.compile(
+    r"\b(?=[A-Z0-9]{1,12}(?:[-_/ ]?)\d{3,20}\b)(?=[A-Z0-9]{0,12}[A-Z])[A-Z0-9]{1,12}(?:[-_/ ]?)\d{3,20}\b",
+    re.IGNORECASE,
+)
+
+
+def _plantilla_descripcion_estable(filas: list[HistorialTecnicoSiigo]) -> tuple[Optional[str], Optional[str]]:
+    """Aprende texto estable alrededor del número real de factura.
+
+    Ejemplo genérico: ``PAGO FC ABC-123 SERVICIO`` se convierte en
+    prefijo ``PAGO FC`` + documento actual + sufijo ``SERVICIO``. Solo se
+    usa cuando el mismo patrón domina el historial compatible.
+    """
+    patrones = []
+    for r in filas:
+        texto = " ".join(str(r.descripcion_secuencia or "").strip().split())
+        if not texto:
+            continue
+        m = _PATRON_DOCUMENTO_EN_DESCRIPCION.search(texto)
+        if not m:
+            continue
+        prefijo = texto[:m.start()].strip(" -")
+        sufijo = texto[m.end():].strip(" -")
+        patrones.append((prefijo, sufijo))
+    if not patrones:
+        return None, None
+    conteo = Counter(patrones)
+    patron, usos = conteo.most_common(1)[0]
+    if usos / len(patrones) < 0.60:
+        return None, None
+    return patron
+
 
 def _filtrar_por_concepto(filas: list[HistorialTecnicoSiigo], descripcion_actual: Optional[str]) -> list[HistorialTecnicoSiigo]:
     actuales = _tokens_descripcion(descripcion_actual)
@@ -502,6 +540,16 @@ def inferir_parametros_movimiento(indice: IndiceHistorialSiigo, cuenta_codigo: s
     resultado = ParametrosSiigoInferidos()
     if not grupos:
         return resultado
+
+    # La descripción contable también se aprende, pero como PLANTILLA: jamás
+    # copiamos el folio histórico. Preferimos el grupo más específico que
+    # tenga un patrón estable alrededor del número de documento.
+    for _nombre, filas_desc in grupos:
+        pref_desc, suf_desc = _plantilla_descripcion_estable(filas_desc)
+        if pref_desc is not None or suf_desc is not None:
+            resultado.descripcion_prefijo = pref_desc
+            resultado.descripcion_sufijo = suf_desc
+            break
 
     # Manejo de tercero se aprende por CUENTA + tipo/código. Una cuenta que
     # históricamente sale con NIT 0 debe volver a salir con 0 aunque el tercero

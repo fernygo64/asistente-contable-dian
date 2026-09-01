@@ -245,10 +245,10 @@
     </div>
 
     <div class="card">
-      <div class="flex-between"><div><h2>Comprobantes por tipo de documento</h2><p class="module-intro">Define tipo, código y cómo se numera cada documento.</p></div><span class="help-tip" title="Interna: continúa el consecutivo contable. Folio DIAN: usa solo los dígitos del Folio del documento.">i</span></div>
+      <div class="flex-between"><div><h2>Comprobantes por tipo de documento</h2><p class="module-intro">Define tipo, código y cómo se numera cada documento.</p></div><span class="help-tip" title="Interna: el número inicial se indica al generar cada archivo y no se recuerda. Folio DIAN: usa los dígitos del Folio del documento.">i</span></div>
       <datalist id="siigoTiposComprobante"></datalist>
-      <div class="table-scroll"><table><thead><tr><th>Documento</th><th>Tipo</th><th>Código</th><th>Numeración</th><th>Último interno</th></tr></thead><tbody>
-<tr data-config-key="factura_recibida"><td><strong>Factura recibida</strong></td><td><input id="tcRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccRecibida" placeholder="1"></td><td><select id="modo-factura_recibida" onchange="actualizarModoNumeracionFila('factura_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consRecibida" type="number" min="0" placeholder="0"></td></tr><tr data-config-key="factura_emitida"><td><strong>Factura emitida</strong></td><td><input id="tcEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEmitida" placeholder="1"></td><td><select id="modo-factura_emitida" onchange="actualizarModoNumeracionFila('factura_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consEmitida" type="number" min="0" placeholder="0"></td></tr><tr data-config-key="nota_credito_recibida"><td><strong>Nota crédito recibida</strong></td><td><input id="tcNotaCreditoRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaCreditoRecibida" placeholder="1"></td><td><select id="modo-nota_credito_recibida" onchange="actualizarModoNumeracionFila('nota_credito_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consNotaCreditoRecibida" type="number" min="0" placeholder="0"></td></tr><tr data-config-key="nota_credito_emitida"><td><strong>Nota crédito emitida</strong></td><td><input id="tcNotaCreditoEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaCreditoEmitida" placeholder="1"></td><td><select id="modo-nota_credito_emitida" onchange="actualizarModoNumeracionFila('nota_credito_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consNotaCreditoEmitida" type="number" min="0" placeholder="0"></td></tr><tr data-config-key="nota_debito_recibida"><td><strong>Nota débito recibida</strong></td><td><input id="tcNotaDebitoRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaDebitoRecibida" placeholder="1"></td><td><select id="modo-nota_debito_recibida" onchange="actualizarModoNumeracionFila('nota_debito_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consNotaDebitoRecibida" type="number" min="0" placeholder="0"></td></tr><tr data-config-key="nota_debito_emitida"><td><strong>Nota débito emitida</strong></td><td><input id="tcNotaDebitoEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaDebitoEmitida" placeholder="1"></td><td><select id="modo-nota_debito_emitida" onchange="actualizarModoNumeracionFila('nota_debito_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consNotaDebitoEmitida" type="number" min="0" placeholder="0"></td></tr><tr data-config-key="documento_equivalente_recibido"><td><strong>Doc. equivalente recibido</strong></td><td><input id="tcEquivalenteRecibido" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEquivalenteRecibido" placeholder="1"></td><td><select id="modo-documento_equivalente_recibido" onchange="actualizarModoNumeracionFila('documento_equivalente_recibido')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consEquivalenteRecibido" type="number" min="0" placeholder="0"></td></tr><tr data-config-key="documento_equivalente_emitido"><td><strong>Doc. equivalente emitido</strong></td><td><input id="tcEquivalenteEmitido" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEquivalenteEmitido" placeholder="1"></td><td><select id="modo-documento_equivalente_emitido" onchange="actualizarModoNumeracionFila('documento_equivalente_emitido')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consEquivalenteEmitido" type="number" min="0" placeholder="0"></td></tr><tr data-config-key="nomina"><td><strong>Nómina</strong></td><td><input id="tcNomina" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNomina" placeholder="1"></td><td><select id="modo-nomina" onchange="actualizarModoNumeracionFila('nomina')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td><td><input id="consNomina" type="number" min="0" placeholder="0"></td></tr>      </tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>Documento</th><th>Tipo</th><th>Código</th><th>Numeración</th></tr></thead><tbody>
+<tr data-config-key="factura_recibida"><td><strong>Factura recibida</strong></td><td><input id="tcRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccRecibida" placeholder="1"></td><td><select id="modo-factura_recibida" onchange="actualizarModoNumeracionFila('factura_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="factura_emitida"><td><strong>Factura emitida</strong></td><td><input id="tcEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEmitida" placeholder="1"></td><td><select id="modo-factura_emitida" onchange="actualizarModoNumeracionFila('factura_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nota_credito_recibida"><td><strong>Nota crédito recibida</strong></td><td><input id="tcNotaCreditoRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaCreditoRecibida" placeholder="1"></td><td><select id="modo-nota_credito_recibida" onchange="actualizarModoNumeracionFila('nota_credito_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nota_credito_emitida"><td><strong>Nota crédito emitida</strong></td><td><input id="tcNotaCreditoEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaCreditoEmitida" placeholder="1"></td><td><select id="modo-nota_credito_emitida" onchange="actualizarModoNumeracionFila('nota_credito_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nota_debito_recibida"><td><strong>Nota débito recibida</strong></td><td><input id="tcNotaDebitoRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaDebitoRecibida" placeholder="1"></td><td><select id="modo-nota_debito_recibida" onchange="actualizarModoNumeracionFila('nota_debito_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nota_debito_emitida"><td><strong>Nota débito emitida</strong></td><td><input id="tcNotaDebitoEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaDebitoEmitida" placeholder="1"></td><td><select id="modo-nota_debito_emitida" onchange="actualizarModoNumeracionFila('nota_debito_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="documento_equivalente_recibido"><td><strong>Doc. equivalente recibido</strong></td><td><input id="tcEquivalenteRecibido" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEquivalenteRecibido" placeholder="1"></td><td><select id="modo-documento_equivalente_recibido" onchange="actualizarModoNumeracionFila('documento_equivalente_recibido')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="documento_equivalente_emitido"><td><strong>Doc. equivalente emitido</strong></td><td><input id="tcEquivalenteEmitido" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEquivalenteEmitido" placeholder="1"></td><td><select id="modo-documento_equivalente_emitido" onchange="actualizarModoNumeracionFila('documento_equivalente_emitido')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nomina"><td><strong>Nómina</strong></td><td><input id="tcNomina" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNomina" placeholder="1"></td><td><select id="modo-nomina" onchange="actualizarModoNumeracionFila('nomina')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr>      </tbody></table></div>
       <div style="margin-top:10px;"><button class="btn" onclick="guardarComprobantesPorTipo()">Guardar comprobantes</button></div>
     </div>
 
@@ -493,6 +493,7 @@ Credito=credito</textarea>
       <div class="flex-between"><div><h2>Generar exportación</h2><p class="module-intro">Incluye automáticamente los documentos contabilizados pendientes para este destino.</p></div><span id="estadoExportacionBadge" class="pill warn">Pendiente</span></div>
       <div class="row">
         <div id="expPlantillaWrap"><label>Formato</label><select id="expPlantilla" onchange="cargarFacturasContabilizadas()"></select></div>
+        <div id="expConsecutivoWrap"><label>Consecutivo interno inicial</label><input id="expConsecutivoInicial" type="number" min="1" value="1" style="max-width:150px"><div class="muted" style="font-size:11px;">Solo para este archivo; no se guarda.</div></div>
         <div style="display:none"><label>IDs manuales</label><input id="expFacturaIds"></div>
         <div><button class="btn ghost" onclick="validarExportacion()">Validar</button></div>
         <div><button class="btn ghost" onclick="previsualizarExportacion()">Vista previa</button></div>
@@ -856,22 +857,20 @@ function buscarPuc(input){
 }
 
 const COMPROBANTE_UI = {
-  factura_recibida:['tcRecibida','ccRecibida','consRecibida'],
-  factura_emitida:['tcEmitida','ccEmitida','consEmitida'],
-  nota_credito_recibida:['tcNotaCreditoRecibida','ccNotaCreditoRecibida','consNotaCreditoRecibida'],
-  nota_credito_emitida:['tcNotaCreditoEmitida','ccNotaCreditoEmitida','consNotaCreditoEmitida'],
-  nota_debito_recibida:['tcNotaDebitoRecibida','ccNotaDebitoRecibida','consNotaDebitoRecibida'],
-  nota_debito_emitida:['tcNotaDebitoEmitida','ccNotaDebitoEmitida','consNotaDebitoEmitida'],
-  documento_equivalente_recibido:['tcEquivalenteRecibido','ccEquivalenteRecibido','consEquivalenteRecibido'],
-  documento_equivalente_emitido:['tcEquivalenteEmitido','ccEquivalenteEmitido','consEquivalenteEmitido'],
-  nomina:['tcNomina','ccNomina','consNomina'],
+  factura_recibida:['tcRecibida','ccRecibida'],
+  factura_emitida:['tcEmitida','ccEmitida'],
+  nota_credito_recibida:['tcNotaCreditoRecibida','ccNotaCreditoRecibida'],
+  nota_credito_emitida:['tcNotaCreditoEmitida','ccNotaCreditoEmitida'],
+  nota_debito_recibida:['tcNotaDebitoRecibida','ccNotaDebitoRecibida'],
+  nota_debito_emitida:['tcNotaDebitoEmitida','ccNotaDebitoEmitida'],
+  documento_equivalente_recibido:['tcEquivalenteRecibido','ccEquivalenteRecibido'],
+  documento_equivalente_emitido:['tcEquivalenteEmitido','ccEquivalenteEmitido'],
+  nomina:['tcNomina','ccNomina'],
 };
 
 function actualizarModoNumeracionFila(clave){
-  const ids = COMPROBANTE_UI[clave]; if(!ids) return;
-  const modo = document.getElementById('modo-'+clave)?.value || 'interna';
-  const cons = document.getElementById(ids[2]);
-  if(cons){ cons.disabled = modo === 'folio_dian'; cons.title = modo === 'folio_dian' ? 'El número se toma del Folio DIAN' : 'Último consecutivo interno utilizado'; }
+  // La numeración interna ya no tiene memoria; el inicio se pide al exportar.
+  return;
 }
 
 async function guardarComprobantesPorTipo(){
@@ -879,14 +878,13 @@ async function guardarComprobantesPorTipo(){
   const emp = empresas.find(e=>e.id===empresaActivaId);
   try{
     if(emp?.sistema_contable === 'siigo_pyme'){
-      const configuraciones = Object.entries(COMPROBANTE_UI).map(([tipo,[tipoId,codId,consId]])=>{
+      const configuraciones = Object.entries(COMPROBANTE_UI).map(([tipo,[tipoId,codId]])=>{
         const modo = document.getElementById('modo-'+tipo)?.value || 'interna';
         return {
           tipo_documento: tipo,
           tipo_comprobante: document.getElementById(tipoId).value.trim() || null,
           codigo_comprobante: document.getElementById(codId).value.trim() || null,
           modo_numeracion: modo,
-          ultimo_consecutivo_usado: modo === 'interna' && document.getElementById(consId).value !== '' ? Number(document.getElementById(consId).value) : null,
           codigo_vendedor_default:'1', codigo_zona_default:'0', centro_costo_default:'0', subcentro_costo_default:'0', sucursal_default:'0'
         };
       });
@@ -918,14 +916,13 @@ async function cargarComprobantesPorTipo(){
         const ids=COMPROBANTE_UI[c.tipo_documento]; if(!ids) continue;
         document.getElementById(ids[0]).value=c.tipo_comprobante||'';
         document.getElementById(ids[1]).value=c.codigo_comprobante||'';
-        document.getElementById(ids[2]).value=c.ultimo_consecutivo_usado ?? 0;
         const modo=document.getElementById('modo-'+c.tipo_documento); if(modo){ modo.value=c.modo_numeracion||'interna'; modo.disabled=false; }
         document.getElementById(ids[1]).disabled=false;
         actualizarModoNumeracionFila(c.tipo_documento);
       }
     }else{
       const c=await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`);
-      const set=(clave,tipo)=>{const ids=COMPROBANTE_UI[clave];document.getElementById(ids[0]).value=tipo||'';document.getElementById(ids[1]).value='';document.getElementById(ids[1]).disabled=true;document.getElementById(ids[2]).value='';document.getElementById(ids[2]).disabled=true;const m=document.getElementById('modo-'+clave);if(m){m.value='interna';m.disabled=true;}};
+      const set=(clave,tipo)=>{const ids=COMPROBANTE_UI[clave];document.getElementById(ids[0]).value=tipo||'';document.getElementById(ids[1]).value='';document.getElementById(ids[1]).disabled=true;const m=document.getElementById('modo-'+clave);if(m){m.value='interna';m.disabled=true;}};
       set('factura_recibida',c.comprobante_factura_recibida); set('factura_emitida',c.comprobante_factura_emitida);
       set('nota_credito_recibida',c.comprobante_nota_credito); set('nota_credito_emitida',c.comprobante_nota_credito);
       set('nota_debito_recibida',c.comprobante_nota_debito); set('nota_debito_emitida',c.comprobante_nota_debito);
@@ -1606,12 +1603,14 @@ async function cargarFacturas(){
             <span class="pill ${estadoPill(f.estado)}">${f.estado}</span>
             <span class="pill ${direccionPill(f.direccion_documento)}">${etiquetaNaturaleza(f.naturaleza_documento)} · ${f.direccion_documento==='emitida'?'Emitida (venta)':(f.direccion_documento==='recibida'?'Recibida (compra)':f.direccion_documento)}</span>
             <span class="pill ${f.confianza_extraccion>=90?'ok':(f.confianza_extraccion>=60?'warn':'err')}">${f.confianza_extraccion}% confianza</span>
+            ${(f.alertas||[]).length ? `<span class="pill warn">${f.alertas.length} aviso(s)</span>` : ''}
             <span class="mono">$${(f.total||0).toLocaleString('es-CO')}</span>
           </span>
         </summary>
         <div class="detail-body">
           <p><strong>Fuente:</strong> ${f.fuente_extraccion} · <strong>Relacionada con Excel:</strong> ${f.relacionada_con_excel?'Sí ('+f.metodo_relacion+')':'No'}
           ${f.motivo_no_relacionada ? '<br><span class="muted">'+f.motivo_no_relacionada+'</span>' : ''}</p>
+          ${(f.alertas||[]).length ? `<div class="pill warn" style="display:block;margin-bottom:8px;"><strong>Revisión DIAN:</strong><br>${f.alertas.map(a=>'• '+a).join('<br>')}</div>` : ''}
           ${f.naturaleza_documento === 'nomina' ? '<p class="pill warn">Documento de nómina electrónica — sin extracción automática de valor (esquema XML distinto). Indica el valor total abajo y regístrala manualmente.</p>' : ''}
           <button class="btn danger" style="margin-bottom:8px;" onclick="eliminarFactura('${f.id}')">Eliminar esta factura</button>
           ${f.direccion_documento === 'emitida' ? '<p class="pill warn">Factura EMITIDA por la empresa (venta) — usa cuentas de ingreso/clientes, no de gasto.</p>' : ''}
@@ -1988,9 +1987,9 @@ async function prepararModuloExportar(){
 async function cargarPlantillas(){
   if(!empresaActivaId) return;
   const emp=empresas.find(e=>e.id===empresaActivaId);
-  const wo=document.getElementById('worldOfficePlantillasPanel'); const si=document.getElementById('siigoExportInfo');
+  const wo=document.getElementById('worldOfficePlantillasPanel'); const si=document.getElementById('siigoExportInfo'); const cw=document.getElementById('expConsecutivoWrap');
   if(emp?.sistema_contable==='siigo_pyme'){
-    if(wo) wo.classList.add('hidden'); if(si) si.classList.remove('hidden');
+    if(wo) wo.classList.add('hidden'); if(si) si.classList.remove('hidden'); if(cw) cw.classList.remove('hidden');
     try{
       const p=await req(`/empresas/${empresaActivaId}/plantillas/siigo-automatica`);
       document.getElementById('expPlantilla').innerHTML=`<option value="${p.id}">${p.nombre}</option>`;
@@ -1999,7 +1998,7 @@ async function cargarPlantillas(){
     }catch(e){ toast(e.message,true); }
     return;
   }
-  if(wo) wo.classList.remove('hidden'); if(si) si.classList.add('hidden'); document.getElementById('expPlantillaWrap').classList.remove('hidden');
+  if(wo) wo.classList.remove('hidden'); if(si) si.classList.add('hidden'); if(cw) cw.classList.add('hidden'); document.getElementById('expPlantillaWrap').classList.remove('hidden');
   const campoNombre=document.getElementById('plNombre'); if(campoNombre&&!campoNombre.value.trim()) campoNombre.value=emp?.nombre||'World Office';
   try{
     const plantillas=(await req(`/empresas/${empresaActivaId}/plantillas`)).filter(p=>p.sistema_contable==='world_office');
@@ -2061,7 +2060,7 @@ async function validarExportacion(){
   const plantillaId=document.getElementById('expPlantilla').value, ids=_idsParaExportar();
   if(!plantillaId||!ids.length){toast('No hay documentos pendientes',true);return;}
   try{
-    const r=await req(`/empresas/${empresaActivaId}/exportaciones/validar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids,omitir_advertencias:!!document.getElementById('expOmitirAdvertencias')?.checked})});
+    const r=await req(`/empresas/${empresaActivaId}/exportaciones/validar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids,consecutivo_inicial:Number(document.getElementById('expConsecutivoInicial')?.value||1),omitir_advertencias:!!document.getElementById('expOmitirAdvertencias')?.checked})});
     const badge=document.getElementById('estadoExportacionBadge');
     badge.className='pill '+(r.valido?'ok':(r.puede_generar_bajo_responsabilidad?'warn':'err'));
     badge.textContent=r.valido?'Listo':(r.puede_generar_bajo_responsabilidad?'Con advertencias':'Bloqueado');
@@ -2079,7 +2078,7 @@ async function previsualizarExportacion(){
   if(!plantillaId||!ids.length){toast('No hay documentos contabilizados pendientes para exportar',true);return;}
   const div=document.getElementById('previsualizacionExportacion');
   try{
-    const r=await req(`/empresas/${empresaActivaId}/exportaciones/previsualizar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids,omitir_advertencias:!!document.getElementById('expOmitirAdvertencias')?.checked})});
+    const r=await req(`/empresas/${empresaActivaId}/exportaciones/previsualizar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids,consecutivo_inicial:Number(document.getElementById('expConsecutivoInicial')?.value||1),omitir_advertencias:!!document.getElementById('expOmitirAdvertencias')?.checked})});
     if(!r.valido){
       const clase=r.puede_generar_bajo_responsabilidad?'warn':'err';
       const titulo=r.puede_generar_bajo_responsabilidad?'Solo hay advertencias corregibles — marca “Generar bajo mi responsabilidad”':'Hay errores que bloquean la exportación';
@@ -2104,7 +2103,7 @@ async function generarExportacion(){
   try{
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/exportaciones/generar`, {
       method:'POST', headers:authHeaders({'Content-Type':'application/json'}),
-      body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids, omitir_advertencias: !!document.getElementById('expOmitirAdvertencias')?.checked}),
+      body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids, consecutivo_inicial:Number(document.getElementById('expConsecutivoInicial')?.value||1), omitir_advertencias: !!document.getElementById('expOmitirAdvertencias')?.checked}),
     });
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const blob = await resp.blob();
@@ -2126,16 +2125,16 @@ async function cargarExportaciones(){
       <tr><td>${new Date(ex.creado_en).toLocaleString('es-CO')}</td><td>${ex.sistema_contable}</td>
       <td>${ex.cantidad_registros}</td><td><span class="pill ${ex.estado==='generada'?'ok':'err'}">${ex.estado}</span></td>
       <td>${ex.archivo_nombre||'—'}</td>
-      <td><button class="btn danger" onclick="eliminarExportacion('${ex.id}')">Eliminar</button></td></tr>
+      <td>${ex.estado==='anulada'?'—':`<button class="btn danger" onclick="eliminarExportacion('${ex.id}')">Anular</button>`}</td></tr>
     `).join('') || '<tr><td colspan="6" class="muted">Sin exportaciones todavía.</td></tr>';
   }catch(e){ /* silencioso */ }
 }
 
 async function eliminarExportacion(id){
-  if(!confirm('¿Eliminar este registro del historial de exportaciones? No deshace nada contable — solo borra el registro de auditoría, útil sobre todo para poder luego borrar una plantilla que quedó bloqueada por haberse usado aquí.')) return;
+  if(!confirm('¿Anular esta exportación? El registro, la plantilla, los documentos y los números usados se conservarán en la trazabilidad.')) return;
   try{
     await req(`/empresas/${empresaActivaId}/exportaciones/${id}`, {method:'DELETE'});
-    toast('Exportación eliminada del historial');
+    toast('Exportación anulada; la trazabilidad se conserva');
     cargarExportaciones();
   }catch(e){ toast(e.message, true); }
 }

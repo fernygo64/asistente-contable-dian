@@ -69,19 +69,23 @@ def _formatear_codigo_cuenta(codigo: str, empresa: Optional[Empresa]) -> str:
 
 
 
-def _descripcion_exportacion_siigo(factura: Factura) -> str:
-    """Descripción uniforme de SIIGO: ``PREFIJO-FOLIO + concepto breve``.
+def _descripcion_exportacion_siigo(factura: Factura, param_cuenta_siigo=None) -> str:
+    """Descripción SIIGO sin mezclarla con la clave interna de orden.
 
-    La clave cronológica (fecha completa, prefijo, folio y emisor) se usa
-    exclusivamente para ORDENAR el lote y asignar consecutivos. Nunca se
-    incorpora a "DESCRIPCIÓN DE LA SECUENCIA".
+    Si el historial compatible muestra un formato estable, reutilizamos solo
+    el texto que rodea el número de factura y colocamos el PREFIJO-FOLIO
+    actual. Si no hay evidencia, usamos ``PREFIJO-FOLIO + concepto breve``.
     """
     documento = prefijo_folio(factura.prefijo, factura.numero_factura)
-    concepto = str(factura.concepto_resumen or "").strip()
-    texto = " ".join(x for x in (documento, concepto) if x).strip()
+    pref_hist = str(getattr(param_cuenta_siigo, "descripcion_prefijo", "") or "").strip()
+    suf_hist = str(getattr(param_cuenta_siigo, "descripcion_sufijo", "") or "").strip()
+    if documento and (pref_hist or suf_hist):
+        texto = " ".join(x for x in (pref_hist, documento, suf_hist) if x).strip()
+    else:
+        concepto = str(factura.concepto_resumen or "").strip()
+        texto = " ".join(x for x in (documento, concepto) if x).strip()
     if not texto:
         texto = f"Factura {factura.numero_factura or ''}".strip()
-    # El campo del Modelo General SIIGO es corto; conservar el ancho histórico.
     texto = " ".join(texto.upper().split())[:50]
     return texto.ljust(50)
 
@@ -216,10 +220,10 @@ def _valor_columna(columna: dict, factura: Factura, movimiento: Movimiento,
     if source == "cufe":
         return factura.cufe or fijo
     if source == "concepto_siigo":
-        return _descripcion_exportacion_siigo(factura)
+        return _descripcion_exportacion_siigo(factura, param_cuenta_siigo)
     if source == "concepto":
         if empresa and empresa.sistema_contable == "siigo_pyme":
-            return _descripcion_exportacion_siigo(factura)
+            return _descripcion_exportacion_siigo(factura, param_cuenta_siigo)
         return movimiento.descripcion or f"Factura {factura.numero_factura or ''}"
     if source == "debito_credito":
         # Estructura real de Siigo Pyme (Movimiento Contable): una sola

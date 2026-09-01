@@ -321,7 +321,7 @@ def previsualizar_exportacion(empresa_id: str, payload: GenerarExportacionReques
     columnas_plantilla = json.loads(plantilla.columnas_json)
     sistema = plantilla.sistema_contable.value if hasattr(plantilla.sistema_contable, "value") else plantilla.sistema_contable
     facturas_ordenadas = export_service.agrupar_y_ordenar_facturas(facturas)
-    numeros = proyectar_numeros(db, empresa, facturas_ordenadas) if sistema == "siigo_pyme" else None
+    numeros = proyectar_numeros(db, empresa, facturas_ordenadas, payload.consecutivo_inicial) if sistema == "siigo_pyme" else None
     _, filas, total_filas = export_service.generar_filas(db, empresa, plantilla, facturas, numeros_documento=numeros)
     encabezado = [c["label"] for c in columnas_plantilla]
 
@@ -418,7 +418,7 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
         numeros = None
         cfg_por_factura = {}
         if sistema == "siigo_pyme":
-            numeros, cfg_por_factura = asignar_numeros(db, empresa, facturas_ordenadas)
+            numeros, cfg_por_factura = asignar_numeros(db, empresa, facturas_ordenadas, payload.consecutivo_inicial)
         columnas_count = len(json.loads(plantilla.columnas_json or "[]"))
         es_modelo_general_siigo = sistema == "siigo_pyme" and columnas_count == 123
         if es_modelo_general_siigo:
@@ -455,7 +455,8 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
         auditoria_registrar(db, empresa_id, "Exportacion", exportacion.id, "exportacion_generada",
                              {"archivo": nombre_archivo, "registros": total_filas,
                               "facturas": payload.factura_ids, "sistema": sistema,
-                              "advertencias_asumidas": advertencias if payload.omitir_advertencias else []},
+                              "advertencias_asumidas": advertencias if payload.omitir_advertencias else [],
+                              "consecutivo_inicial": payload.consecutivo_inicial},
                              payload.usuario or usuario)
         db.commit()
     except Exception:
@@ -477,28 +478,30 @@ def generar_exportacion(empresa_id: str, payload: GenerarExportacionRequest, db:
 def listar_exportaciones(empresa_id: str, db: Session = Depends(get_db),
                           empresa: Empresa = Depends(get_empresa_activa)):
     filas = db.query(Exportacion).filter(Exportacion.empresa_id == empresa_id).order_by(Exportacion.creado_en.desc()).all()
-    return [
-        ExportacionResumen(
+    resultado = []
+    for e in filas:
+        errores = json.loads(e.errores_json) if e.errores_json else []
+        anulada = any(str(x).startswith("[ANULADA]") for x in errores)
+        resultado.append(ExportacionResumen(
             id=e.id, sistema_contable=e.sistema_contable.value if hasattr(e.sistema_contable, "value") else e.sistema_contable,
-            cantidad_registros=e.cantidad_registros, estado=e.estado.value if hasattr(e.estado, "value") else e.estado,
-            errores=json.loads(e.errores_json) if e.errores_json else [],
+            cantidad_registros=e.cantidad_registros,
+            estado="anulada" if anulada else (e.estado.value if hasattr(e.estado, "value") else e.estado),
+            errores=errores,
             archivo_nombre=e.archivo_nombre, creado_en=e.creado_en,
-        )
-        for e in filas
-    ]
+        ))
+    return resultado
 
 
 @router.delete("/exportaciones/{exportacion_id}")
 def eliminar_exportacion(empresa_id: str, exportacion_id: str, db: Session = Depends(get_db),
                           empresa: Empresa = Depends(get_empresa_activa), usuario: str = Depends(usuario_actual)):
-    """
-    Borra un registro del historial de exportaciones — útil sobre todo
-    para poder luego borrar una PLANTILLA que quedó bloqueada por
-    haberse usado en una exportación (ej. una plantilla que se creó mal
-    y necesita reemplazarse). Las facturas que se hayan marcado como
-    "exportadas" NO vuelven atrás de estado solas — esto solo borra el
-    registro de auditoría de esa exportación puntual, no deshace nada
-    contable.
+    """Anula visualmente una exportación sin borrar su evidencia histórica.
+
+    Una exportación generada forma parte de la trazabilidad contable: su archivo,
+    plantilla, facturas y números usados deben seguir consultables. Por eso esta
+    acción ya no elimina la fila ni desprende sus relaciones; la marca como anulada
+    y registra quién lo hizo. Si se requiere corregir documentos exportados, se usa
+    el flujo específico de retiro/reingreso de documentos.
     """
     exportacion = db.query(Exportacion).filter(
         Exportacion.empresa_id == empresa_id, Exportacion.id == exportacion_id
@@ -506,13 +509,15 @@ def eliminar_exportacion(empresa_id: str, exportacion_id: str, db: Session = Dep
     if not exportacion:
         raise HTTPException(status_code=404, detail="Exportación no encontrada en esta empresa.")
 
-    detalle = {"archivo": exportacion.archivo_nombre, "plantilla_id": exportacion.plantilla_id}
-    # La marca por destino se conserva aunque se elimine la fila del historial visual.
-    relaciones = db.query(ExportacionFactura).filter(ExportacionFactura.exportacion_id == exportacion_id).all()
-    for r in relaciones:
-        r.exportacion_id = None
-    db.flush()
-    db.delete(exportacion)
-    auditoria_registrar(db, empresa_id, "Exportacion", exportacion_id, "exportacion_eliminada", detalle, usuario)
-    db.commit()
-    return {"eliminada": True, "id": exportacion_id}
+    errores = json.loads(exportacion.errores_json) if exportacion.errores_json else []
+    if not any(str(x).startswith("[ANULADA]") for x in errores):
+        errores.append(f"[ANULADA] Exportación anulada por {usuario or 'usuario'}; se conserva como evidencia histórica.")
+        exportacion.errores_json = json.dumps(errores, ensure_ascii=False)
+        exportacion.estado = EstadoExportacion.error
+        auditoria_registrar(
+            db, empresa_id, "Exportacion", exportacion_id, "exportacion_anulada",
+            {"archivo": exportacion.archivo_nombre, "plantilla_id": exportacion.plantilla_id,
+             "cantidad_registros": exportacion.cantidad_registros}, usuario,
+        )
+        db.commit()
+    return {"anulada": True, "id": exportacion_id, "trazabilidad_conservada": True}

@@ -136,95 +136,60 @@ def folio_dian_factura(factura: Factura) -> str:
     return ""
 
 
-def _numero_ya_asignado(db: Session, empresa_id: str, factura_id: str, tipo: str, codigo: str):
-    return db.query(ExportacionFactura).filter(
-        ExportacionFactura.empresa_id == empresa_id,
-        ExportacionFactura.factura_id == factura_id,
-        ExportacionFactura.sistema_contable == SistemaContable.siigo_pyme,
-        ExportacionFactura.tipo_comprobante == tipo,
-        ExportacionFactura.codigo_comprobante == codigo,
-        ExportacionFactura.numero_documento.isnot(None),
-    ).order_by(ExportacionFactura.creado_en.asc()).first()
+def _inicio_para_config(consecutivo_inicial: int | None) -> int:
+    """Primer número interno solicitado para ESTE archivo.
+
+    La numeración interna de SIIGO es una decisión operativa de cada exportación:
+    no se consulta ni actualiza memoria histórica. Esto permite volver a generar el
+    mismo lote con los mismos números si el usuario necesita corregir y recargar.
+    """
+    try:
+        n = int(consecutivo_inicial if consecutivo_inicial is not None else 1)
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, n)
 
 
-def _bloquear_clave_postgres(db: Session, empresa_id: str, tipo: str, codigo: str) -> None:
-    dialecto = getattr(getattr(db, "bind", None), "dialect", None)
-    if dialecto and dialecto.name == "postgresql":
-        llave = f"siigo:{empresa_id}:{tipo}:{codigo}"
-        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": llave})
+def proyectar_numeros(db: Session, empresa: Empresa, facturas_ordenadas: list[Factura],
+                      consecutivo_inicial: int | None = 1) -> dict[str, str]:
+    """Numeración de vista previa, totalmente sin memoria.
 
-
-def _obtener_consecutivo_bloqueado(db: Session, empresa_id: str, tipo: str, codigo: str) -> ConsecutivoSiigo:
-    _bloquear_clave_postgres(db, empresa_id, tipo, codigo)
-    q = db.query(ConsecutivoSiigo).filter(
-        ConsecutivoSiigo.empresa_id == empresa_id,
-        ConsecutivoSiigo.tipo_comprobante == tipo,
-        ConsecutivoSiigo.codigo_comprobante == codigo,
-    )
-    if getattr(getattr(db, "bind", None), "dialect", None) and db.bind.dialect.name == "postgresql":
-        q = q.with_for_update()
-    fila = q.first()
-    if not fila:
-        fila = ConsecutivoSiigo(
-            empresa_id=empresa_id, tipo_comprobante=tipo, codigo_comprobante=codigo,
-            ultimo_consecutivo_usado=0,
-        )
-        db.add(fila)
-        db.flush()
-    return fila
-
-
-def proyectar_numeros(db: Session, empresa: Empresa, facturas_ordenadas: list[Factura]) -> dict[str, str]:
-    """Vista previa: no consume consecutivos internos."""
+    Cada combinación Tipo + Código de comprobante inicia en el número indicado por
+    el usuario para esta exportación. Las facturas con modo ``folio_dian`` siguen
+    usando su folio real.
+    """
     cfgs = configuraciones_empresa(db, empresa)
-    bases: dict[tuple[str, str], int] = {}
-    usados: dict[tuple[str, str], int] = defaultdict(int)
+    inicio = _inicio_para_config(consecutivo_inicial)
+    usados: dict[tuple[str, str], int] = {}
     resultado: dict[str, str] = {}
     for f in facturas_ordenadas:
         cfg = dict(cfgs[tipo_documento_clave(f)])
         if f.tipo_comprobante_override:
             cfg["tipo_comprobante"] = f.tipo_comprobante_override
-        tipo, codigo = cfg.get("tipo_comprobante") or "", cfg.get("codigo_comprobante") or ""
         if cfg.get("modo_numeracion") == "folio_dian":
             resultado[f.id] = folio_dian_factura(f)
             continue
-        previo = _numero_ya_asignado(db, empresa.id, f.id, tipo, codigo)
-        if previo:
-            resultado[f.id] = previo.numero_documento
-            continue
-        key = (tipo, codigo)
-        if key not in bases:
-            fila = db.query(ConsecutivoSiigo).filter(
-                ConsecutivoSiigo.empresa_id == empresa.id,
-                ConsecutivoSiigo.tipo_comprobante == tipo,
-                ConsecutivoSiigo.codigo_comprobante == codigo,
-            ).first()
-            bases[key] = int(fila.ultimo_consecutivo_usado if fila else 0)
-        usados[key] += 1
-        resultado[f.id] = str(bases[key] + usados[key])
+        key = (str(cfg.get("tipo_comprobante") or ""), str(cfg.get("codigo_comprobante") or ""))
+        ordinal = usados.get(key, 0)
+        resultado[f.id] = str(inicio + ordinal)
+        usados[key] = ordinal + 1
     return resultado
 
 
-def asignar_numeros(db: Session, empresa: Empresa, facturas_ordenadas: list[Factura]) -> tuple[dict[str, str], dict[str, dict]]:
-    """Reserva consecutivos internos dentro de la transacción activa."""
+def asignar_numeros(db: Session, empresa: Empresa, facturas_ordenadas: list[Factura],
+                    consecutivo_inicial: int | None = 1) -> tuple[dict[str, str], dict[str, dict]]:
+    """Asigna números al archivo final SIN reservar ni recordar consecutivos.
+
+    ``ExportacionFactura.numero_documento`` conserva después una evidencia de qué
+    número salió en ese archivo concreto, pero nunca se reutiliza como contador para
+    una exportación futura.
+    """
     cfgs = configuraciones_empresa(db, empresa)
-    resultado: dict[str, str] = {}
+    numeros = proyectar_numeros(db, empresa, facturas_ordenadas, consecutivo_inicial)
     cfg_por_factura: dict[str, dict] = {}
     for f in facturas_ordenadas:
         cfg = dict(cfgs[tipo_documento_clave(f)])
         if f.tipo_comprobante_override:
             cfg["tipo_comprobante"] = f.tipo_comprobante_override
-        tipo, codigo = cfg.get("tipo_comprobante") or "", cfg.get("codigo_comprobante") or ""
         cfg_por_factura[f.id] = cfg
-        if cfg.get("modo_numeracion") == "folio_dian":
-            resultado[f.id] = folio_dian_factura(f)
-            continue
-        previo = _numero_ya_asignado(db, empresa.id, f.id, tipo, codigo)
-        if previo:
-            resultado[f.id] = previo.numero_documento
-            continue
-        consecutivo = _obtener_consecutivo_bloqueado(db, empresa.id, tipo, codigo)
-        consecutivo.ultimo_consecutivo_usado = int(consecutivo.ultimo_consecutivo_usado or 0) + 1
-        db.flush()
-        resultado[f.id] = str(consecutivo.ultimo_consecutivo_usado)
-    return resultado, cfg_por_factura
+    return numeros, cfg_por_factura

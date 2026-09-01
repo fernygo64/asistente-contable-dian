@@ -155,9 +155,17 @@ def extraer_factura_xml(contenido: bytes) -> dict:
     hora = _text(invoice_root, "IssueTime")
 
     supplier = None
-    for sp in _find_all(invoice_root, "AccountingSupplierParty"):
-        supplier = sp
-        break
+    suppliers = _find_all(invoice_root, "AccountingSupplierParty")
+    # Algunos XML DIAN repiten AccountingSupplierParty dentro de extensiones
+    # técnicas antes del Party contable real. Elegimos el primer bloque que
+    # realmente tenga identificación tributaria; si ninguno la trae, usamos
+    # el primero como respaldo.
+    for sp in suppliers:
+        if _extraer_nit_party(sp):
+            supplier = sp
+            break
+    if supplier is None and suppliers:
+        supplier = suppliers[0]
     nit_emisor, nombre_emisor, direccion_emisor = "", "", ""
     if supplier is not None:
         nit_emisor = _extraer_nit_party(supplier)
@@ -182,9 +190,13 @@ def extraer_factura_xml(contenido: bytes) -> dict:
             direccion_emisor = ", ".join(p for p in partes if p)
 
     receptor = None
-    for rp in _find_all(invoice_root, "AccountingCustomerParty"):
-        receptor = rp
-        break
+    receptores = _find_all(invoice_root, "AccountingCustomerParty")
+    for rp in receptores:
+        if _extraer_nit_party(rp):
+            receptor = rp
+            break
+    if receptor is None and receptores:
+        receptor = receptores[0]
     nit_receptor, nombre_receptor = "", ""
     if receptor is not None:
         nit_receptor = _extraer_nit_party(receptor)
@@ -199,7 +211,27 @@ def extraer_factura_xml(contenido: bytes) -> dict:
     line_extension = _amount(legal_total, "LineExtensionAmount")
     tax_exclusive = _amount(legal_total, "TaxExclusiveAmount")
     tax_inclusive = _amount(legal_total, "TaxInclusiveAmount")
+    allowance_total = _amount(legal_total, "AllowanceTotalAmount")
+    charge_total = _amount(legal_total, "ChargeTotalAmount")
+    prepaid = _amount(legal_total, "PrepaidAmount")
+    rounding = _amount(legal_total, "PayableRoundingAmount")
     payable = _amount(legal_total, "PayableAmount")
+
+    # Si el proveedor no resume descuentos/recargos en LegalMonetaryTotal,
+    # consolidamos únicamente los AllowanceCharge DIRECTOS del documento.
+    # Nunca recorremos los de las líneas para no duplicar ajustes.
+    descuento_directo = recargo_directo = 0.0
+    for ac in _children(invoice_root, "AllowanceCharge"):
+        indicador = (_text(ac, "ChargeIndicator") or "").strip().lower()
+        monto = _amount(ac, "Amount")
+        if indicador in ("true", "1"):
+            recargo_directo += monto
+        elif indicador in ("false", "0"):
+            descuento_directo += monto
+    if not allowance_total:
+        allowance_total = descuento_directo
+    if not charge_total:
+        charge_total = recargo_directo
 
     iva_total = rf_total = ri_total = rv_total = inc_total = 0.0
 
@@ -339,8 +371,15 @@ def extraer_factura_xml(contenido: bytes) -> dict:
         "iva": iva_total,
         "inc": inc_total,
         "retenciones": {"retefuente": rf_total, "reteica": ri_total, "reteiva": rv_total},
-        "total": tax_inclusive or payable,
-        "valor_a_pagar": payable,
+        # El valor final a contabilizar es PayableAmount cuando existe.
+        # Esto incorpora redondeos/ajustes que TaxInclusiveAmount puede no traer.
+        "total": payable or tax_inclusive,
+        "valor_a_pagar": payable or tax_inclusive,
+        "total_antes_pago": tax_inclusive,
+        "descuento_total": allowance_total,
+        "recargo_total": charge_total,
+        "redondeo_total": rounding,
+        "prepago_total": prepaid,
         "forma_pago": forma_pago,
         "conceptos": conceptos,
         "naturaleza_documento": naturaleza_raiz,

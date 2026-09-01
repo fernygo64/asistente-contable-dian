@@ -25,10 +25,10 @@ def prefijo_folio(prefijo: Any, folio: Any) -> str:
     """Une prefijo y folio con UN solo guion, sin duplicar el prefijo.
 
     Ejemplos:
-    - ``AR`` + ``33356`` -> ``AR-33356``
-    - ``AR`` + ``AR33356`` -> ``AR-33356``
-    - ``AR`` + ``AR-33356`` -> ``AR-33356``
-    - sin prefijo + ``AR-33356`` -> ``AR-33356`` (no se inventa un prefijo).
+    - ``ABC`` + ``12345`` -> ``ABC-12345``
+    - ``ABC`` + ``ABC12345`` -> ``ABC-12345``
+    - ``ABC`` + ``ABC-12345`` -> ``ABC-12345``
+    - sin prefijo + ``ABC-12345`` -> ``ABC-12345`` (no se inventa un prefijo).
     """
     p = _texto(prefijo)
     f = _texto(folio)
@@ -38,7 +38,7 @@ def prefijo_folio(prefijo: Any, folio: Any) -> str:
         return p
 
     # Si Folio ya incluye el prefijo, quitarlo solo del inicio. Se toleran
-    # guion, slash, guion bajo o espacios entre ambos para no generar AR-AR-33356.
+    # guion, slash, guion bajo o espacios entre ambos para no generar ABC-ABC-12345.
     patron = re.compile(rf"^{re.escape(p)}(?:\s*[-_/]\s*|\s*)", re.IGNORECASE)
     resto = patron.sub("", f, count=1).strip(" -_/")
     if not resto:

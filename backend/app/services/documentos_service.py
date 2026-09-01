@@ -79,6 +79,58 @@ def _parse_valor(v) -> Optional[float]:
         return None
 
 
+def _mismo_valor(a, b, tolerancia: float = 0.01) -> bool:
+    va, vb = _parse_valor(a), _parse_valor(b)
+    if va is None or vb is None:
+        return True
+    return abs(va - vb) <= tolerancia
+
+
+def _dinero(valor) -> str:
+    v = _parse_valor(valor)
+    if v is None:
+        return str(valor or "")
+    return f"${v:,.2f}"
+
+
+def _clasificacion_fuentes(doc: DocumentoExtraido, naturaleza_excel: Optional[str],
+                            direccion_excel: Optional[str]) -> tuple[str, str, list[str], bool]:
+    """Concilia XML/PDF/Excel sin convertir una nota estructural en factura.
+
+    La raíz UBL (Invoice/CreditNote/DebitNote) manda para la naturaleza cuando
+    existe XML. Excel manda solo cuando no hay XML. La dirección explícita del
+    reporte DIAN se usa cuando existe, pero una contradicción queda visible y
+    exige revisión en vez de pasar silenciosamente.
+    """
+    alertas: list[str] = []
+    requiere_revision = False
+    tiene_xml = bool(doc.xml_bytes or doc.nombre_xml) and doc.fuente_extraccion == "xml"
+
+    naturaleza_xml = doc.naturaleza if doc.naturaleza in {"factura", "nota_credito", "nota_debito", "nomina", "documento_equivalente"} else ""
+    naturaleza = (naturaleza_xml if tiene_xml and naturaleza_xml else naturaleza_excel) or doc.naturaleza or "factura"
+    if tiene_xml and naturaleza_excel and naturaleza_xml and naturaleza_excel != naturaleza_xml:
+        alertas.append(
+            f"Clasificación para revisar: XML={naturaleza_xml.replace('_', ' ')} y Excel DIAN={naturaleza_excel.replace('_', ' ')}."
+        )
+        requiere_revision = True
+
+    naturaleza_pdf = str((doc.campos or {}).get("_pdf_naturaleza") or "").strip()
+    if naturaleza_pdf and naturaleza_pdf != naturaleza:
+        alertas.append(
+            f"Clasificación para revisar: el PDF parece {naturaleza_pdf.replace('_', ' ')} y la fuente estructurada indica {naturaleza.replace('_', ' ')}."
+        )
+        requiere_revision = True
+
+    direccion = direccion_excel or doc.direccion or "recibida"
+    if direccion_excel and doc.direccion and doc.direccion not in {"", "no_aplica"} and direccion_excel != doc.direccion:
+        alertas.append(
+            f"Dirección para revisar: Excel DIAN={direccion_excel} y el XML/NIT sugiere {doc.direccion}."
+        )
+        requiere_revision = True
+
+    return naturaleza, direccion, alertas, requiere_revision
+
+
 def _buscar_documento_para_fila(fila: dict, documentos: list[DocumentoExtraido]):
     """
     Intenta relacionar una fila del Excel con un documento del ZIP,
@@ -221,8 +273,45 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
     if total is None:
         total = _parse_valor(excel_fila.get("valor_total")) if excel_fila else None
 
+    # Conciliación de fuentes: el valor final estructurado del XML (PayableAmount)
+    # se conserva como fuente principal, pero se contrasta contra el reporte DIAN
+    # y la representación gráfica PDF. Una diferencia real nunca se corrige a
+    # escondidas: se informa y el documento queda para revisión.
+    alertas: list[str] = []
+    requiere_revision_fuentes = False
+    total_excel = _parse_valor(excel_fila.get("valor_total")) if excel_fila else None
+    total_xml = _parse_valor(c.get("valor_a_pagar") or c.get("total")) if doc.fuente_extraccion == "xml" else None
+    if doc.fuente_extraccion in ("pdf_texto", "pdf_ocr"):
+        total_pdf = _parse_valor(c.get("total"))
+    else:
+        total_pdf = _parse_valor(c.get("_pdf_total"))
+
+    if total_xml is not None and total_excel is not None and not _mismo_valor(total_xml, total_excel):
+        alertas.append(f"Total para revisar: XML={_dinero(total_xml)} y Excel DIAN={_dinero(total_excel)}.")
+        requiere_revision_fuentes = True
+    if total_xml is not None and total_pdf is not None and not _mismo_valor(total_xml, total_pdf):
+        alertas.append(f"Total para revisar: XML={_dinero(total_xml)} y PDF={_dinero(total_pdf)}.")
+        requiere_revision_fuentes = True
+    if total_xml is None and total_excel is not None and total_pdf is not None and not _mismo_valor(total_excel, total_pdf):
+        alertas.append(f"Total para revisar: Excel DIAN={_dinero(total_excel)} y PDF={_dinero(total_pdf)}.")
+        requiere_revision_fuentes = True
+
+    descuento = _parse_valor(c.get("descuento_total")) or 0.0
+    recargo = _parse_valor(c.get("recargo_total")) or 0.0
+    redondeo = _parse_valor(c.get("redondeo_total")) or 0.0
+    prepago = _parse_valor(c.get("prepago_total")) or 0.0
+    if abs(descuento) >= 0.01:
+        alertas.append(f"Documento con descuento DIAN por {_dinero(descuento)}; el total final se conciliará contra la cuenta principal.")
+    if abs(recargo) >= 0.01:
+        alertas.append(f"Documento con recargo DIAN por {_dinero(recargo)}; el total final se conciliará contra la cuenta principal.")
+    if abs(redondeo) >= 0.01:
+        alertas.append(f"Documento con ajuste/redondeo DIAN por {_dinero(redondeo)}; se respeta el total final a pagar.")
+    if abs(prepago) >= 0.01:
+        alertas.append(f"Documento con valor prepagado por {_dinero(prepago)}; requiere revisión de la contrapartida antes de contabilizar.")
+        requiere_revision_fuentes = True
+
     # Almacenar Prefijo y Folio realmente separados cuando el XML traía ambos
-    # pegados (AR33356 / AR-33356) y el Excel DIAN suministró Prefijo=AR.
+    # pegados (ABC12345 / ABC-12345) y el Excel DIAN suministró Prefijo=ABC.
     if prefijo and numero:
         numero = folio_sin_prefijo(prefijo, numero)
 
@@ -240,12 +329,16 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
 
     duplicado = _buscar_duplicado(db, empresa_id, cufe, numero, nit_emisor, fecha_emision, total)
 
-    # La clasificación del Excel de la DIAN ("Tipo de documento", "Grupo")
-    # es más confiable que la inferida del XML — la DIAN ya resolvió la
-    # ambigüedad de NIT/formato al generarlo. Si el usuario mapeó esas
-    # columnas, tiene prioridad sobre lo que dedujimos del XML.
-    naturaleza = naturaleza_override or doc.naturaleza
-    direccion = direccion_override or doc.direccion
+    # La raíz estructural UBL define Factura/Nota Crédito/Nota Débito cuando
+    # existe XML. El Excel sigue siendo una fuente independiente de control:
+    # si contradice el XML, no se sobreescribe silenciosamente.
+    naturaleza, direccion, alertas_clasificacion, revision_clasificacion = _clasificacion_fuentes(
+        doc, naturaleza_override, direccion_override
+    )
+    alertas.extend(alertas_clasificacion)
+    requiere_revision_fuentes = requiere_revision_fuentes or revision_clasificacion
+    if alertas:
+        c["alertas"] = alertas
 
     estado = EstadoFactura.extraida
     if duplicado:
@@ -260,6 +353,8 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
         # gasto — se deja para clasificación explícita en vez de arriesgar
         # una contabilización automática incorrecta.
         estado = EstadoFactura.pendiente_clasificacion
+    elif requiere_revision_fuentes:
+        estado = EstadoFactura.pendiente_revision
     elif doc.confianza < 70 or not relacionada:
         estado = EstadoFactura.pendiente_revision
     elif doc.fuente_extraccion in ("pdf_texto", "pdf_ocr"):
