@@ -305,6 +305,20 @@ def validar_exportacion_detallada(db: Session, empresa: Empresa, plantilla: Plan
         total_c = sum(float(m.valor) for m in movimientos if str(getattr(m.tipo, "value", m.tipo)) == "credito")
         if abs(total_d - total_c) >= 0.01:
             bloqueantes.append(f"La factura {f.numero_factura or f.id} no está balanceada (débito {total_d} vs crédito {total_c}).")
+
+        # Estar balanceado NO basta: una partida anterior puede cuadrar por
+        # sí sola y aun así omitir un cargo, descuento o ajuste del Total DIAN.
+        # Antes de exportar, ambos lados deben reproducir también el valor
+        # fiscal final del documento. Si no, se obliga a regenerar la partida
+        # con las reglas actuales en vez de sacar un XLSX contablemente
+        # balanceado pero distinto de la DIAN.
+        total_dian = float(f.total or 0)
+        if abs(total_d - total_dian) >= 0.01 or abs(total_c - total_dian) >= 0.01:
+            bloqueantes.append(
+                f"La factura {f.numero_factura or f.id} tiene movimientos por "
+                f"{round(total_d, 2)} pero el Total DIAN es {round(total_dian, 2)}. "
+                f"Regenera la partida antes de exportar; puede existir un cargo, descuento o ajuste no incorporado."
+            )
         if not any(str(getattr(m.tipo, "value", m.tipo)) == "debito" for m in movimientos) or not any(str(getattr(m.tipo, "value", m.tipo)) == "credito" for m in movimientos):
             bloqueantes.append(f"La factura {f.numero_factura or f.id} debe tener al menos una línea Débito y una Crédito, incluso si el valor es $0.")
         if not f.fecha_emision:

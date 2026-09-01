@@ -300,15 +300,56 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
     recargo = _parse_valor(c.get("recargo_total")) or 0.0
     redondeo = _parse_valor(c.get("redondeo_total")) or 0.0
     prepago = _parse_valor(c.get("prepago_total")) or 0.0
-    if abs(descuento) >= 0.01:
-        alertas.append(f"Documento con descuento DIAN por {_dinero(descuento)}; el total final se conciliará contra la cuenta principal.")
-    if abs(recargo) >= 0.01:
-        alertas.append(f"Documento con recargo DIAN por {_dinero(recargo)}; el total final se conciliará contra la cuenta principal.")
+
+    # Cuando el XML trae AllowanceCharge, conservamos y mostramos el motivo
+    # real (SERVICIO, PROPINA, DESCUENTO, etc.). La diferencia matemática es
+    # solo un CONTROL: no es el mecanismo principal para inventar el concepto.
+    ajustes_globales = c.get("ajustes_globales") or []
+    ajustes_informados = False
+    if isinstance(ajustes_globales, list):
+        for ajuste in ajustes_globales:
+            if not isinstance(ajuste, dict):
+                continue
+            tipo = str(ajuste.get("tipo") or "").lower()
+            valor = _parse_valor(ajuste.get("valor")) or 0.0
+            descripcion = str(ajuste.get("descripcion") or "AJUSTE").strip()
+            if abs(valor) < 0.01:
+                continue
+            ajustes_informados = True
+            if tipo == "cargo":
+                alertas.append(f"Cargo global DIAN detectado: {descripcion} por {_dinero(valor)}; se incorpora al valor de la cuenta principal.")
+            elif tipo == "descuento":
+                alertas.append(f"Descuento global DIAN detectado: {descripcion} por {_dinero(valor)}; disminuye el valor de la cuenta principal.")
+            else:
+                alertas.append(f"Ajuste global DIAN sin signo definido: {descripcion} por {_dinero(valor)}; requiere revisión.")
+                requiere_revision_fuentes = True
+
+    # Respaldo para XML que informa los totales en LegalMonetaryTotal pero no
+    # detalla los AllowanceCharge directos.
+    if abs(descuento) >= 0.01 and not ajustes_informados:
+        alertas.append(f"Documento con descuento DIAN por {_dinero(descuento)}; disminuye la cuenta principal.")
+    if abs(recargo) >= 0.01 and not ajustes_informados:
+        alertas.append(f"Documento con recargo DIAN por {_dinero(recargo)}; se incorpora a la cuenta principal.")
     if abs(redondeo) >= 0.01:
         alertas.append(f"Documento con ajuste/redondeo DIAN por {_dinero(redondeo)}; se respeta el total final a pagar.")
     if abs(prepago) >= 0.01:
         alertas.append(f"Documento con valor prepagado por {_dinero(prepago)}; requiere revisión de la contrapartida antes de contabilizar.")
         requiere_revision_fuentes = True
+
+    # Validación independiente: los componentes declarados en el XML deben
+    # explicar el PayableAmount. Si no explican el total, NO se adivina: se
+    # informa la diferencia y el documento se manda a revisión.
+    total_antes_pago = _parse_valor(c.get("total_antes_pago"))
+    if doc.fuente_extraccion == "xml" and total_xml is not None and total_antes_pago is not None:
+        total_explicado = round(total_antes_pago + recargo - descuento + redondeo - prepago, 2)
+        diferencia_componentes = round(total_xml - total_explicado, 2)
+        if abs(diferencia_componentes) >= 0.01:
+            alertas.append(
+                f"Los componentes del XML no explican completamente el total final: "
+                f"componentes={_dinero(total_explicado)}, total DIAN={_dinero(total_xml)}, "
+                f"diferencia={_dinero(diferencia_componentes)}. Requiere revisión."
+            )
+            requiere_revision_fuentes = True
 
     # Almacenar Prefijo y Folio realmente separados cuando el XML traía ambos
     # pegados (ABC12345 / ABC-12345) y el Excel DIAN suministró Prefijo=ABC.

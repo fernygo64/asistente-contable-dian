@@ -217,17 +217,37 @@ def extraer_factura_xml(contenido: bytes) -> dict:
     rounding = _amount(legal_total, "PayableRoundingAmount")
     payable = _amount(legal_total, "PayableAmount")
 
-    # Si el proveedor no resume descuentos/recargos en LegalMonetaryTotal,
-    # consolidamos únicamente los AllowanceCharge DIRECTOS del documento.
-    # Nunca recorremos los de las líneas para no duplicar ajustes.
+    # Cargos y descuentos GLOBALES declarados explícitamente en UBL.
+    # Se leen solo los AllowanceCharge DIRECTOS del documento: los de las
+    # líneas ya afectan LineExtensionAmount y sumarlos otra vez duplicaría
+    # el valor. Además del total conservamos motivo/base/porcentaje para que
+    # la interfaz pueda explicar QUÉ produjo la diferencia (p. ej. SERVICIO
+    # o PROPINA) en vez de descubrirla únicamente por resta matemática.
     descuento_directo = recargo_directo = 0.0
+    ajustes_globales = []
     for ac in _children(invoice_root, "AllowanceCharge"):
         indicador = (_text(ac, "ChargeIndicator") or "").strip().lower()
         monto = _amount(ac, "Amount")
+        razon = (_text(ac, "AllowanceChargeReason") or "").strip()
+        base = _amount(ac, "BaseAmount")
+        porcentaje = _amount(ac, "MultiplierFactorNumeric")
         if indicador in ("true", "1"):
             recargo_directo += monto
+            tipo_ajuste = "cargo"
         elif indicador in ("false", "0"):
             descuento_directo += monto
+            tipo_ajuste = "descuento"
+        else:
+            # Si el XML no informa ChargeIndicator no adivinamos su signo.
+            # Se conserva para revisión, pero no se suma a ningún total.
+            tipo_ajuste = "indeterminado"
+        ajustes_globales.append({
+            "tipo": tipo_ajuste,
+            "descripcion": razon or ("CARGO" if tipo_ajuste == "cargo" else "DESCUENTO" if tipo_ajuste == "descuento" else "AJUSTE"),
+            "valor": monto,
+            "base": base,
+            "porcentaje": porcentaje,
+        })
     if not allowance_total:
         allowance_total = descuento_directo
     if not charge_total:
@@ -378,6 +398,7 @@ def extraer_factura_xml(contenido: bytes) -> dict:
         "total_antes_pago": tax_inclusive,
         "descuento_total": allowance_total,
         "recargo_total": charge_total,
+        "ajustes_globales": ajustes_globales,
         "redondeo_total": rounding,
         "prepago_total": prepaid,
         "forma_pago": forma_pago,
