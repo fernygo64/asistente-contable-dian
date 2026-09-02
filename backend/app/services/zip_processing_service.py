@@ -83,10 +83,18 @@ def _nit_base(valor: Optional[str]) -> str:
 
 
 def _anexar_pdf(doc: DocumentoExtraido, nombre_pdf: str, contenido_pdf: bytes, resultado_pdf: Optional[dict] = None) -> None:
-    """Adjunta el PDF y conserva sus datos clave para contraste entre fuentes."""
-    resultado_pdf = resultado_pdf or extraer_factura_pdf(contenido_pdf)
+    """Adjunta el PDF sin volver pesada una carga que ya tiene XML.
+
+    Si el PDF ya fue analizado por texto se conservan sus campos. Cuando el
+    XML y el PDF comparten nombre no hay razón para leer/OCR el PDF aquí: el
+    XML es la fuente estructurada y el PDF queda asociado como soporte. El
+    contraste del PDF se hace de forma perezosa solo si XML y Excel DIAN no
+    coinciden.
+    """
     doc.nombre_pdf = nombre_pdf
     doc.pdf_bytes = contenido_pdf
+    if resultado_pdf is None:
+        return
     campos_pdf = resultado_pdf.get("campos") or {}
     if campos_pdf.get("total") not in (None, ""):
         doc.campos["_pdf_total"] = campos_pdf.get("total")
@@ -212,7 +220,7 @@ def agrupar_documentos(pares: list[tuple[str, bytes]], nit_empresa: Optional[str
         # de archivo distinto (pasa seguido en descargas reales de la
         # DIAN, donde el XML y el PDF no siempre comparten nombre) — se
         # adjunta al documento existente en vez de duplicarlo.
-        resultado_pdf = extraer_factura_pdf(contenido_pdf)
+        resultado_pdf = extraer_factura_pdf(contenido_pdf, permitir_ocr=False)
         cufe_pdf = (resultado_pdf["campos"].get("cufe") or "").lower()
         if cufe_pdf and cufe_pdf in documentos:
             doc_existente = documentos[cufe_pdf]

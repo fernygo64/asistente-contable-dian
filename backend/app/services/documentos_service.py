@@ -23,6 +23,7 @@ from app.services.excel_utils import resolver_columna, leer_dataframe_excel
 from app.services.clasificacion_dian_service import clasificar_desde_excel, es_tipo_descartable
 from app.services.mapeo_dian_service import detectar_mapeo_excel_dian
 from app.services.document_format_service import folio_sin_prefijo
+from app.services.pdf_extraction_service import extraer_factura_pdf
 
 
 def _leer_excel_dian(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
@@ -289,6 +290,17 @@ def _crear_factura_desde_documento(db: Session, empresa_id: str, carga_id: str,
     if total_xml is not None and total_excel is not None and not _mismo_valor(total_xml, total_excel):
         alertas.append(f"Total para revisar: XML={_dinero(total_xml)} y Excel DIAN={_dinero(total_excel)}.")
         requiere_revision_fuentes = True
+        # Solo ante una discrepancia real XML vs Excel se consulta el PDF.
+        # Durante el cargue se permite texto embebido, nunca OCR si ya existe
+        # XML: así el soporte gráfico no bloquea ni ralentiza el lote.
+        if total_pdf is None and doc.pdf_bytes:
+            resultado_pdf = extraer_factura_pdf(doc.pdf_bytes, permitir_ocr=False)
+            campos_pdf = resultado_pdf.get("campos") or {}
+            total_pdf = _parse_valor(campos_pdf.get("total"))
+            if campos_pdf.get("naturaleza_documento"):
+                c["_pdf_naturaleza"] = campos_pdf.get("naturaleza_documento")
+            if total_pdf is None:
+                alertas.append("El PDF está asociado como soporte, pero no fue posible leer su total sin OCR; se deja para revisión sin frenar la carga.")
     if total_xml is not None and total_pdf is not None and not _mismo_valor(total_xml, total_pdf):
         alertas.append(f"Total para revisar: XML={_dinero(total_xml)} y PDF={_dinero(total_pdf)}.")
         requiere_revision_fuentes = True

@@ -87,7 +87,7 @@ def _buscar_campos(texto: str) -> dict:
     return campos
 
 
-def extraer_factura_pdf(contenido: bytes) -> dict:
+def extraer_factura_pdf(contenido: bytes, permitir_ocr: bool = True) -> dict:
     """
     Devuelve:
       fuente: "pdf_texto" | "pdf_ocr"
@@ -95,10 +95,15 @@ def extraer_factura_pdf(contenido: bytes) -> dict:
       confianza: 0-100, proporcional a cuántos de los campos clave se
                  reconocieron
       texto_bruto: el texto completo extraído (para revisión manual)
+
+    ``permitir_ocr=False`` se usa durante cargas que ya tienen XML: evita
+    convertir páginas a imagen y ejecutar OCR solo para contrastar un soporte
+    que no es la fuente principal. El OCR completo queda reservado para PDFs
+    sin XML asociado.
     """
     texto = _extraer_texto_directo(contenido)
     fuente = "pdf_texto"
-    if len(texto) < 30:  # texto insuficiente -> probablemente escaneado
+    if len(texto) < 30 and permitir_ocr:  # texto insuficiente -> probablemente escaneado
         texto = _extraer_texto_ocr(contenido)
         fuente = "pdf_ocr"
 

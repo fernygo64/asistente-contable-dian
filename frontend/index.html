@@ -298,7 +298,7 @@
       </div>
       <p class="muted">Mapea también "NIT receptor" y "Nombre receptor" si tu Excel los trae — son el dato que de verdad importa en una factura <strong>emitida</strong> (tu cliente, no tú mismo) cuando esa factura no tiene un XML que la respalde, solo la fila del Excel.</p>
       <p class="muted">El sistema intenta reconocer automáticamente las columnas estándar de la DIAN, incluido Tipo de documento y Grupo. Las opciones de arriba quedan disponibles para corregir manualmente una estructura excepcional.</p>
-      <button class="btn" onclick="cargarDocumentos()">Cargar y relacionar</button>
+      <button class="btn" id="btnCargarDocumentos" onclick="cargarDocumentos()">Cargar y relacionar</button> <span id="estadoCargaDocumentos" class="muted"></span>
       <div id="resultadoCarga" style="margin-top:12px;"></div>
     </div>
 
@@ -1270,6 +1270,9 @@ async function cargarListadoCargas(){
 
 async function cargarDocumentos(){
   if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const btnCarga=document.getElementById('btnCargarDocumentos');
+  const estadoCarga=document.getElementById('estadoCargaDocumentos');
+  if(btnCarga?.disabled) return;
   const archivos = document.getElementById('zipInput').files;
   const excelFile = document.getElementById('excelInput').files[0];
   if((!archivos || archivos.length===0) && !excelFile){ toast('Selecciona un Excel DIAN o al menos un ZIP/XML/PDF', true); return; }
@@ -1287,6 +1290,8 @@ async function cargarDocumentos(){
     }
   }
   try{
+    if(btnCarga){ btnCarga.disabled=true; btnCarga.textContent='Procesando…'; }
+    if(estadoCarga) estadoCarga.textContent=`Procesando ${archivos?.length||0} archivo(s)${excelFile?' + Excel DIAN':''}. No cierres esta pestaña.`;
     const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/cargar`, {method:'POST', headers:authHeaders(), body: fd});
     if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
     const body = await jsonSeguro(resp);
@@ -1315,7 +1320,13 @@ async function cargarDocumentos(){
     cargarResumenPorTipo();
     cargarListadoCargas();
     await cargarPeriodosEmpresa();
-  }catch(e){ toast(e.message, true); }
+  }catch(e){
+    toast(e.message, true);
+    if(estadoCarga) estadoCarga.textContent='La carga no terminó. Revisa el mensaje mostrado e inténtalo nuevamente.';
+  }finally{
+    if(btnCarga){ btnCarga.disabled=false; btnCarga.textContent='Cargar y relacionar'; }
+    if(estadoCarga && !estadoCarga.textContent.startsWith('La carga no terminó')) estadoCarga.textContent='';
+  }
 }
 
 function irAPestana(nombrePestana, alLlegar){
