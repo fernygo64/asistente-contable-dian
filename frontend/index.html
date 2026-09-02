@@ -1,0 +1,2251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Asistente Contable DIAN</title>
+<style>
+  :root{
+    --ink:#13213c; --ink-soft:#526079; --paper:#f4f7fb; --paper-2:#ffffff;
+    --line:#e2e8f0; --accent:#1769e0; --accent-dark:#0f4fae; --accent-soft:#edf5ff;
+    --success:#12805c; --success-soft:#eaf8f2; --warn:#b86b08; --warn-soft:#fff6e8;
+    --err:#c33d4d; --err-soft:#fff0f2; --purple:#6d56d9; --sidebar:#101d36;
+    --shadow:0 8px 28px rgba(15,31,61,.07); --mono:'JetBrains Mono','Courier New',monospace;
+  }
+  *{box-sizing:border-box} html{scroll-behavior:smooth}
+  body{margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--paper);color:var(--ink);font-size:14px;line-height:1.45}
+  header{position:fixed;left:0;right:0;top:0;height:68px;z-index:50;background:#fff;border-bottom:1px solid var(--line);padding:11px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(15,31,61,.04)}
+  header h1{margin:0;font-size:18px;letter-spacing:-.2px} header .sub{font-size:11px;color:#718096;margin-top:2px}
+  header label{display:none} header input{background:#f7f9fc;border:none;font-size:11px;color:#718096}
+  nav{position:fixed;left:0;top:68px;bottom:0;width:218px;z-index:40;background:var(--sidebar);display:flex;flex-direction:column;gap:5px;padding:18px 12px;overflow-y:auto}
+  nav button{background:transparent;border:0;color:#aebbd1;text-align:left;padding:11px 13px;border-radius:10px;font-size:13px;cursor:pointer;transition:.18s ease;white-space:nowrap}
+  nav button:hover{background:rgba(255,255,255,.07);color:#fff;transform:translateX(2px)}
+  nav button.active{background:linear-gradient(135deg,#1d70e8,#4c85e8);color:#fff;font-weight:700;box-shadow:0 8px 18px rgba(20,105,224,.22)}
+  nav button[data-tab="dashboard"]::before{content:'◈  '} nav button[data-tab="empresas"]::before{content:'▦  '} nav button[data-tab="historial"]::before{content:'◫  '} nav button[data-tab="cargar"]::before{content:'⇧  '} nav button[data-tab="facturas-recibidas"]::before{content:'↓  '} nav button[data-tab="facturas-emitidas"]::before{content:'↑  '} nav button[data-tab="plantillas"]::before{content:'⇄  '} nav button[data-tab="usuarios"]::before{content:'♟  '} nav button[data-tab="auditoria"]::before{content:'◎  '}
+  main{margin-left:218px;padding:92px 28px 34px;max-width:1550px}
+  .card{background:var(--paper-2);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow);transition:box-shadow .18s ease,transform .18s ease}
+  .card:hover{box-shadow:0 12px 34px rgba(15,31,61,.09)}
+  .card h2{margin:0 0 12px;font-size:15px;letter-spacing:-.15px;color:var(--ink);display:flex;align-items:center;gap:8px}
+  .module-intro{margin:0 0 16px;color:var(--ink-soft);font-size:12.5px}.module-intro strong{color:var(--ink)}
+  label{display:block;font-size:10.5px;font-weight:700;color:#65738a;margin-bottom:4px;text-transform:uppercase;letter-spacing:.35px}
+  input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:var(--ink);outline:none;transition:.15s ease}
+  input:focus,select:focus,textarea:focus{border-color:#88b5f0;box-shadow:0 0 0 3px rgba(23,105,224,.08)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}.row>div{flex:1;min-width:150px}
+  button.btn{background:var(--accent);color:#fff;border:0;padding:8px 14px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;transition:.15s ease;box-shadow:0 3px 8px rgba(23,105,224,.12)}
+  button.btn:hover{background:var(--accent-dark);transform:translateY(-1px)} button.btn.ghost{background:#fff;color:var(--accent);border:1px solid #b8d2f5;box-shadow:none} button.btn.danger{background:#fff;color:var(--err);border:1px solid #efb7bf;box-shadow:none} button.btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;overflow:hidden} th{position:sticky;top:0;background:#f6f8fc;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;color:#59677e;font-size:11px;text-transform:uppercase;letter-spacing:.25px}td{padding:8px 10px;border-bottom:1px solid #edf1f6}tr:hover td{background:#f9fbfe}
+  .pill{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:10.5px;font-weight:800}.pill.ok{background:var(--success-soft);color:var(--success)}.pill.warn{background:var(--warn-soft);color:var(--warn)}.pill.err{background:var(--err-soft);color:var(--err)}
+  .mono{font-family:var(--mono)}.muted{color:#7d899c;font-size:12px}.hidden{display:none!important}
+  .empresa-activa{background:linear-gradient(90deg,#eef6ff,#f8fbff);border:1px solid #cfe2fb;border-radius:10px;padding:9px 13px;font-size:12.5px;margin-bottom:15px;color:#31577e}
+  details{border:1px solid var(--line);border-radius:11px;margin-bottom:8px;background:#fff;overflow:hidden}summary{padding:11px 13px;cursor:pointer;display:grid;grid-template-columns:28px minmax(250px,1fr) auto;align-items:center;gap:10px;transition:.12s ease}summary:hover{background:#f8fbff}details[open]>summary{background:#f5f9ff;border-bottom:1px solid var(--line)}.detail-body{padding:14px;font-size:12.5px}
+  .col-check{width:26px}.toast{position:fixed;bottom:20px;right:20px;background:#14213b;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;max-width:430px;z-index:99;box-shadow:0 14px 35px rgba(15,31,61,.25);animation:toastIn .2s ease}.toast.err{background:var(--err)}@keyframes toastIn{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+  .flex-between{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+  .kpi-grid{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:10px}.kpi{background:linear-gradient(180deg,#fff,#f9fbfe);border:1px solid var(--line);border-radius:11px;padding:12px}.kpi b{display:block;font-size:20px;margin-top:2px;color:var(--ink)}.kpi span{font-size:10.5px;text-transform:uppercase;color:#758197;font-weight:700;letter-spacing:.3px}
+  .accounting-box{border:1px solid #cde9dd;background:#fbfffd;border-radius:10px;padding:12px;margin-top:10px}.accounting-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}.balanced{color:var(--success);font-weight:800}.unbalanced{color:var(--err);font-weight:800}
+  .selection-bar{position:sticky;bottom:12px;z-index:15;background:#172541;color:#fff;border-radius:12px;padding:10px 13px;margin-top:10px;box-shadow:0 10px 30px rgba(15,31,61,.2)}.selection-bar label{color:#dce6f4}.selection-bar .muted{color:#bac6d8}
+  .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--success);margin-right:5px}.section-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.table-scroll{overflow:auto;max-height:540px;border:1px solid var(--line);border-radius:10px}
+  .mode-choice{display:flex;gap:6px}.mode-choice label{margin:0;text-transform:none;letter-spacing:0;font-size:11px;display:flex;align-items:center;gap:4px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;cursor:pointer}.mode-choice input{width:auto;margin:0}
+  .help-tip{display:inline-flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#edf2f8;color:#65738a;font-size:10px;cursor:help}
+  .process-indicator{position:fixed;right:20px;top:82px;z-index:120;background:#14213b;color:#fff;border-radius:11px;padding:10px 14px;box-shadow:0 14px 35px rgba(15,31,61,.25);font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:9px}.process-indicator::before{content:'⏳';font-size:14px}.process-indicator.hidden{display:none!important}
+
+  .auth-overlay{position:fixed;inset:0;background:radial-gradient(circle at 20% 20%,#264d84 0,#13213c 45%,#0b1426 100%);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px}.auth-card{width:min(430px,100%);background:#fff;border-radius:18px;padding:28px;box-shadow:0 28px 80px rgba(0,0,0,.35)}.auth-card h2{font-size:22px;margin:0 0 6px}.auth-card .brand{display:inline-flex;align-items:center;gap:9px;font-weight:800;color:var(--accent);margin-bottom:20px}.auth-card .row{display:block}.auth-card .row>div{margin-bottom:11px}.auth-actions{display:flex;gap:8px;align-items:center;margin-top:15px}.user-chip{display:flex;align-items:center;gap:9px;background:#f4f7fb;border:1px solid var(--line);border-radius:11px;padding:7px 9px}.user-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#1769e0,#6d56d9);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800}.user-meta{line-height:1.15}.user-meta b{font-size:12px;display:block}.user-meta span{font-size:10px;color:#718096}.permission-grid{display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:6px 12px;margin-top:9px}.permission-grid label{display:flex;align-items:center;gap:7px;text-transform:none;letter-spacing:0;font-size:11px;font-weight:600;color:#53627a;margin:0}.permission-grid input{width:auto}.role-badge{font-size:10px;font-weight:800;padding:3px 7px;border-radius:12px;background:#eef4ff;color:#3264a8}.access-denied{opacity:.45;pointer-events:none}.login-note{font-size:11px;color:#748196;margin-top:10px}.security-banner{background:#edf8f4;border:1px solid #c9e8dc;color:#28654f;border-radius:10px;padding:8px 11px;font-size:11.5px}
+  @media(max-width:980px){nav{position:fixed;top:68px;left:0;right:0;bottom:auto;width:auto;height:50px;flex-direction:row;padding:5px 10px;overflow-x:auto}nav button{padding:8px 10px}main{margin-left:0;padding:135px 14px 28px}.kpi-grid{grid-template-columns:repeat(2,1fr)}summary{grid-template-columns:28px 1fr}.summary-meta{grid-column:2}.row>div{min-width:140px}}
+</style>
+</head>
+<body>
+<div id="globalProcessIndicator" class="process-indicator hidden">Procesando…</div>
+
+<div id="authOverlay" class="auth-overlay">
+  <div class="auth-card">
+    <div class="brand">◆ Asistente Contable DIAN</div>
+    <div id="loginPanel">
+      <h2>Iniciar sesión</h2>
+      <p class="muted">Accede solo a las empresas que tienes autorizadas.</p>
+      <div class="row">
+        <div><label>Correo</label><input id="loginEmail" type="email" autocomplete="username" placeholder="contador@empresa.com"></div>
+        <div><label>Contraseña</label><input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••••"></div>
+      </div>
+      <div class="auth-actions"><button class="btn" onclick="iniciarSesion()">Entrar</button></div>
+    </div>
+    <div id="bootstrapPanel" class="hidden">
+      <h2>Crear administrador inicial</h2>
+      <p class="muted">Solo aparece una vez. Este usuario podrá administrar empresas y accesos.</p>
+      <div class="row">
+        <div><label>Nombre</label><input id="bootstrapNombre" autocomplete="name" placeholder="Administrador"></div>
+        <div><label>Correo</label><input id="bootstrapEmail" type="email" autocomplete="username" placeholder="admin@empresa.com"></div>
+        <div><label>Contraseña</label><input id="bootstrapPassword" type="password" autocomplete="new-password" placeholder="Mínimo 10 caracteres, letras y números"></div>
+      </div>
+      <div class="auth-actions"><button class="btn" onclick="crearAdministradorInicial()">Crear y entrar</button></div>
+      <div class="login-note">La contraseña se guarda cifrada; nunca se almacena en texto plano.</div>
+    </div>
+  </div>
+</div>
+
+<header>
+  <div>
+    <h1>Asistente Contable DIAN</h1>
+    <div class="sub">DIAN → aprendizaje → contabilización → exportación</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <input id="apiBase" value="" class="hidden">
+    <div id="usuarioChip" class="user-chip hidden">
+      <div class="user-avatar" id="usuarioAvatar">U</div>
+      <div class="user-meta"><b id="usuarioNombre">Usuario</b><span id="usuarioRol">—</span></div>
+      <button class="btn ghost" style="padding:5px 8px" onclick="cambiarMiClave()">Clave</button><button class="btn ghost" style="padding:5px 8px" onclick="cerrarSesion()">Salir</button>
+    </div>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="dashboard" class="active">Resumen</button>
+  <button data-tab="empresas">Empresas</button>
+  <button data-tab="historial">Historial contable</button>
+  <button data-tab="cargar">Cargar documentos</button>
+  <button data-tab="facturas-recibidas">Facturas Recibidas</button>
+  <button data-tab="facturas-emitidas">Facturas Emitidas</button>
+  <button data-tab="plantillas">Exportar</button>
+  <button data-tab="usuarios" id="navUsuarios" class="hidden">Usuarios</button>
+  <button data-tab="auditoria">Auditoría</button>
+</nav>
+
+<main>
+  <div class="empresa-activa" id="empresaActivaBanner">Selecciona o crea una empresa para empezar.</div>
+
+  <!-- DASHBOARD -->
+  <section id="tab-dashboard">
+    <p class="module-intro"><strong>Resumen</strong> · Estado general de la empresa activa.</p>
+    <div class="kpi-grid" id="dashboardKpis">
+      <div class="kpi"><span>Pendientes</span><b id="dashPendientes">—</b></div>
+      <div class="kpi"><span>Contabilizados</span><b id="dashContabilizados">—</b></div>
+      <div class="kpi"><span>Revisión</span><b id="dashRevision">—</b></div>
+      <div class="kpi"><span>Historial aprendido</span><b id="dashHistorial">—</b></div>
+      <div class="kpi"><span>Exportaciones</span><b id="dashExportaciones">—</b></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="flex-between"><div><h2>Flujo de trabajo</h2><p class="module-intro">Empresa → Historial → Documentos → Facturas → Exportar</p></div><span id="dashEstado" class="pill warn">Selecciona empresa</span></div>
+      <div id="dashboardDetalle" class="muted">Selecciona una empresa para ver su estado.</div>
+    </div>
+    <div class="card">
+      <div class="section-tools">
+        <button class="btn ghost" onclick="irAPestana('historial')">Actualizar historial</button>
+        <button class="btn ghost" onclick="irAPestana('cargar')">Cargar documentos</button>
+        <button class="btn ghost" onclick="irAPestana('facturas-recibidas')">Revisar recibidas</button>
+        <button class="btn" onclick="irAPestana('plantillas')">Exportar</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- EMPRESAS -->
+  <section id="tab-empresas" class="hidden">
+    <p class="module-intro"><strong>Empresas</strong> · Configura datos básicos y comprobantes.</p>
+    <div class="card" id="crearEmpresaCard">
+      <h2>Crear empresa</h2>
+      <div class="row">
+        <div><label>NIT</label><input id="nuevaNit" placeholder="900123456"></div>
+        <div><label>Nombre</label><input id="nuevaNombre" placeholder="Comercializadora XYZ SAS"></div>
+        <div><label>Sistema contable</label>
+          <select id="nuevoSistema"><option value="siigo_pyme">Siigo Pyme</option><option value="world_office">World Office</option></select>
+        </div>
+        <div><label>Responsable IVA</label><div style="padding-top:7px;"><input type="checkbox" id="nuevoIva" checked style="width:auto;"></div></div>
+        <div><label>Régimen Simple</label><div style="padding-top:7px;"><input type="checkbox" id="nuevoSimple" style="width:auto;"></div></div>
+        <div><button class="btn" onclick="ejecutarBoton(this,'Creando empresa…',crearEmpresa)">Crear</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Empresas</h2>
+      <table><thead><tr><th>Nombre</th><th>NIT</th><th>Sistema</th><th>IVA</th><th>RST</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="tablaEmpresas"></tbody></table>
+    </div>
+
+    <div class="card" id="aprendizajeContableCard">
+      <div class="flex-between">
+        <div><h2>Aprendizaje contable</h2><p class="module-intro">Las cuentas y reglas se aprenden del historial real de cada empresa.</p></div>
+        <button class="btn ghost" onclick="irAPestana('historial')">Actualizar historial</button>
+      </div>
+      <div class="kpi-grid" id="kpisAprendizaje">
+        <div class="kpi"><span>Movimientos</span><b>—</b></div><div class="kpi"><span>Cuentas</span><b>—</b></div>
+        <div class="kpi"><span>Terceros</span><b>—</b></div><div class="kpi"><span>Comprobantes</span><b>—</b></div>
+        <div class="kpi"><span>Campos SIIGO</span><b>—</b></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Cuentas de nómina y provisiones</h2>
+        <button class="btn ghost" onclick="ejecutarBoton(this,'Analizando historial…',sugerirCuentasNominaDesdeHistorial)">Sugerir desde el historial</button>
+      </div>
+      <p class="module-intro">Solo para nómina electrónica. Puedes sugerirlas desde el historial.</p>
+      <div class="row">
+        <div><label>Salario (gasto)</label><input id="cnSalario" list="dl-cnSalario" placeholder="510506" oninput="buscarPuc(this)"><datalist id="dl-cnSalario"></datalist></div>
+        <div><label>Auxilio de transporte (gasto)</label><input id="cnAuxTte" list="dl-cnAuxTte" placeholder="510527" oninput="buscarPuc(this)"><datalist id="dl-cnAuxTte"></datalist></div>
+        <div><label>Nómina por pagar (al empleado)</label><input id="cnNominaPagar" list="dl-cnNominaPagar" placeholder="250505" oninput="buscarPuc(this)"><datalist id="dl-cnNominaPagar"></datalist></div>
+      </div>
+      <div class="row">
+        <div><label>Salud por pagar (a la EPS)</label><input id="cnSaludPagar" list="dl-cnSaludPagar" placeholder="237005" oninput="buscarPuc(this)"><datalist id="dl-cnSaludPagar"></datalist></div>
+        <div><label>Pensión por pagar (al fondo)</label><input id="cnPensionPagar" list="dl-cnPensionPagar" placeholder="238030" oninput="buscarPuc(this)"><datalist id="dl-cnPensionPagar"></datalist></div>
+      </div>
+      <p class="muted" style="font-weight:600; color:var(--ink-soft); margin-bottom:2px; margin-top:10px;">Provisiones (cada una opcional — si no la configuras, simplemente no se genera esa línea)</p>
+      <div class="row">
+        <div><label>Cesantías (gasto)</label><input id="cnCesantias" list="dl-cnCesantias" placeholder="510530" oninput="buscarPuc(this)"><datalist id="dl-cnCesantias"></datalist></div>
+        <div><label>Cesantías por pagar</label><input id="cnCesantiasPagar" list="dl-cnCesantiasPagar" placeholder="261005" oninput="buscarPuc(this)"><datalist id="dl-cnCesantiasPagar"></datalist></div>
+        <div><label>Intereses s/cesantías (gasto)</label><input id="cnIntCesantias" list="dl-cnIntCesantias" placeholder="510533" oninput="buscarPuc(this)"><datalist id="dl-cnIntCesantias"></datalist></div>
+        <div><label>Intereses s/cesantías por pagar</label><input id="cnIntCesantiasPagar" list="dl-cnIntCesantiasPagar" placeholder="261010" oninput="buscarPuc(this)"><datalist id="dl-cnIntCesantiasPagar"></datalist></div>
+      </div>
+      <div class="row">
+        <div><label>Prima de servicios (gasto)</label><input id="cnPrima" list="dl-cnPrima" placeholder="510536" oninput="buscarPuc(this)"><datalist id="dl-cnPrima"></datalist></div>
+        <div><label>Prima por pagar</label><input id="cnPrimaPagar" list="dl-cnPrimaPagar" placeholder="261020" oninput="buscarPuc(this)"><datalist id="dl-cnPrimaPagar"></datalist></div>
+        <div><label>Vacaciones (gasto)</label><input id="cnVacaciones" list="dl-cnVacaciones" placeholder="510539" oninput="buscarPuc(this)"><datalist id="dl-cnVacaciones"></datalist></div>
+        <div><label>Vacaciones por pagar</label><input id="cnVacacionesPagar" list="dl-cnVacacionesPagar" placeholder="261015" oninput="buscarPuc(this)"><datalist id="dl-cnVacacionesPagar"></datalist></div>
+      </div>
+      <div class="row">
+        <div><label>ARL (gasto, opcional)</label><input id="cnArl" list="dl-cnArl" placeholder="510568" oninput="buscarPuc(this)"><datalist id="dl-cnArl"></datalist></div>
+        <div><label>ARL por pagar</label><input id="cnArlPagar" list="dl-cnArlPagar" placeholder="237006" oninput="buscarPuc(this)"><datalist id="dl-cnArlPagar"></datalist></div>
+        <div><label>Caja de compensación (gasto, opcional)</label><input id="cnCaja" list="dl-cnCaja" placeholder="510572" oninput="buscarPuc(this)"><datalist id="dl-cnCaja"></datalist></div>
+        <div><label>Caja de compensación por pagar</label><input id="cnCajaPagar" list="dl-cnCajaPagar" placeholder="237010" oninput="buscarPuc(this)"><datalist id="dl-cnCajaPagar"></datalist></div>
+        <div><button class="btn" onclick="ejecutarBoton(this,'Guardando…',guardarCuentasNomina)">Guardar cuentas de nómina</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Empleados</h2>
+        <button class="btn ghost" onclick="cargarEmpleados()">Actualizar</button>
+      </div>
+      <p class="module-intro">Afiliaciones y terceros usados en la contabilización de nómina.</p>
+      <div class="row">
+        <div><label>NIT</label><input id="empNit" placeholder="1093216007"></div>
+        <div><label>Nombre</label><input id="empNombre" placeholder="Nombre completo"></div>
+      </div>
+      <div class="row">
+        <div><label>NIT EPS</label><input id="empEpsNit" placeholder="860066942"></div>
+        <div><label>Nombre EPS</label><input id="empEpsNombre" placeholder="EPS Sura"></div>
+        <div><label>NIT fondo de pensión</label><input id="empAfpNit" placeholder="800229739"></div>
+        <div><label>Nombre fondo de pensión</label><input id="empAfpNombre" placeholder="Porvenir"></div>
+      </div>
+      <div class="row">
+        <div><label>NIT ARL</label><input id="empArlNit" placeholder="860011153"></div>
+        <div><label>Nombre ARL</label><input id="empArlNombre" placeholder="ARL Sura"></div>
+        <div><label>NIT caja de compensación</label><input id="empCajaNit" placeholder="891480000"></div>
+        <div><label>Nombre caja de compensación</label><input id="empCajaNombre" placeholder="Compensar"></div>
+      </div>
+      <div class="row">
+        <div><button class="btn" onclick="ejecutarBoton(this,'Guardando empleado…',guardarEmpleado)">Agregar empleado</button></div>
+      </div>
+
+      <div style="background:var(--accent-soft); border:1px solid var(--accent); border-radius:8px; padding:12px; margin:14px 0;">
+        <div class="flex-between">
+          <strong style="color:var(--accent-dark); font-size:13px;">Detectar empleados automáticamente desde el Historial contable</strong>
+          <button class="btn ghost" onclick="ejecutarBoton(this,'Detectando…',detectarEmpleadosDesdeHistorial)">Detectar</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:4px 0 0;">Si ya cargaste el Auxiliar/Movimiento contable con nómina, busca comprobantes reales donde coincidan el empleado y sus afiliaciones (EPS/AFP/ARL/Caja) — nunca inventa una afiliación que no haya aparecido junto en el mismo comprobante.</p>
+        <div id="candidatosEmpleados" style="margin-top:8px;"></div>
+      </div>
+
+      <table><thead><tr><th>NIT</th><th>Nombre</th><th>EPS</th><th>Fondo pensión</th><th>ARL</th><th>Caja compensación</th><th></th></tr></thead>
+        <tbody id="tablaEmpleados"></tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="flex-between"><div><h2>Comprobantes por tipo de documento</h2><p class="module-intro">Define tipo, código y cómo se numera cada documento.</p></div><span class="help-tip" title="Interna: el número inicial se indica al generar cada archivo y no se recuerda. Folio DIAN: usa los dígitos del Folio del documento.">i</span></div>
+      <datalist id="siigoTiposComprobante"></datalist>
+      <div class="table-scroll"><table><thead><tr><th>Documento</th><th>Tipo</th><th>Código</th><th>Numeración</th></tr></thead><tbody>
+<tr data-config-key="factura_recibida"><td><strong>Factura recibida</strong></td><td><input id="tcRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccRecibida" placeholder="1"></td><td><select id="modo-factura_recibida" onchange="actualizarModoNumeracionFila('factura_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="factura_emitida"><td><strong>Factura emitida</strong></td><td><input id="tcEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEmitida" placeholder="1"></td><td><select id="modo-factura_emitida" onchange="actualizarModoNumeracionFila('factura_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nota_credito_recibida"><td><strong>Nota crédito recibida</strong></td><td><input id="tcNotaCreditoRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaCreditoRecibida" placeholder="1"></td><td><select id="modo-nota_credito_recibida" onchange="actualizarModoNumeracionFila('nota_credito_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nota_credito_emitida"><td><strong>Nota crédito emitida</strong></td><td><input id="tcNotaCreditoEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaCreditoEmitida" placeholder="1"></td><td><select id="modo-nota_credito_emitida" onchange="actualizarModoNumeracionFila('nota_credito_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nota_debito_recibida"><td><strong>Nota débito recibida</strong></td><td><input id="tcNotaDebitoRecibida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaDebitoRecibida" placeholder="1"></td><td><select id="modo-nota_debito_recibida" onchange="actualizarModoNumeracionFila('nota_debito_recibida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nota_debito_emitida"><td><strong>Nota débito emitida</strong></td><td><input id="tcNotaDebitoEmitida" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNotaDebitoEmitida" placeholder="1"></td><td><select id="modo-nota_debito_emitida" onchange="actualizarModoNumeracionFila('nota_debito_emitida')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="documento_equivalente_recibido"><td><strong>Doc. equivalente recibido</strong></td><td><input id="tcEquivalenteRecibido" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEquivalenteRecibido" placeholder="1"></td><td><select id="modo-documento_equivalente_recibido" onchange="actualizarModoNumeracionFila('documento_equivalente_recibido')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="documento_equivalente_emitido"><td><strong>Doc. equivalente emitido</strong></td><td><input id="tcEquivalenteEmitido" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccEquivalenteEmitido" placeholder="1"></td><td><select id="modo-documento_equivalente_emitido" onchange="actualizarModoNumeracionFila('documento_equivalente_emitido')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr><tr data-config-key="nomina"><td><strong>Nómina</strong></td><td><input id="tcNomina" list="siigoTiposComprobante" placeholder="Tipo"></td><td><input id="ccNomina" placeholder="1"></td><td><select id="modo-nomina" onchange="actualizarModoNumeracionFila('nomina')"><option value="interna">Interna</option><option value="folio_dian">Folio DIAN</option></select></td></tr>      </tbody></table></div>
+      <div style="margin-top:10px;"><button class="btn" onclick="ejecutarBoton(this,'Guardando comprobantes…',guardarComprobantesPorTipo)">Guardar comprobantes</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Centros de costo <span class="muted" style="text-transform:none; font-weight:normal;">(opcional — solo si tu empresa los necesita)</span></h2>
+      <p class="module-intro">Opcional.</p>
+      <div class="row">
+        <div><label>Código</label><input id="ccCodigo" placeholder="CC01"></div>
+        <div><label>Nombre</label><input id="ccNombre" placeholder="Sucursal Norte"></div>
+        <div><button class="btn ghost" onclick="ejecutarBoton(this,'Creando…',crearCentroCosto)">Crear</button></div>
+      </div>
+      <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th></tr></thead><tbody id="tablaCentrosCosto"></tbody></table>
+    </div>
+
+    <div class="card" style="text-align:right;">
+      <button class="btn" onclick="irAPestana('historial')">Ir a Historial contable →</button>
+    </div>
+  </section>
+
+  <!-- CARGAR DOCUMENTOS -->
+  <section id="tab-cargar" class="hidden">
+    <p class="module-intro"><strong>Cargar documentos</strong> · Sube documentos DIAN y relaciónalos con su Excel.</p>
+    <div class="card">
+      <h2>Cargar documentos DIAN</h2>
+      <div class="row">
+        <div><label>ZIP / XML / PDF (opcional si cargas Excel DIAN)</label>
+          <input type="file" id="zipInput" accept=".zip,.xml,.pdf" multiple>
+
+        </div>
+        <div><label>Excel DIAN (puede cargarse solo)</label><input type="file" id="excelInput" accept=".xlsx,.xls,.csv"></div>
+      </div>
+      <p class="muted" id="mapeoAyuda">Si cargas Excel, el sistema intenta detectar estas columnas automáticamente. Solo ajústalas si tu archivo usa títulos diferentes (deja “— no aplica —” lo que no tengas):</p>
+      <div class="row">
+        <div><label>Columna CUFE</label><select id="mapCufe"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Número factura</label><select id="mapNumero"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Prefijo</label><select id="mapPrefijo"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna NIT emisor</label><select id="mapNit"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Nombre emisor</label><select id="mapNombre"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Fecha</label><select id="mapFecha"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Valor total</label><select id="mapTotal"><option value="">— no aplica —</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Columna NIT receptor</label><select id="mapNitReceptor"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Nombre receptor</label><select id="mapNombreReceptor"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Tipo de documento</label><select id="mapTipo"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Grupo (Emitido/Recibido)</label><select id="mapGrupo"><option value="">— no aplica —</option></select></div>
+      </div>
+      <p class="muted">Mapea también "NIT receptor" y "Nombre receptor" si tu Excel los trae — son el dato que de verdad importa en una factura <strong>emitida</strong> (tu cliente, no tú mismo) cuando esa factura no tiene un XML que la respalde, solo la fila del Excel.</p>
+      <p class="muted">El sistema intenta reconocer automáticamente las columnas estándar de la DIAN, incluido Tipo de documento y Grupo. Las opciones de arriba quedan disponibles para corregir manualmente una estructura excepcional.</p>
+      <button class="btn" id="btnCargarDocumentos" onclick="cargarDocumentos()">Cargar y relacionar</button> <span id="estadoCargaDocumentos" class="muted"></span>
+      <div id="resultadoCarga" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Control de gastos e ingresos por tipo de documento</h2>
+        <button class="btn ghost" onclick="cargarResumenPorTipo()">Actualizar</button>
+      </div>
+
+      <div id="resumenPorTipo"><p class="muted">Cargando…</p></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Documentos cargados</h2>
+        <button class="btn ghost" onclick="cargarListadoCargas()">Actualizar</button>
+      </div>
+      <p class="module-intro">Cada CUFE/documento cargado, con eliminación segura.</p>
+      <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Dirección</th><th>Documento</th><th>Tercero</th><th>CUFE</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="tablaCargas"></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- HISTORIAL CONTABLE -->
+  <section id="tab-historial" class="hidden">
+    <p class="module-intro"><strong>Historial contable</strong> · Carga movimientos anteriores para que el sistema aprenda cuentas y reglas técnicas.</p>
+    <div class="card">
+      <h2>Balance de prueba por tercero</h2>
+      <p class="module-intro">Aprendizaje rápido de NIT, cuenta y nombre de cuenta.</p>
+      <div class="row">
+        <div><label>Archivo del balance</label><input type="file" id="balanceArchivoInput" accept=".xlsx,.xls,.csv"></div>
+        <div><button class="btn" onclick="ejecutarBoton(this,'Procesando balance…',importarBalanceAutomatico)">Importar balance</button></div>
+      </div>
+      <div id="resultadoImportacionBalance" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Auxiliar / Movimiento contable (con mapeo de columnas)</h2>
+      <p class="module-intro">El Movimiento Contable SIIGO enseña las 123 columnas fila por fila.</p>
+      <div class="row">
+        <div><label>Archivo (auxiliar o movimiento contable)</label><input type="file" id="histArchivoInput" accept=".xlsx,.xls,.csv"></div>
+        <div><button class="btn" onclick="ejecutarBoton(this,'Importando y aprendiendo…',importarHistoricoAutomatico)">Importar y aprender</button></div>
+        <div><span class="muted"><span id="histSistemaNombre">Sistema contable</span></span></div>
+      </div>
+      <details><summary class="muted">Opciones avanzadas de mapeo</summary><div class="detail-body">
+      <p class="muted" id="histAyudaPlantilla"><strong id="histSistemaNombre2">—</strong> · detección automática disponible.</p>
+      <div class="row">
+        <div><label>Columna NIT (obligatoria)</label><select id="histMapNit"><option value="">— elige —</option></select></div>
+        <div><label>Columna Cuenta (obligatoria)</label><select id="histMapCuenta"><option value="">— elige —</option></select></div>
+        <div><label>Columna Nombre tercero</label><select id="histMapNombre"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Nombre de cuenta</label><select id="histMapNombreCuenta"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Concepto/Detalle</label><select id="histMapDescripcion"><option value="">— no aplica —</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Columna Fecha (completa)</label><select id="histMapFecha"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Año</label><select id="histMapAnio"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Mes</label><select id="histMapMes"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Día</label><select id="histMapDia"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Nº documento</label><select id="histMapNumero"><option value="">— no aplica —</option></select></div>
+      </div>
+      <p class="muted" style="margin-top:6px;">Usa "Columna Valor" si tu sistema trae el monto en una sola columna (ej. Siigo). Si en cambio trae Débito y Crédito por separado (ej. World Office), usa esos dos campos en vez del anterior.</p>
+      <div class="row">
+        <div><label>Columna Valor (una sola columna)</label><select id="histMapValor"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Débito (si están separados)</label><select id="histMapValorDebito"><option value="">— no aplica —</option></select></div>
+        <div><label>Columna Crédito (si están separados)</label><select id="histMapValorCredito"><option value="">— no aplica —</option></select></div>
+      </div>
+      <div class="row">
+        <div style="flex:2;"><label>Cuentas a excluir del aprendizaje (códigos o prefijos, separados por coma)</label><input id="histCuentasExcluir" placeholder="220501, 1105, 24 (proveedores, caja/bancos, IVA/retenciones)"></div>
+        <div><button class="btn" onclick="ejecutarBoton(this,'Importando historial…',importarHistorico)">Importar</button></div>
+      </div>
+      <p class="muted">Las cuentas de control se excluyen de la sugerencia principal, pero siguen alimentando el aprendizaje técnico SIIGO.</p>
+      </div></details>
+      <div id="resultadoImportacionHistorial" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Importaciones anteriores</h2>
+      <table><thead><tr><th>Archivo</th><th>Registros</th><th>Válidos</th><th>Rechazados</th><th>Fecha</th><th></th></tr></thead>
+        <tbody id="tablaImportacionesHistorial"></tbody></table>
+    </div>
+
+    <div class="card" style="text-align:right;">
+      <button class="btn" onclick="irAPestana('cargar')">Ir a cargar documentos →</button>
+    </div>
+  </section>
+
+  <!-- FACTURAS -->
+  <section id="tab-facturas" class="hidden">
+    <p class="module-intro"><strong>Facturas</strong> · Revisa, genera y confirma la contabilización.</p>
+    <div class="card">
+      <div class="flex-between">
+        <h2>Panel de clasificación rápida</h2>
+        <button class="btn ghost" onclick="cargarPanelClasificacion()">Actualizar panel</button>
+      </div>
+      <p class="muted">Prioriza lo que requiere revisión.</p>
+      <div id="panelClasificacion"><p class="muted">Cargando…</p></div>
+    </div>
+
+    <div class="card" id="tituloModuloCard" style="background:var(--accent-soft); border-color:var(--accent);">
+      <h2 id="tituloModuloFacturas" style="margin:0 0 4px;">Facturas Recibidas (compras)</h2>
+      <p class="muted" id="avisoModuloFacturas" style="color:var(--accent-dark); margin:0;">Compras y nómina recibida.</p>
+    </div>
+
+    <div class="card">
+      <div class="flex-between">
+        <h2>Listado</h2>
+        <div class="row" style="margin:0;">
+          <div><select id="filtroEstado" onchange="guardarFiltrosActuales();cargarFacturas()">
+            <option value="">Todos los estados</option>
+            <option value="pendiente_revision">Pendiente de revisión</option>
+            <option value="pendiente_clasificacion">Pendiente de clasificación</option>
+            <option value="extraida">Extraída</option>
+            <option value="clasificada">Clasificada</option>
+            <option value="lista_para_contabilizar">Lista para contabilizar</option>
+            <option value="contabilizada">Contabilizada</option>
+            <option value="exportada">Exportada</option>
+            <option value="duplicada">Duplicada</option>
+          </select></div>
+          <div><select id="filtroNaturaleza" onchange="guardarFiltrosActuales();cargarFacturas();cargarPanelClasificacion()">
+            <option value="">Todos los tipos</option>
+            <option value="factura">Factura</option>
+            <option value="nota_credito">Nota crédito</option>
+            <option value="nota_debito">Nota débito</option>
+            <option value="documento_equivalente">Documento equivalente</option>
+            <option value="nomina">Nómina</option>
+          </select></div>
+          <div><select id="filtroAnio" onchange="guardarFiltrosActuales();actualizarMesesPeriodo();cargarFacturas();cargarPanelClasificacion()"><option value="">Todos los años</option></select></div>
+          <div><select id="filtroMes" onchange="guardarFiltrosActuales();cargarFacturas();cargarPanelClasificacion()"><option value="">Todos los meses</option></select></div>
+          <div><button class="btn ghost" onclick="cargarFacturas();cargarPanelClasificacion()">Actualizar</button></div>
+        </div>
+      </div>
+      <div class="selection-bar">
+        <div class="flex-between">
+          <label style="display:inline-flex;align-items:center;gap:7px;margin:0;text-transform:none;font-size:13px;"><input type="checkbox" id="seleccionarTodasChk" onchange="toggleSeleccionarTodas(this.checked)" style="width:auto;"> Seleccionar visibles <span id="contadorSeleccion" class="muted">0 seleccionadas</span></label>
+          <div class="section-tools">
+            <button class="btn ghost" onclick="ejecutarBoton(this,'Generando partidas…',generarPartidaMasivoConSugerencia)">Generar desde historial</button>
+            <button class="btn" onclick="ejecutarBoton(this,'Aprobando…',contabilizarMasivo)">✓ Aprobar seleccionadas</button>
+            <button class="btn danger" onclick="ejecutarBoton(this,'Eliminando…',eliminarSeleccionadas)">Eliminar</button>
+          </div>
+        </div>
+        <details style="margin-top:8px;background:transparent;border-color:#40506b;"><summary style="color:#dce6f4;padding:7px 9px;display:block;">Corrección masiva manual</summary><div class="detail-body">
+          <div class="row" style="margin:0"><div><label>Cuenta</label><input id="masivoCuenta" placeholder="Buscar cuenta" list="dl-cuentasEmpresa"></div>
+          <div><label>Contrapartida</label><input id="masivoContrapartida" list="dl-cuentasEmpresa" placeholder="Automática / cuenta real"></div>
+          <div><button class="btn ghost" onclick="ejecutarBoton(this,'Aplicando corrección…',generarPartidaMasivoConCuenta)">Aplicar corrección</button></div></div>
+        </div></details>
+        <div id="resultadoMasivo" style="margin-top:8px"></div>
+      </div>
+      <div id="listaFacturas"></div>
+    </div>
+    <div class="card" style="text-align:right;">
+      <button class="btn" onclick="irAPestana('plantillas', () => { cargarPlantillas(); cargarExportaciones(); cargarFacturasContabilizadas(); })">Ir a Exportar →</button>
+    </div>
+  </section>
+
+  <!-- EXPORTAR -->
+  <section id="tab-plantillas" class="hidden">
+    <p class="module-intro"><strong>Exportar</strong> · Genera el archivo listo para el sistema contable.</p>
+
+    <div class="card" id="siigoExportInfo">
+      <div class="flex-between"><div><h2>SIIGO Pyme · Modelo General</h2><p class="module-intro">Excel automático A:DS aprendido desde el historial.</p></div><span class="pill ok">XLSX · 123 columnas</span></div>
+      <div class="kpi-grid" id="kpisExportacion">
+        <div class="kpi"><span>Documentos</span><b id="expKpiDocs">—</b></div>
+        <div class="kpi"><span>Movimientos</span><b id="expKpiMovs">—</b></div>
+        <div class="kpi"><span>Débitos</span><b id="expKpiDeb">—</b></div>
+        <div class="kpi"><span>Créditos</span><b id="expKpiCre">—</b></div>
+        <div class="kpi"><span>Diferencia</span><b id="expKpiDif">—</b></div>
+      </div>
+    </div>
+
+    <div id="worldOfficePlantillasPanel" class="hidden">
+      <div class="card">
+        <h2>Plantilla World Office</h2>
+        <div class="row">
+          <div><label>Nombre</label><input id="plNombre" placeholder="World Office"></div>
+          <div><label>Sistema</label><select id="plSistema"><option value="world_office">World Office</option></select></div>
+          <div><label>Delimitador</label><select id="plDelim"><option value="|">|</option><option value=";">;</option><option value=",">,</option></select></div>
+          <div><label>Extensión</label><input id="plExt" value="txt"></div>
+        </div>
+        <div class="row"><div><label>Archivo de ejemplo</label><input type="file" id="plEjemploInput" accept=".txt,.csv,.xlsx,.xls"></div><div><button class="btn ghost" onclick="ejecutarBoton(this,'Detectando columnas…',detectarColumnasDesdeEjemplo)">Detectar columnas</button></div></div>
+        <textarea id="plColumnas" rows="5">Fecha=fecha
+Cuenta=cuenta
+Nit=nit
+Tercero=tercero
+Debito=debito
+Credito=credito</textarea>
+        <div style="margin-top:8px"><button class="btn" onclick="ejecutarBoton(this,'Guardando plantilla…',crearPlantilla)">Guardar plantilla</button></div>
+      </div>
+      <div class="card"><h2>Plantillas World Office</h2><table><thead><tr><th>Nombre</th><th>Sistema</th><th>Columnas</th><th></th></tr></thead><tbody id="tablaPlantillas"></tbody></table></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between"><div><h2>Generar exportación</h2><p class="module-intro">Incluye automáticamente los documentos contabilizados pendientes para este destino.</p></div><span id="estadoExportacionBadge" class="pill warn">Pendiente</span></div>
+      <div class="row">
+        <div id="expPlantillaWrap"><label>Formato</label><select id="expPlantilla" onchange="cargarFacturasContabilizadas()"></select></div>
+        <div id="expConsecutivoWrap"><label>Consecutivo interno inicial</label><input id="expConsecutivoInicial" type="number" min="1" value="1" style="max-width:150px"><div class="muted" style="font-size:11px;">Solo para este archivo; no se guarda.</div></div>
+        <div style="display:none"><label>IDs manuales</label><input id="expFacturaIds"></div>
+        <div><button class="btn ghost" onclick="ejecutarBoton(this,'Validando…',validarExportacion)">Validar</button></div>
+        <div><button class="btn ghost" onclick="ejecutarBoton(this,'Generando vista previa…',previsualizarExportacion)">Vista previa</button></div>
+        <div><button class="btn" onclick="ejecutarBoton(this,'Generando archivo…',generarExportacion)">Generar y descargar</button></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin:8px 0 2px;font-size:13px;">
+        <input type="checkbox" id="expOmitirAdvertencias" style="width:auto;">
+        ⚠️ Generar bajo mi responsabilidad si solo hay advertencias corregibles en SIIGO
+      </label>
+      <p class="muted" style="margin-top:2px;">Nunca permite omitir un descuadre Débito/Crédito, ausencia de movimientos, fecha inválida o configuración esencial del comprobante.</p>
+      <div id="resumenContabilizadasExportar" class="muted" style="margin:8px 0"></div>
+      <div id="resultadoExportacion"></div>
+      <div id="previsualizacionExportacion" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between"><h2>Historial de exportaciones</h2><button class="btn ghost" onclick="cargarExportaciones()">Actualizar</button></div>
+      <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Sistema</th><th>Movimientos</th><th>Estado</th><th>Archivo</th><th></th></tr></thead><tbody id="tablaExportaciones"></tbody></table></div>
+    </div>
+  </section>
+
+
+  <!-- USUARIOS -->
+  <section id="tab-usuarios" class="hidden">
+    <p class="module-intro"><strong>Usuarios</strong> · Solo el Administrador General gestiona accesos.</p>
+    <div class="card">
+      <div class="flex-between"><div><h2>Crear usuario</h2><p class="module-intro">Todos los usuarios creados son Contadores.</p></div><span class="pill ok">Administración global</span></div>
+      <div class="row">
+        <div><label>Nombre</label><input id="usrNombre" placeholder="Nombre del contador"></div>
+        <div><label>Correo</label><input id="usrEmail" type="email" placeholder="contador@empresa.com"></div>
+        <div><label>Contraseña inicial</label><input id="usrPassword" type="password" placeholder="Mínimo 10 caracteres"></div>
+      </div>
+      <div><label>Empresas autorizadas</label><div id="usrEmpresasLista" class="permission-grid"></div></div>
+      <div style="margin-top:10px"><button class="btn" onclick="ejecutarBoton(this,'Creando usuario…',crearUsuarioGlobal)">Crear usuario</button></div>
+    </div>
+    <div class="card">
+      <h2>Administración general de usuarios</h2>
+      <div class="table-scroll"><table><thead><tr><th>Usuario</th><th>Correo</th><th>Tipo</th><th>Empresas</th><th>Estado</th><th></th></tr></thead><tbody id="tablaUsuariosGlobal"></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- AUDITORIA -->
+  <section id="tab-auditoria" class="hidden">
+    <div class="card" style="background:var(--accent-soft); border-color:var(--accent);">
+      <p class="muted" style="color:var(--accent-dark); margin:0;">
+        Trazabilidad de cambios y decisiones.
+      </p>
+    </div>
+    <div class="card">
+      <h2>Auditoría de la empresa activa</h2>
+      <table><thead><tr><th>Fecha</th><th>Entidad</th><th>Acción</th><th>Usuario</th><th>Detalle</th></tr></thead>
+        <tbody id="tablaAuditoria"></tbody></table>
+    </div>
+  </section>
+</main>
+
+<script>
+let authToken = ''; // La sesión real vive en cookie HttpOnly; no se expone a JavaScript.
+let authUser = null;
+let empresas = [];
+let empresaActivaId = null;
+let moduloFacturasActivo = 'recibidas';
+let seleccionesFacturas = {recibidas: new Set(), emitidas: new Set()};
+let filtrosFacturas = {recibidas:{estado:'',naturaleza:'',anio:'',mes:''}, emitidas:{estado:'',naturaleza:'',anio:'',mes:''}};
+let periodosEmpresa = [];
+let cuentasEmpresaCache = [];
+function seleccionFacturasActual(){ return seleccionesFacturas[moduloFacturasActivo] || seleccionesFacturas.recibidas; }
+function guardarFiltrosActuales(){
+  filtrosFacturas[moduloFacturasActivo]={
+    estado:document.getElementById('filtroEstado')?.value||'',
+    naturaleza:document.getElementById('filtroNaturaleza')?.value||'',
+    anio:document.getElementById('filtroAnio')?.value||'',
+    mes:document.getElementById('filtroMes')?.value||''
+  };
+}
+function restaurarFiltrosActuales(){
+  const f=filtrosFacturas[moduloFacturasActivo]||{estado:'',naturaleza:'',anio:'',mes:''};
+  const e=document.getElementById('filtroEstado'), n=document.getElementById('filtroNaturaleza'), a=document.getElementById('filtroAnio'), m=document.getElementById('filtroMes');
+  if(e)e.value=f.estado;if(n)n.value=f.naturaleza;if(a)a.value=f.anio||''; actualizarMesesPeriodo(); if(m)m.value=f.mes||'';
+}
+function nombreMes(m){return ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][Number(m)]||m;}
+async function cargarPeriodosEmpresa(){
+  if(!empresaActivaId) return;
+  try{ periodosEmpresa=await req(`/empresas/${empresaActivaId}/documentos/periodos`); }catch(e){ periodosEmpresa=[]; }
+  const a=document.getElementById('filtroAnio'); if(!a)return;
+  const anios=[...new Set(periodosEmpresa.map(p=>String(p.anio)))];
+  a.innerHTML='<option value="">Todos los años</option>'+anios.map(x=>`<option value="${x}">${x}</option>`).join('');
+  // Primera vez en la empresa: abrir automáticamente el periodo más reciente.
+  for(const mod of ['recibidas','emitidas']){ if(!filtrosFacturas[mod].anio && periodosEmpresa.length){ filtrosFacturas[mod].anio=String(periodosEmpresa[0].anio); filtrosFacturas[mod].mes=String(periodosEmpresa[0].mes); } }
+  restaurarFiltrosActuales();
+}
+function actualizarMesesPeriodo(){
+  const a=document.getElementById('filtroAnio')?.value||''; const m=document.getElementById('filtroMes'); if(!m)return;
+  const meses=[...new Set(periodosEmpresa.filter(p=>!a||String(p.anio)===a).map(p=>Number(p.mes)))].sort((x,y)=>y-x);
+  const actual=m.value; m.innerHTML='<option value="">Todos los meses</option>'+meses.map(x=>`<option value="${x}">${nombreMes(x)}</option>`).join('');
+  if([...m.options].some(o=>o.value===actual))m.value=actual;
+}
+
+function api(){ return document.getElementById('apiBase').value.replace(/\/$/, ''); }
+function toast(msg, esError){
+  const t = document.createElement('div');
+  t.className = 'toast' + (esError ? ' err' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 4500);
+}
+let procesosActivos = 0;
+function mostrarProcesoGlobal(texto){
+  procesosActivos += 1;
+  const el=document.getElementById('globalProcessIndicator');
+  if(el){ el.textContent=texto||'Procesando…'; el.classList.remove('hidden'); }
+}
+function ocultarProcesoGlobal(){
+  procesosActivos=Math.max(0,procesosActivos-1);
+  if(procesosActivos===0){ const el=document.getElementById('globalProcessIndicator'); if(el) el.classList.add('hidden'); }
+}
+async function ejecutarBoton(btn, textoProceso, accion){
+  if(!btn || btn.dataset.procesando==='1') return;
+  const original=btn.innerHTML;
+  btn.dataset.procesando='1';
+  btn.disabled=true;
+  btn.textContent=textoProceso||'Procesando…';
+  mostrarProcesoGlobal(textoProceso||'Procesando…');
+  try{ return await accion(); }
+  finally{
+    btn.disabled=false;
+    btn.innerHTML=original;
+    delete btn.dataset.procesando;
+    ocultarProcesoGlobal();
+  }
+}
+
+async function jsonSeguro(resp){
+  // Protege también el camino de ÉXITO: incluso con status 200, el
+  // cuerpo puede llegar cortado si el servidor se reinicia o se corta
+  // la conexión a mitad de la respuesta (confirmado: pasa cuando el
+  // servidor gratuito está sobrecargado por una carga pesada en curso).
+  // Sin esto, el navegador muestra el críptico "Unexpected end of JSON
+  // input" en vez de un mensaje que explique qué pasó.
+  const texto = await resp.text();
+  try{
+    return JSON.parse(texto);
+  }catch(e){
+    throw new Error(`El servidor respondió pero el contenido llegó incompleto o corrupto — probablemente `+
+      `se reinició por sobrecarga (ej. varias cargas pesadas seguidas). Espera unos segundos e inténtalo de nuevo.`);
+  }
+}
+
+async function errorDeRespuesta(resp){
+  // Nunca debe fallar en sí misma: si el cuerpo no es JSON válido (ej. el
+  // servidor se cortó a medio camino, un proxy devolvió una página de
+  // error HTML, o la petición expiró), se muestra el texto crudo en vez
+  // de un mensaje confuso de "JSON inválido" que oculta el problema real.
+  let texto = '';
+  try{ texto = await resp.text(); }catch(e){ /* no hay cuerpo que leer */ }
+  try{
+    const d = JSON.parse(texto);
+    return typeof d.detail === 'object' ? JSON.stringify(d.detail) : (d.detail || texto || resp.statusText);
+  }catch(e){
+    if(texto && texto.trim()) return `(HTTP ${resp.status}) ${texto.slice(0, 300)}`;
+    return `(HTTP ${resp.status}) ${resp.statusText || 'Sin respuesta del servidor — puede ser que la operación haya tardado demasiado (archivo muy grande) o que el servidor se haya reiniciado.'}`;
+  }
+}
+
+function authHeaders(extra){
+  const h=Object.assign({},extra||{});
+  if(authToken) h['Authorization']='Bearer '+authToken;
+  return h;
+}
+async function req(path, options){
+  options = options || {};
+  options.headers = authHeaders(options.headers || {});
+  const resp = await fetch(api() + path, options);
+  if(resp.status===401){
+    authToken=''; authUser=null; mostrarLogin(false);
+    throw new Error('Tu sesión venció. Inicia sesión nuevamente.');
+  }
+  if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+  const ct = resp.headers.get('content-type') || '';
+  if(ct.includes('application/json')) return jsonSeguro(resp);
+  return resp;
+}
+
+function mostrarLogin(bootstrap){
+  document.getElementById('authOverlay').classList.remove('hidden');
+  document.getElementById('loginPanel').classList.toggle('hidden',!!bootstrap);
+  document.getElementById('bootstrapPanel').classList.toggle('hidden',!bootstrap);
+  document.getElementById('usuarioChip').classList.add('hidden');
+}
+function ocultarLogin(){document.getElementById('authOverlay').classList.add('hidden');document.getElementById('usuarioChip').classList.remove('hidden');}
+async function iniciarSesion(){
+  try{
+    const email=document.getElementById('loginEmail').value.trim(), password=document.getElementById('loginPassword').value;
+    const resp=await fetch(api()+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    if(!resp.ok) throw new Error(await errorDeRespuesta(resp));
+    const d=await resp.json(); authUser=d.usuario;
+    await despuesDeAutenticar();
+  }catch(e){toast(e.message,true);}
+}
+async function crearAdministradorInicial(){
+  try{
+    const payload={nombre:document.getElementById('bootstrapNombre').value.trim(),email:document.getElementById('bootstrapEmail').value.trim(),password:document.getElementById('bootstrapPassword').value};
+    const resp=await fetch(api()+'/auth/bootstrap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!resp.ok) throw new Error(await errorDeRespuesta(resp));
+    const d=await resp.json(); authUser=d.usuario;
+    await despuesDeAutenticar();
+  }catch(e){toast(e.message,true);}
+}
+async function cerrarSesion(){try{await fetch(api()+'/auth/logout',{method:'POST'});}catch(e){}authToken='';authUser=null;empresaActivaId=null;mostrarLogin(false);}
+async function cambiarMiClave(){
+  const actual=prompt('Contraseña actual:'); if(!actual)return; const nueva=prompt('Nueva contraseña (mínimo 10 caracteres, letras y números):'); if(!nueva)return;
+  try{await req('/auth/cambiar-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password_actual:actual,password_nueva:nueva})});toast('Contraseña actualizada. Inicia sesión nuevamente.');await cerrarSesion();}catch(e){toast(e.message,true);}
+}
+async function despuesDeAutenticar(){
+  if(!authUser) authUser=await req('/auth/me');
+  ocultarLogin();
+  document.getElementById('usuarioNombre').textContent=authUser.nombre||authUser.email;
+  document.getElementById('usuarioAvatar').textContent=(authUser.nombre||authUser.email||'U').trim().charAt(0).toUpperCase();
+  document.getElementById('usuarioRol').textContent=authUser.es_superadmin?'Administrador general':authUser.email;
+  await cargarEmpresas(); await cargarDashboard(); aplicarPermisosUI();
+}
+function asignacionActiva(){
+  if(!authUser||authUser.es_superadmin) return null;
+  return (authUser.asignaciones||[]).find(a=>a.empresa_id===empresaActivaId)||null;
+}
+function puede(permiso){
+  if(!authUser) return false; if(authUser.es_superadmin) return true;
+  const a=asignacionActiva(); return !!(a&&(a.permisos||[]).includes(permiso));
+}
+function aplicarPermisosUI(){
+  const navU=document.getElementById('navUsuarios');
+  if(navU) navU.classList.toggle('hidden', !authUser?.es_superadmin);
+  const crear=document.getElementById('crearEmpresaCard'); if(crear) crear.classList.remove('hidden');
+  const role=authUser?.es_superadmin?'Administrador general':'Contador';
+  const r=document.getElementById('usuarioRol'); if(r) r.textContent=role;
+}
+
+
+// ---------- navegación ----------
+document.getElementById('tabs').addEventListener('click', e=>{
+  const boton=e.target.closest('button[data-tab]'); if(!boton) return;
+  const tab=boton.dataset.tab;
+  if(tab==='facturas-recibidas'||tab==='facturas-emitidas') guardarFiltrosActuales();
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.remove('active')); boton.classList.add('active');
+  document.querySelectorAll('main > section').forEach(sec=>sec.classList.add('hidden'));
+  const esFacturas=tab==='facturas-recibidas'||tab==='facturas-emitidas';
+  const seccion=document.getElementById(esFacturas?'tab-facturas':'tab-'+tab); if(seccion)seccion.classList.remove('hidden');
+  if(tab==='dashboard') cargarDashboard();
+  if(tab==='cargar'){cargarResumenPorTipo();cargarListadoCargas();}
+  if(tab==='historial'){cargarImportacionesHistorial();cargarResumenAprendizaje();}
+  if(esFacturas){
+    moduloFacturasActivo=tab==='facturas-recibidas'?'recibidas':'emitidas'; restaurarFiltrosActuales(); actualizarContadorSeleccion();
+    document.getElementById('tituloModuloFacturas').textContent=moduloFacturasActivo==='recibidas'?'Facturas Recibidas':'Facturas Emitidas';
+    document.getElementById('avisoModuloFacturas').textContent=moduloFacturasActivo==='recibidas'?'Compras y nómina recibida.':'Ventas y documentos emitidos.';
+    cargarFacturas(); cargarPanelClasificacion();
+  }
+  if(tab==='plantillas'){cargarPlantillas();cargarExportaciones();cargarFacturasContabilizadas();}
+  if(tab==='usuarios'&&authUser?.es_superadmin){renderEmpresasUsuario();cargarUsuariosGlobales();}
+  if(tab==='auditoria') cargarAuditoria();
+});
+
+// Catálogo real de tipos de comprobante — verificado contra la
+// aplicación real de cada sistema (capturas del usuario). Cambia según
+// el sistema contable de la empresa activa.
+const TIPOS_COMPROBANTE_POR_SISTEMA = {
+  siigo_pyme: [
+    {codigo: 'A', nombre: 'Ajuste'}, {codigo: 'C', nombre: 'N.Crédito'}, {codigo: 'D', nombre: 'N.Débito'},
+    {codigo: 'E', nombre: 'N.Entrada'}, {codigo: 'F', nombre: 'Facturas'}, {codigo: 'G', nombre: 'Egresos'},
+    {codigo: 'H', nombre: 'N.Salida'}, {codigo: 'J', nombre: 'Devolución Vtas'}, {codigo: 'L', nombre: 'Otros'},
+    {codigo: 'N', nombre: 'N.Interna'}, {codigo: 'O', nombre: 'N.Producción'}, {codigo: 'P', nombre: 'Compras'},
+    {codigo: 'R', nombre: 'Recibos'}, {codigo: 'S', nombre: 'N.Remisión'}, {codigo: 'T', nombre: 'N.Traslado'},
+    {codigo: 'U', nombre: 'Devolución Compr'},
+  ],
+  world_office: [
+    {codigo: 'CD', nombre: 'Comprobante de Diario'}, {codigo: 'FV', nombre: 'Factura de Venta'},
+    {codigo: 'FC', nombre: 'Factura de Compra'}, {codigo: 'RC', nombre: 'Recibo de Caja / Comprobante de Ingreso'},
+    {codigo: 'CE', nombre: 'Comprobante de Egreso / Causal de Pago'}, {codigo: 'ND', nombre: 'Nota Débito'},
+    {codigo: 'NC', nombre: 'Nota Crédito'}, {codigo: 'CN', nombre: 'Comprobante de Nómina'},
+    {codigo: 'NA', nombre: 'Nota de Ajuste Contable'}, {codigo: 'TR', nombre: 'Comprobante de Traslado o Transferencia'},
+    {codigo: 'DS', nombre: 'Documento Soporte'},
+  ],
+};
+
+function poblarTiposComprobante(sistemaContable){
+  const lista = TIPOS_COMPROBANTE_POR_SISTEMA[sistemaContable] || [];
+  const datalist = document.getElementById('siigoTiposComprobante');
+  if(datalist) datalist.innerHTML = lista.map(t => `<option value="${t.codigo}">${t.codigo} — ${t.nombre}</option>`).join('');
+}
+
+// ---------- empresas ----------
+async function crearEmpresa(){
+  const nit = document.getElementById('nuevaNit').value.trim();
+  const nombre = document.getElementById('nuevaNombre').value.trim();
+  if(!nit || !nombre){ toast('NIT y nombre son obligatorios', true); return; }
+  try{
+    await req('/empresas', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      nit, nombre, sistema_contable: document.getElementById('nuevoSistema').value,
+      responsable_iva: document.getElementById('nuevoIva').checked,
+      regimen_simple: document.getElementById('nuevoSimple').checked,
+    })});
+    document.getElementById('nuevaNit').value=''; document.getElementById('nuevaNombre').value='';
+    toast('Empresa creada');
+    await cargarEmpresas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarEmpresas(){
+  try{
+    empresas = await req('/empresas');
+    const tbody = document.getElementById('tablaEmpresas');
+    tbody.innerHTML = empresas.map(emp => `
+      <tr>
+        <td>${emp.nombre}</td><td class="mono">${emp.nit}</td>
+        <td>${emp.sistema_contable}</td>
+        <td>${emp.responsable_iva ? 'Sí' : 'No'}</td>
+        <td>${emp.regimen_simple ? 'Sí' : 'No'}</td>
+        <td><span class="pill ${emp.activa?'ok':'err'}">${emp.activa?'Activa':'Desactivada'}</span></td>
+        <td style="white-space:nowrap;">
+          <button class="btn ghost" onclick="seleccionarEmpresa('${emp.id}')">${emp.id===empresaActivaId?'✓ En uso':'Usar'}</button>
+          ${emp.activa
+            ? `<button class="btn ghost" onclick="ejecutarBoton(this,'Desactivando…',()=>desactivarEmpresa('${emp.id}'))" title="Reversible">Desactivar</button>`
+            : `<button class="btn ghost" onclick="ejecutarBoton(this,'Reactivando…',()=>reactivarEmpresa('${emp.id}'))">Reactivar</button>`}
+          <button class="btn danger" onclick="ejecutarBoton(this,'Eliminando empresa…',()=>eliminarEmpresa('${emp.id}','${emp.nombre.replace(/'/g,"\\'")}'))" title="Borra TODO, irreversible">Eliminar</button>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="7" class="muted">Aún no hay empresas.</td></tr>';
+  }catch(e){ toast(e.message, true); }
+}
+
+async function desactivarEmpresa(id){
+  try{
+    await req(`/empresas/${id}/desactivar`, {method:'PATCH'});
+    toast('Empresa desactivada (puedes reactivarla cuando quieras)');
+    if(id===empresaActivaId){ empresaActivaId = null; document.getElementById('empresaActivaBanner').textContent = 'Selecciona o crea una empresa para empezar.'; }
+    cargarEmpresas();
+  }catch(e){ toast(e.message, true); }
+}
+async function reactivarEmpresa(id){
+  try{
+    await req(`/empresas/${id}/reactivar`, {method:'PATCH'});
+    toast('Empresa reactivada');
+    cargarEmpresas();
+  }catch(e){ toast(e.message, true); }
+}
+async function eliminarEmpresa(id, nombre){
+  if(!confirm(`¿Eliminar "${nombre}" por completo? Esto borra TODAS sus facturas, historial, plantillas y exportaciones. No se puede deshacer.\n\n¿Prefieres algo reversible? Cancela y usa "Desactivar" en su lugar.`)) return;
+  try{
+    await req(`/empresas/${id}?confirmar=true`, {method:'DELETE'});
+    toast('Empresa eliminada');
+    if(id===empresaActivaId){ empresaActivaId = null; document.getElementById('empresaActivaBanner').textContent = 'Selecciona o crea una empresa para empezar.'; }
+    cargarEmpresas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function seleccionarEmpresa(id){
+  empresaActivaId = id;
+  const emp = empresas.find(e=>e.id===id);
+  document.getElementById('empresaActivaBanner').innerHTML = `<span class="status-dot"></span><strong>${emp.nombre}</strong> · NIT ${emp.nit} · ${emp.sistema_contable}${emp.regimen_simple?' · RST':''}`;
+  aplicarPermisosUI();
+  const nombreSistema = emp.sistema_contable === 'siigo_pyme' ? 'Siigo Pyme' : (emp.sistema_contable === 'world_office' ? 'World Office' : emp.sistema_contable);
+  const elBoton = document.getElementById('histSistemaNombre'); if(elBoton) elBoton.textContent = nombreSistema;
+  const elTexto = document.getElementById('histSistemaNombre2'); if(elTexto) elTexto.textContent = nombreSistema;
+  poblarTiposComprobante(emp.sistema_contable);
+  await cargarEmpresas();
+  await cargarCuentasBase(); // solo conserva la configuración especializada de nómina
+  await cargarCentrosCosto();
+  await cargarComprobantesPorTipo();
+  await cargarEmpleados();
+  await cargarResumenAprendizaje();
+  await cargarCuentasEmpresaCache();
+  await cargarPeriodosEmpresa();
+  await prepararModuloExportar();
+  await cargarDashboard();
+}
+
+function buscarPuc(input){
+  // Compatibilidad con campos antiguos: ya NO consulta el catálogo PUC global.
+  // Busca únicamente en el plan real aprendido de Balance/Movimiento.
+  clearTimeout(_pucBuscarTimeout);
+  const texto=(input.value||'').trim().toLowerCase();
+  const datalist=document.getElementById('dl-'+input.id);
+  if(!datalist)return;
+  _pucBuscarTimeout=setTimeout(async()=>{
+    if(!cuentasEmpresaCache.length) await cargarCuentasEmpresaCache();
+    const resultados=cuentasEmpresaCache.filter(c=>!texto||String(c.codigo).toLowerCase().includes(texto)||String(c.nombre||'').toLowerCase().includes(texto)).slice(0,80);
+    datalist.innerHTML=resultados.map(c=>`<option value="${c.codigo}">${c.codigo} — ${c.nombre||''}</option>`).join('');
+  },80);
+}
+
+const COMPROBANTE_UI = {
+  factura_recibida:['tcRecibida','ccRecibida'],
+  factura_emitida:['tcEmitida','ccEmitida'],
+  nota_credito_recibida:['tcNotaCreditoRecibida','ccNotaCreditoRecibida'],
+  nota_credito_emitida:['tcNotaCreditoEmitida','ccNotaCreditoEmitida'],
+  nota_debito_recibida:['tcNotaDebitoRecibida','ccNotaDebitoRecibida'],
+  nota_debito_emitida:['tcNotaDebitoEmitida','ccNotaDebitoEmitida'],
+  documento_equivalente_recibido:['tcEquivalenteRecibido','ccEquivalenteRecibido'],
+  documento_equivalente_emitido:['tcEquivalenteEmitido','ccEquivalenteEmitido'],
+  nomina:['tcNomina','ccNomina'],
+};
+
+function actualizarModoNumeracionFila(clave){
+  // La numeración interna ya no tiene memoria; el inicio se pide al exportar.
+  return;
+}
+
+async function guardarComprobantesPorTipo(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const emp = empresas.find(e=>e.id===empresaActivaId);
+  try{
+    if(emp?.sistema_contable === 'siigo_pyme'){
+      const configuraciones = Object.entries(COMPROBANTE_UI).map(([tipo,[tipoId,codId]])=>{
+        const modo = document.getElementById('modo-'+tipo)?.value || 'interna';
+        return {
+          tipo_documento: tipo,
+          tipo_comprobante: document.getElementById(tipoId).value.trim() || null,
+          codigo_comprobante: document.getElementById(codId).value.trim() || null,
+          modo_numeracion: modo,
+          codigo_vendedor_default:'1', codigo_zona_default:'0', centro_costo_default:'0', subcentro_costo_default:'0', sucursal_default:'0'
+        };
+      });
+      await req(`/empresas/${empresaActivaId}/siigo/comprobantes`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({configuraciones})});
+    }else{
+      // World Office conserva su configuración nativa actual. Las filas de notas
+      // recibida/emitida se muestran separadas visualmente, pero el backend legacy
+      // mantiene un solo código para cada clase hasta que se valide un archivo real.
+      const val = id => document.getElementById(id)?.value.trim() || null;
+      await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+        comprobante_factura_recibida:val('tcRecibida'), comprobante_factura_emitida:val('tcEmitida'),
+        comprobante_nota_credito:val('tcNotaCreditoRecibida')||val('tcNotaCreditoEmitida'),
+        comprobante_nota_debito:val('tcNotaDebitoRecibida')||val('tcNotaDebitoEmitida'),
+        comprobante_nomina:val('tcNomina'),
+        comprobante_documento_equivalente:val('tcEquivalenteRecibido')||val('tcEquivalenteEmitido'),
+      })});
+    }
+    toast('Comprobantes guardados'); await cargarComprobantesPorTipo();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarComprobantesPorTipo(){
+  if(!empresaActivaId) return;
+  const emp = empresas.find(e=>e.id===empresaActivaId);
+  try{
+    if(emp?.sistema_contable === 'siigo_pyme'){
+      const lista = await req(`/empresas/${empresaActivaId}/siigo/comprobantes`);
+      for(const c of lista){
+        const ids=COMPROBANTE_UI[c.tipo_documento]; if(!ids) continue;
+        document.getElementById(ids[0]).value=c.tipo_comprobante||'';
+        document.getElementById(ids[1]).value=c.codigo_comprobante||'';
+        const modo=document.getElementById('modo-'+c.tipo_documento); if(modo){ modo.value=c.modo_numeracion||'interna'; modo.disabled=false; }
+        document.getElementById(ids[1]).disabled=false;
+        actualizarModoNumeracionFila(c.tipo_documento);
+      }
+    }else{
+      const c=await req(`/empresas/${empresaActivaId}/comprobantes-por-tipo`);
+      const set=(clave,tipo)=>{const ids=COMPROBANTE_UI[clave];document.getElementById(ids[0]).value=tipo||'';document.getElementById(ids[1]).value='';document.getElementById(ids[1]).disabled=true;const m=document.getElementById('modo-'+clave);if(m){m.value='interna';m.disabled=true;}};
+      set('factura_recibida',c.comprobante_factura_recibida); set('factura_emitida',c.comprobante_factura_emitida);
+      set('nota_credito_recibida',c.comprobante_nota_credito); set('nota_credito_emitida',c.comprobante_nota_credito);
+      set('nota_debito_recibida',c.comprobante_nota_debito); set('nota_debito_emitida',c.comprobante_nota_debito);
+      set('documento_equivalente_recibido',c.comprobante_documento_equivalente); set('documento_equivalente_emitido',c.comprobante_documento_equivalente); set('nomina',c.comprobante_nomina);
+    }
+  }catch(e){ /* silencioso */ }
+}
+
+async function guardarModoContable(){ return; }
+
+async function crearCentroCosto(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const codigo = document.getElementById('ccCodigo').value.trim();
+  const nombre = document.getElementById('ccNombre').value.trim();
+  if(!codigo || !nombre){ toast('Código y nombre son obligatorios', true); return; }
+  try{
+    await req(`/empresas/${empresaActivaId}/centros-costo`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({codigo, nombre})});
+    document.getElementById('ccCodigo').value=''; document.getElementById('ccNombre').value='';
+    toast('Centro de costo creado');
+    cargarCentrosCosto();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarCentrosCosto(){
+  if(!empresaActivaId) return;
+  try{
+    const centros = await req(`/empresas/${empresaActivaId}/centros-costo`);
+    document.getElementById('tablaCentrosCosto').innerHTML = centros.map(c=>`
+      <tr><td class="mono">${c.codigo}</td><td>${c.nombre}</td><td><span class="pill ${c.activo?'ok':'err'}">${c.activo?'Activo':'Inactivo'}</span></td></tr>
+    `).join('') || '<tr><td colspan="3" class="muted">Sin centros de costo todavía.</td></tr>';
+  }catch(e){ /* silencioso */ }
+}
+
+async function sugerirCuentasNominaDesdeHistorial(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/historial/sugerir-cuentas-nomina`);
+    const campoAInput = {
+      cuenta_salario:'cnSalario', cuenta_auxilio_transporte:'cnAuxTte', cuenta_nomina_por_pagar:'cnNominaPagar',
+      cuenta_salud_por_pagar:'cnSaludPagar', cuenta_pension_por_pagar:'cnPensionPagar',
+      cuenta_cesantias:'cnCesantias', cuenta_cesantias_por_pagar:'cnCesantiasPagar',
+      cuenta_intereses_cesantias:'cnIntCesantias', cuenta_intereses_cesantias_por_pagar:'cnIntCesantiasPagar',
+      cuenta_prima:'cnPrima', cuenta_prima_por_pagar:'cnPrimaPagar',
+      cuenta_vacaciones:'cnVacaciones', cuenta_vacaciones_por_pagar:'cnVacacionesPagar',
+      cuenta_arl:'cnArl', cuenta_arl_por_pagar:'cnArlPagar',
+      cuenta_caja_compensacion:'cnCaja', cuenta_caja_compensacion_por_pagar:'cnCajaPagar',
+    };
+    let n = 0;
+    for(const [campo, sugerencia] of Object.entries(r.sugerencias)){
+      const inputId = campoAInput[campo];
+      const el = inputId && document.getElementById(inputId);
+      if(el && !el.value){ el.value = sugerencia.codigo; n++; }
+    }
+    toast(n ? `${n} cuenta(s) sugerida(s) — revisa y da clic en "Guardar cuentas de nómina"` : 'No se encontraron coincidencias claras en el historial cargado');
+  }catch(e){ toast(e.message, true); }
+}
+
+async function guardarCuentasBase(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const payload = {};
+  const campos = {cbProveedores:'cuenta_proveedores', cbCaja:'cuenta_caja', cbBanco:'cuenta_banco',
+    cbIva:'cuenta_iva_descontable', cbRetefuente:'cuenta_retefuente', cbReteica:'cuenta_reteica',
+    cbReteiva:'cuenta_reteiva', cbInc:'cuenta_inc',
+    cbIngresos:'cuenta_ingresos', cbClientes:'cuenta_clientes', cbIvaGenerado:'cuenta_iva_generado',
+    cbNomina:'cuenta_nomina'};
+  for(const [id, campo] of Object.entries(campos)){
+    const v = document.getElementById(id).value.trim();
+    if(v) payload[campo] = v;
+  }
+  try{
+    await req(`/empresas/${empresaActivaId}/cuentas-base`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Cuentas base guardadas');
+    await cargarCuentasBase();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function guardarCuentasNomina(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const payload = {};
+  const campos = {
+    cnSalario:'cuenta_salario', cnAuxTte:'cuenta_auxilio_transporte', cnNominaPagar:'cuenta_nomina_por_pagar',
+    cnSaludPagar:'cuenta_salud_por_pagar', cnPensionPagar:'cuenta_pension_por_pagar',
+    cnCesantias:'cuenta_cesantias', cnCesantiasPagar:'cuenta_cesantias_por_pagar',
+    cnIntCesantias:'cuenta_intereses_cesantias', cnIntCesantiasPagar:'cuenta_intereses_cesantias_por_pagar',
+    cnPrima:'cuenta_prima', cnPrimaPagar:'cuenta_prima_por_pagar',
+    cnVacaciones:'cuenta_vacaciones', cnVacacionesPagar:'cuenta_vacaciones_por_pagar',
+    cnArl:'cuenta_arl', cnArlPagar:'cuenta_arl_por_pagar',
+    cnCaja:'cuenta_caja_compensacion', cnCajaPagar:'cuenta_caja_compensacion_por_pagar',
+  };
+  for(const [id, campo] of Object.entries(campos)){
+    const v = document.getElementById(id).value.trim();
+    if(v) payload[campo] = v;
+  }
+  try{
+    await req(`/empresas/${empresaActivaId}/cuentas-base`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Cuentas de nómina guardadas');
+    await cargarCuentasBase();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarEmpleados(){
+  if(!empresaActivaId) return;
+  try{
+    const empleados = await req(`/empresas/${empresaActivaId}/empleados`);
+    document.getElementById('tablaEmpleados').innerHTML = empleados.map(e => `
+      <tr>
+        <td>${e.nit}</td><td>${e.nombre||'—'}</td>
+        <td>${e.eps_nombre||e.eps_nit||'—'}</td>
+        <td>${e.afp_nombre||e.afp_nit||'—'}</td>
+        <td>${e.arl_nombre||e.arl_nit||'—'}</td>
+        <td>${e.caja_compensacion_nombre||e.caja_compensacion_nit||'—'}</td>
+        <td><button class="btn danger" onclick="ejecutarBoton(this,'Eliminando…',()=>eliminarEmpleado('${e.id}'))">Eliminar</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="muted">Sin empleados registrados todavía.</td></tr>';
+  }catch(e){ /* silencioso */ }
+}
+
+async function guardarEmpleado(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const nit = document.getElementById('empNit').value.trim();
+  if(!nit){ toast('El NIT del empleado es obligatorio', true); return; }
+  const payload = {
+    nit,
+    nombre: document.getElementById('empNombre').value.trim() || null,
+    eps_nit: document.getElementById('empEpsNit').value.trim() || null,
+    eps_nombre: document.getElementById('empEpsNombre').value.trim() || null,
+    afp_nit: document.getElementById('empAfpNit').value.trim() || null,
+    afp_nombre: document.getElementById('empAfpNombre').value.trim() || null,
+    arl_nit: document.getElementById('empArlNit').value.trim() || null,
+    arl_nombre: document.getElementById('empArlNombre').value.trim() || null,
+    caja_compensacion_nit: document.getElementById('empCajaNit').value.trim() || null,
+    caja_compensacion_nombre: document.getElementById('empCajaNombre').value.trim() || null,
+  };
+  try{
+    await req(`/empresas/${empresaActivaId}/empleados`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    toast('Empleado agregado');
+    ['empNit','empNombre','empEpsNit','empEpsNombre','empAfpNit','empAfpNombre','empArlNit','empArlNombre','empCajaNit','empCajaNombre']
+      .forEach(id => document.getElementById(id).value = '');
+    await cargarEmpleados();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function eliminarEmpleado(empleadoId){
+  if(!confirm('¿Eliminar este empleado? Las facturas de nómina ya contabilizadas no se ven afectadas.')) return;
+  try{
+    await req(`/empresas/${empresaActivaId}/empleados/${empleadoId}`, {method:'DELETE'});
+    toast('Empleado eliminado');
+    await cargarEmpleados();
+  }catch(e){ toast(e.message, true); }
+}
+
+let _candidatosEmpleadosDetectados = [];
+
+async function detectarEmpleadosDesdeHistorial(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const div = document.getElementById('candidatosEmpleados');
+  div.innerHTML = '<p class="muted">Buscando…</p>';
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/historial/detectar-empleados`);
+    if(r.aviso){ div.innerHTML = `<p class="muted">${r.aviso}</p>`; return; }
+    if(!r.candidatos.length){ div.innerHTML = '<p class="muted">No se encontraron empleados nuevos en el historial (o ya están todos creados).</p>'; return; }
+    _candidatosEmpleadosDetectados = r.candidatos;
+    div.innerHTML = `
+      <table style="margin-top:6px;"><thead><tr><th></th><th>NIT</th><th>Nombre</th><th>EPS</th><th>Fondo pensión</th><th>ARL</th><th>Caja</th></tr></thead>
+        <tbody>
+          ${r.candidatos.map((c, i) => `
+            <tr>
+              <td><input type="checkbox" class="chk-candidato-empleado" data-i="${i}" checked></td>
+              <td class="mono">${c.nit}</td><td>${c.nombre||'—'}</td>
+              <td>${c.eps_nombre||c.eps_nit||'—'}</td>
+              <td>${c.afp_nombre||c.afp_nit||'—'}</td>
+              <td>${c.arl_nombre||c.arl_nit||'—'}</td>
+              <td>${c.caja_compensacion_nombre||c.caja_compensacion_nit||'—'}</td>
+            </tr>
+          `).join('')}
+        </tbody></table>
+      <button class="btn" style="margin-top:8px;" onclick="ejecutarBoton(this,'Creando empleados…',crearEmpleadosDetectados)">Crear los seleccionados</button>
+    `;
+  }catch(e){ div.innerHTML = `<p class="muted">No se pudo detectar: ${e.message}</p>`; }
+}
+
+async function crearEmpleadosDetectados(){
+  const marcados = Array.from(document.querySelectorAll('.chk-candidato-empleado:checked')).map(el => parseInt(el.dataset.i));
+  if(!marcados.length){ toast('Marca al menos uno', true); return; }
+  let creados = 0;
+  for(const i of marcados){
+    const c = _candidatosEmpleadosDetectados[i];
+    try{
+      await req(`/empresas/${empresaActivaId}/empleados`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          nit: c.nit, nombre: c.nombre, eps_nit: c.eps_nit, eps_nombre: c.eps_nombre,
+          afp_nit: c.afp_nit, afp_nombre: c.afp_nombre, arl_nit: c.arl_nit, arl_nombre: c.arl_nombre,
+          caja_compensacion_nit: c.caja_compensacion_nit, caja_compensacion_nombre: c.caja_compensacion_nombre,
+        }),
+      });
+      creados++;
+    }catch(e){ /* si uno falla (ej. ya existe), sigue con los demás */ }
+  }
+  toast(`${creados} empleado(s) creado(s)`);
+  document.getElementById('candidatosEmpleados').innerHTML = '';
+  cargarEmpleados();
+}
+
+async function cargarDashboard(){
+  const ids=['dashPendientes','dashContabilizados','dashRevision','dashHistorial','dashExportaciones'];
+  if(!empresaActivaId){ ids.forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='—';}); const d=document.getElementById('dashboardDetalle');if(d)d.textContent='Selecciona una empresa para ver su estado.';return; }
+  try{
+    const [rec,emi,apr,exps,imps]=await Promise.all([
+      req(`/empresas/${empresaActivaId}/documentos?modulo=recibidas`), req(`/empresas/${empresaActivaId}/documentos?modulo=emitidas`),
+      req(`/empresas/${empresaActivaId}/historial/resumen-aprendizaje`), req(`/empresas/${empresaActivaId}/exportaciones`), req(`/empresas/${empresaActivaId}/historial/importaciones`)
+    ]);
+    const mapa=new Map([...rec,...emi].map(f=>[f.id,f])); const docs=[...mapa.values()];
+    const cont=docs.filter(f=>['contabilizada','exportada'].includes(f.estado)).length;
+    const revision=docs.filter(f=>['pendiente_revision','pendiente_clasificacion','error','duplicada'].includes(f.estado)).length;
+    const pendientes=docs.filter(f=>!['contabilizada','exportada','duplicada'].includes(f.estado)).length;
+    document.getElementById('dashPendientes').textContent=pendientes.toLocaleString('es-CO'); document.getElementById('dashContabilizados').textContent=cont.toLocaleString('es-CO');
+    document.getElementById('dashRevision').textContent=revision.toLocaleString('es-CO'); document.getElementById('dashHistorial').textContent=(apr.filas_tecnicas||apr.decisiones_contables||0).toLocaleString('es-CO'); document.getElementById('dashExportaciones').textContent=exps.length.toLocaleString('es-CO');
+    const emp=empresas.find(e=>e.id===empresaActivaId); const ultimaImp=imps?.[0]?.importado_en ? new Date(imps[0].importado_en).toLocaleString('es-CO') : 'Sin historial'; const ultimaExp=exps?.[0]?.creado_en ? new Date(exps[0].creado_en).toLocaleString('es-CO') : 'Sin exportaciones';
+    document.getElementById('dashEstado').className='pill '+(revision?'warn':'ok'); document.getElementById('dashEstado').textContent=revision?`${revision} por revisar`:'Al día';
+    document.getElementById('dashboardDetalle').innerHTML=`<strong>${emp?.nombre||''}</strong> · ${docs.length} documentos · Último historial: ${ultimaImp} · Última exportación: ${ultimaExp}`;
+  }catch(e){ const d=document.getElementById('dashboardDetalle');if(d)d.textContent='No se pudo actualizar el resumen: '+e.message; }
+}
+
+async function cargarResumenAprendizaje(){
+  const el=document.getElementById('kpisAprendizaje'); if(!el||!empresaActivaId) return;
+  try{
+    const r=await req(`/empresas/${empresaActivaId}/historial/resumen-aprendizaje`);
+    const items=[['Movimientos',r.filas_tecnicas||r.decisiones_contables||0],['Cuentas',r.cuentas||0],['Terceros',r.terceros||0],['Comprobantes',r.comprobantes||0],['Campos SIIGO',r.campos_siigo||0]];
+    el.innerHTML=items.map(([n,v])=>`<div class="kpi"><span>${n}</span><b>${v.toLocaleString('es-CO')}</b></div>`).join('');
+  }catch(e){ el.innerHTML='<span class="muted">Carga un historial para activar el aprendizaje.</span>'; }
+}
+
+async function cargarCuentasBase(){
+  if(!empresaActivaId) return;
+  try{
+    const cb = await req(`/empresas/${empresaActivaId}/cuentas-base`);
+    const campoAInput = {
+      cuenta_salario:'cnSalario', cuenta_auxilio_transporte:'cnAuxTte', cuenta_nomina_por_pagar:'cnNominaPagar',
+      cuenta_salud_por_pagar:'cnSaludPagar', cuenta_pension_por_pagar:'cnPensionPagar',
+      cuenta_cesantias:'cnCesantias', cuenta_cesantias_por_pagar:'cnCesantiasPagar',
+      cuenta_intereses_cesantias:'cnIntCesantias', cuenta_intereses_cesantias_por_pagar:'cnIntCesantiasPagar',
+      cuenta_prima:'cnPrima', cuenta_prima_por_pagar:'cnPrimaPagar', cuenta_vacaciones:'cnVacaciones', cuenta_vacaciones_por_pagar:'cnVacacionesPagar',
+      cuenta_arl:'cnArl', cuenta_arl_por_pagar:'cnArlPagar', cuenta_caja_compensacion:'cnCaja', cuenta_caja_compensacion_por_pagar:'cnCajaPagar',
+    };
+    for(const [campo,inputId] of Object.entries(campoAInput)){ const el=document.getElementById(inputId); if(el) el.value=cb[campo]?.codigo||''; }
+  }catch(e){ /* silencioso */ }
+}
+
+// ---------- cargar documentos ----------
+document.getElementById('excelInput').addEventListener('change', async e=>{
+  const selects = ['mapCufe','mapNumero','mapPrefijo','mapNit','mapNombre','mapNitReceptor','mapNombreReceptor','mapFecha','mapTotal','mapTipo','mapGrupo'].map(id=>document.getElementById(id));
+  const excelFile = e.target.files[0];
+  if(!excelFile){
+    selects.forEach(s=> s.innerHTML = '<option value="">— no aplica —</option>');
+    return;
+  }
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); e.target.value=''; return; }
+  const fd = new FormData();
+  fd.append('archivo', excelFile);
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-sugerir-mapeo`, {
+      method:'POST', headers:authHeaders(), body: fd,
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    const opciones = '<option value="">— no aplica —</option>' + body.columnas.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
+    selects.forEach(s=> s.innerHTML = opciones);
+
+    const campoASelect = {cufe:'mapCufe', numero_factura:'mapNumero', prefijo:'mapPrefijo', nit_emisor:'mapNit',
+      nombre_emisor:'mapNombre', nit_receptor:'mapNitReceptor', nombre_receptor:'mapNombreReceptor',
+      fecha:'mapFecha', valor_total:'mapTotal', tipo_documento:'mapTipo', grupo:'mapGrupo'};
+    for(const [campo, columna] of Object.entries(body.mapeo || {})){
+      const sel = document.getElementById(campoASelect[campo]);
+      if(sel) sel.value = columna;
+    }
+
+    document.getElementById('mapeoAyuda').textContent = body.reconocidas.length
+      ? `Columnas del Excel de la DIAN reconocidas automáticamente (${body.reconocidas.length} de ${body.columnas.length}) — revísalas antes de cargar.`
+      : `No se reconoció el formato típico del Excel de la DIAN — elige las columnas a mano abajo (${body.columnas.length} detectadas).`;
+    toast(body.reconocidas.length ? 'Columnas detectadas y preseleccionadas automáticamente' : 'Columnas detectadas — selecciónalas abajo');
+  }catch(err){
+    toast('No se pudo leer las columnas del Excel: ' + err.message, true);
+  }
+});
+
+async function cargarResumenPorTipo(){
+  if(!empresaActivaId) return;
+  const el = document.getElementById('resumenPorTipo');
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/documentos/resumen-por-tipo`);
+    if(!r.grupos.length){ el.innerHTML = '<p class="muted">Todavía no hay documentos cargados.</p>'; return; }
+    const maxTotal = Math.max(...r.grupos.map(g=>g.total), 1);
+    const filas = r.grupos.map(g => `
+      <div style="margin-bottom:8px;">
+        <div class="row" style="margin:0 0 2px; justify-content:space-between;">
+          <span style="font-size:13px;">${g.tipo} <span class="muted">(${g.cantidad})</span></span>
+          <span class="mono" style="font-size:13px;">$${g.total.toLocaleString('es-CO')}</span>
+        </div>
+        <div style="background:var(--line); border-radius:4px; height:10px; overflow:hidden;">
+          <div style="width:${Math.max(2, g.total/maxTotal*100)}%; height:100%; background:${g.es_gasto ? '#e07a5f' : '#3a9d6b'};"></div>
+        </div>
+      </div>
+    `).join('');
+    el.innerHTML = `
+      <div class="row" style="margin-bottom:10px;">
+        <div class="pill err">Total gastos: $${r.total_gastos.toLocaleString('es-CO')}</div>
+        <div class="pill ok">Total ingresos: $${r.total_ingresos.toLocaleString('es-CO')}</div>
+      </div>
+      ${filas}
+    `;
+  }catch(e){ el.innerHTML = `<p class="muted">No se pudo cargar el resumen: ${e.message}</p>`; }
+}
+
+async function eliminarFacturaDesdeCarga(id, exportada=false){
+  if(exportada && !authUser?.es_superadmin){ toast('Solo el Administrador General puede retirar un documento ya exportado.',true); return; }
+  const aviso=exportada
+    ? 'Este documento ya fue exportado. Se retirará del trabajo activo, pero el archivo de exportación y la auditoría se conservarán. ¿Continuar?'
+    : '¿Eliminar este documento? También se eliminará su partida registrada.';
+  if(!confirm(aviso)) return;
+  let motivo='';
+  if(exportada && authUser?.es_superadmin) motivo=prompt('Motivo del retiro (opcional):','')||'';
+  try{
+    const qs=motivo?`?motivo=${encodeURIComponent(motivo)}`:'';
+    const r=await req(`/empresas/${empresaActivaId}/documentos/${id}${qs}`,{method:'DELETE'});
+    toast(r.era_exportada?'Documento exportado retirado; trazabilidad conservada':'Documento eliminado');
+    cargarListadoCargas(); cargarResumenPorTipo(); cargarFacturas();
+  } catch(e){ toast(e.message,true); }
+}
+
+async function cargarListadoCargas(){
+  if(!empresaActivaId) return;
+  try{
+    const docs = await req(`/empresas/${empresaActivaId}/documentos/documentos-cargados`);
+    document.getElementById('tablaCargas').innerHTML = docs.map(d=>`<tr>
+      <td>${d.fecha_emision ? new Date(d.fecha_emision).toLocaleDateString('es-CO') : '—'}</td>
+      <td>${etiquetaNaturaleza(d.naturaleza_documento)}</td><td>${d.direccion_documento||'—'}</td>
+      <td class="mono">${prefijoFolioUI(d.prefijo,d.numero_factura)||'—'}</td><td>${d.tercero_nombre||d.tercero_nit||'—'}</td>
+      <td class="mono" title="${d.cufe||''}">${d.cufe ? d.cufe.slice(0,16)+'…' : '—'}</td><td><span class="pill ${estadoPill(d.estado)}">${d.estado}</span></td>
+      <td>${d.exportada
+        ? `<span class="pill ok">Exportado</span>${authUser?.es_superadmin?` <button class="btn danger" onclick="ejecutarBoton(this,'Retirando…',()=>eliminarFacturaDesdeCarga('${d.id}',true))">Retirar</button>`:''}`
+        : `<button class="btn danger" onclick="ejecutarBoton(this,'Eliminando…',()=>eliminarFacturaDesdeCarga('${d.id}',false))">Eliminar</button>`}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">Sin documentos cargados.</td></tr>';
+  }catch(e){ document.getElementById('tablaCargas').innerHTML=`<tr><td colspan="8" class="muted">${e.message}</td></tr>`; }
+}
+
+async function cargarDocumentos(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const btnCarga=document.getElementById('btnCargarDocumentos');
+  const estadoCarga=document.getElementById('estadoCargaDocumentos');
+  if(btnCarga?.disabled) return;
+  const archivos = document.getElementById('zipInput').files;
+  const excelFile = document.getElementById('excelInput').files[0];
+  if((!archivos || archivos.length===0) && !excelFile){ toast('Selecciona un Excel DIAN o al menos un ZIP/XML/PDF', true); return; }
+  const fd = new FormData();
+  for(const f of (archivos || [])) fd.append('documentos', f);
+  if(excelFile){
+    fd.append('excel', excelFile);
+    const mapeos = {mapCufe:'mapeo_cufe', mapNumero:'mapeo_numero_factura', mapPrefijo:'mapeo_prefijo', mapNit:'mapeo_nit_emisor',
+      mapNombre:'mapeo_nombre_emisor', mapNitReceptor:'mapeo_nit_receptor', mapNombreReceptor:'mapeo_nombre_receptor',
+      mapFecha:'mapeo_fecha', mapTotal:'mapeo_valor_total',
+      mapTipo:'mapeo_tipo_documento', mapGrupo:'mapeo_grupo'};
+    for(const [id, campo] of Object.entries(mapeos)){
+      const v = document.getElementById(id).value.trim();
+      if(v) fd.append(campo, v);
+    }
+  }
+  try{
+    if(btnCarga){ btnCarga.disabled=true; btnCarga.textContent='Procesando…'; }
+    if(estadoCarga) estadoCarga.textContent=`Procesando ${archivos?.length||0} archivo(s)${excelFile?' + Excel DIAN':''}. No cierres esta pestaña.`;
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/cargar`, {method:'POST', headers:authHeaders(), body: fd});
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    const etiquetasClasificacion = {
+      factura_recibida: 'Facturas recibidas (compras)', factura_emitida: 'Facturas emitidas (ventas)',
+      nota_credito_recibida: 'Notas crédito (compras)', nota_credito_emitida: 'Notas crédito (ventas)',
+      nota_debito_recibida: 'Notas débito (compras)', nota_debito_emitida: 'Notas débito (ventas)',
+      nomina_recibida: 'Nómina electrónica', nomina_no_aplica: 'Nómina electrónica',
+      documento_equivalente_recibida: 'Documentos equivalentes',
+    };
+    const filasDesglose = Object.entries(body.desglose_clasificacion || {})
+      .map(([clave, n]) => `<div class="pill ok">${etiquetasClasificacion[clave] || clave}: ${n}</div>`).join('');
+    document.getElementById('resultadoCarga').innerHTML = `
+      <p class="muted" style="font-weight:600; color:var(--ink-soft); margin-bottom:6px;">Clasificación de lo que se cargó:</p>
+      <div class="row" style="margin-bottom:10px;">${filasDesglose || '<span class="muted">Sin documentos contables nuevos.</span>'}</div>
+      <div class="pill ok">Relacionados: ${body.total_relacionados}</div>
+      <div class="pill warn">Pendientes de revisión: ${body.total_pendientes_revision}</div>
+      <div class="pill warn">Pendientes de clasificación (nómina/emitidas): ${body.total_pendientes_clasificacion}</div>
+      <div class="pill err">Duplicados: ${body.total_duplicados}</div>
+      <div class="pill" style="background:#eef1f4; color:#64748b;">Omitidos (acuses de recibo, etc.): ${body.total_descartados}</div>
+      ${body.errores_zip.length ? '<p class="muted">Avisos de archivos: '+body.errores_zip.map(e=>e.error).join('; ')+'</p>' : ''}
+      ${body.avisos_descarte && body.avisos_descarte.length ? '<p class="muted">Omitidos: '+body.avisos_descarte.slice(0,10).map(a=>a.aviso).join('; ')+(body.avisos_descarte.length>10?` (+${body.avisos_descarte.length-10} más)`:'')+'</p>' : ''}
+      <div style="margin-top:12px;"><button class="btn" onclick="irARevisarFacturas()">Ir a revisar estas facturas →</button></div>
+    `;
+    toast('Carga procesada');
+    cargarResumenPorTipo();
+    cargarListadoCargas();
+    await cargarPeriodosEmpresa();
+  }catch(e){
+    toast(e.message, true);
+    if(estadoCarga) estadoCarga.textContent='La carga no terminó. Revisa el mensaje mostrado e inténtalo nuevamente.';
+  }finally{
+    if(btnCarga){ btnCarga.disabled=false; btnCarga.textContent='Cargar y relacionar'; }
+    if(estadoCarga && !estadoCarga.textContent.startsWith('La carga no terminó')) estadoCarga.textContent='';
+  }
+}
+
+function irAPestana(nombrePestana, alLlegar){
+  document.querySelector(`#tabs button[data-tab="${nombrePestana}"]`).click();
+  if(alLlegar) alLlegar();
+}
+
+function irARevisarFacturas(){
+  irAPestana('facturas-recibidas', () => {
+    document.getElementById('filtroEstado').value = '';
+    cargarFacturas();
+    cargarPanelClasificacion();
+  });
+}
+
+// ---------- historial contable ----------
+async function importarBalanceAutomatico(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('balanceArchivoInput').files[0];
+  if(!archivo){ toast('Selecciona el archivo del balance', true); return; }
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/importar-balance`, {
+      method:'POST', headers:authHeaders(), body: fd,
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    document.getElementById('resultadoImportacionBalance').innerHTML = `
+      <div class="pill ok">Registros válidos aprendidos: ${body.registros_validos}</div>
+      <div class="pill warn">Rechazados: ${body.registros_rechazados}</div>
+      <div class="muted">De ${body.total_registros} filas totales — columnas detectadas automáticamente.</div>
+    `;
+    toast('Balance importado — plan de cuentas actualizado'); await cargarCuentasEmpresaCache();
+    cargarImportacionesHistorial();
+  }catch(e){ toast(e.message, true); }
+}
+
+
+const HIST_CAMPOS_SELECT = ['histMapNit','histMapCuenta','histMapNombre','histMapNombreCuenta','histMapDescripcion',
+  'histMapFecha','histMapAnio','histMapMes','histMapDia','histMapNumero',
+  'histMapValor','histMapValorDebito','histMapValorCredito'];
+
+document.getElementById('histArchivoInput').addEventListener('change', ()=>{
+  HIST_CAMPOS_SELECT.forEach(id=>{ document.getElementById(id).innerHTML = '<option value="">— elige —</option>'; });
+});
+
+async function detectarColumnasHistorial(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('histArchivoInput').files[0];
+  if(!archivo){ toast('Selecciona primero el archivo', true); return; }
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/documentos/excel-columnas`, {
+      method:'POST', headers:authHeaders(), body: fd,
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    const opciones = '<option value="">— no aplica —</option>' + body.columnas.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
+    HIST_CAMPOS_SELECT.forEach(id=>{ document.getElementById(id).innerHTML = opciones; });
+    toast(`${body.columnas.length} columnas detectadas — selecciónalas abajo`);
+  }catch(e){ toast(e.message, true); }
+}
+
+async function usarPlantillaConocidaHistorial(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('histArchivoInput').files[0];
+  if(!archivo){ toast('Selecciona primero el archivo', true); return; }
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/sugerir-mapeo`, {
+      method:'POST', headers:authHeaders(), body: fd,
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    const opciones = '<option value="">— no aplica —</option>' + body.columnas.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">${c}</option>`).join('');
+    HIST_CAMPOS_SELECT.forEach(id=>{ document.getElementById(id).innerHTML = opciones; });
+
+    const campoASelect = {nit:'histMapNit', cuenta:'histMapCuenta', nombre:'histMapNombre',
+      nombre_cuenta:'histMapNombreCuenta',
+      descripcion:'histMapDescripcion', fecha:'histMapFecha', anio:'histMapAnio', mes:'histMapMes',
+      dia:'histMapDia', numero_documento:'histMapNumero', valor:'histMapValor',
+      valor_debito:'histMapValorDebito', valor_credito:'histMapValorCredito'};
+    for(const [campo, columna] of Object.entries(body.mapeo || {})){
+      const sel = document.getElementById(campoASelect[campo]);
+      if(sel) sel.value = columna;
+    }
+    if(body.cuentas_excluir_sugeridas && body.cuentas_excluir_sugeridas.length){
+      document.getElementById('histCuentasExcluir').value = body.cuentas_excluir_sugeridas.join(', ');
+    }
+    if(body.reconocidas && body.reconocidas.length){
+      toast(`Plantilla de ${body.sistema_contable} aplicada — se reconocieron ${body.reconocidas.length} columnas, revísalas antes de importar`);
+    } else {
+      toast('No se reconoció ninguna columna típica de este sistema en el archivo — revisa el mapeo a mano', true);
+    }
+  }catch(e){ toast(e.message, true); }
+}
+
+async function importarHistoricoAutomatico(){
+  if(!empresaActivaId){toast('Selecciona una empresa primero',true);return;}
+  const archivo=document.getElementById('histArchivoInput').files[0]; if(!archivo){toast('Selecciona el Movimiento Contable',true);return;}
+  await usarPlantillaConocidaHistorial();
+  const nit=document.getElementById('histMapNit').value, cuenta=document.getElementById('histMapCuenta').value;
+  if(!nit||!cuenta){toast('No pude reconocer NIT y Cuenta automáticamente. Abre Opciones avanzadas.',true);return;}
+  await importarHistorico();
+}
+
+async function importarHistorico(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('histArchivoInput').files[0];
+  if(!archivo){ toast('Selecciona el archivo', true); return; }
+  const nit = document.getElementById('histMapNit').value;
+  const cuenta = document.getElementById('histMapCuenta').value;
+  if(!nit || !cuenta){ toast('Debes indicar al menos la columna de NIT y la de Cuenta', true); return; }
+
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  fd.append('mapeo_nit', nit);
+  fd.append('mapeo_cuenta', cuenta);
+  const opcionales = {histMapNombre:'mapeo_nombre', histMapNombreCuenta:'mapeo_nombre_cuenta', histMapDescripcion:'mapeo_descripcion',
+    histMapFecha:'mapeo_fecha', histMapAnio:'mapeo_anio', histMapMes:'mapeo_mes', histMapDia:'mapeo_dia',
+    histMapNumero:'mapeo_numero_documento', histMapValor:'mapeo_valor',
+    histMapValorDebito:'mapeo_valor_debito', histMapValorCredito:'mapeo_valor_credito'};
+  for(const [id, campo] of Object.entries(opcionales)){
+    const v = document.getElementById(id).value;
+    if(v) fd.append(campo, v);
+  }
+  const excluir = document.getElementById('histCuentasExcluir').value.trim();
+  if(excluir) fd.append('cuentas_excluir', excluir);
+
+  try{
+    toast('Importando... si el archivo es grande puede tardar unos segundos');
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/historial/importar`, {
+      method:'POST', headers:authHeaders(), body: fd,
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    document.getElementById('resultadoImportacionHistorial').innerHTML = `
+      <div class="pill ok">Registros válidos aprendidos: ${body.registros_validos}</div>
+      <div class="pill warn">Rechazados/excluidos: ${body.registros_rechazados}</div>
+      ${body.filas_tecnicas_siigo ? `<div class="pill ok">SIIGO: ${body.filas_tecnicas_siigo} filas técnicas aprendidas automáticamente</div>` : ''}
+      <div class="muted">De ${body.total_registros} filas totales en el archivo.</div>
+      ${body.detalle_rechazos && body.detalle_rechazos.length ? '<p class="muted">'+body.detalle_rechazos.slice(0,10).join('<br>')+'</p>' : ''}
+    `;
+    toast(body.filas_tecnicas_siigo ? 'Historial importado — cuentas y parámetros SIIGO aprendidos' : 'Historial importado'); await cargarCuentasEmpresaCache();
+    cargarImportacionesHistorial();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarImportacionesHistorial(){
+  if(!empresaActivaId) return;
+  try{
+    const importaciones = await req(`/empresas/${empresaActivaId}/historial/importaciones`);
+    document.getElementById('tablaImportacionesHistorial').innerHTML = importaciones.map(i=>`
+      <tr><td>${i.archivo_nombre}</td><td>${i.total_registros}</td>
+      <td>${i.registros_validos}</td><td>${i.registros_rechazados}</td>
+      <td>${new Date(i.importado_en).toLocaleString('es-CO')}</td>
+      <td><button class="btn danger" onclick="ejecutarBoton(this,'Eliminando historial…',()=>eliminarImportacionHistorial('${i.id}','${i.archivo_nombre.replace(/'/g,"\\'")}'))">Eliminar</button></td></tr>
+    `).join('') || '<tr><td colspan="6" class="muted">Sin importaciones todavía.</td></tr>';
+  }catch(e){ /* silencioso */ }
+}
+
+async function eliminarImportacionHistorial(id, nombreArchivo){
+  if(!confirm(`¿Eliminar la carga de "${nombreArchivo}"? Se olvidan todas las decisiones de aprendizaje que trajo esta carga en particular (no borra las cuentas ni los proveedores, solo esta asociación). No se puede deshacer.`)) return;
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/historial/importaciones/${id}`, {method:'DELETE'});
+    toast(`Carga eliminada — ${r.decisiones_borradas} decisión(es) de aprendizaje olvidadas`);
+    cargarImportacionesHistorial();
+  }catch(e){ toast(e.message, true); }
+}
+
+
+function prefijoFolioUI(prefijo, folio){
+  let p=String(prefijo||'').trim(), n=String(folio||'').trim();
+  if(!p) return n; if(!n) return p;
+  const esc=p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  n=n.replace(new RegExp('^'+esc+'(?:\\s*[-_/]\\s*|\\s*)','i'),'').replace(/^[-_/\s]+/,'') || n;
+  return n ? `${p}-${n}` : p;
+}
+
+// ---------- facturas ----------
+async function cargarPanelClasificacion(){
+  if(!empresaActivaId) return;
+  const el = document.getElementById('panelClasificacion');
+  try{
+    const pf=filtrosFacturas[moduloFacturasActivo]||{}; const pp=new URLSearchParams({modulo:moduloFacturasActivo}); if(pf.anio)pp.set('anio',pf.anio);if(pf.mes)pp.set('mes',pf.mes); const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?${pp.toString()}`);
+    const filaFactura = (f, extra) => `
+      <div class="row" style="align-items:center; padding:4px 0; border-bottom:1px solid var(--line);">
+        <span style="flex:2;"><strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${prefijoFolioUI(f.prefijo,f.numero_factura)||'—'}
+          ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}</span>
+        <span class="mono">$${(f.total||0).toLocaleString('es-CO')}</span>
+        ${extra||''}
+      </div>`;
+
+    el.innerHTML = `
+      <div class="row" style="align-items:flex-start; gap:16px;">
+        <div style="flex:1; min-width:260px;">
+          <h3 style="margin:0 0 4px;">✅ Listas para aprobar (${panel.listas.length})</h3>
+          <p class="muted" style="font-size:12px;">Ya tienen partida generada y balanceada — solo falta contabilizarlas.</p>
+          ${panel.listas.length ? `<button class="btn" onclick="ejecutarBoton(this,'Contabilizando…',()=>contabilizarBloque('listas'))">Contabilizar las ${panel.listas.length}</button>` : ''}
+          <div style="max-height:220px; overflow-y:auto; margin-top:6px;">
+            ${panel.listas.map(f=>filaFactura(f)).join('') || '<p class="muted">Ninguna por ahora.</p>'}
+          </div>
+        </div>
+        <div style="flex:1; min-width:260px;">
+          <h3 style="margin:0 0 4px;">💡 Con sugerencia disponible (${panel.con_sugerencia.length})</h3>
+          <p class="muted" style="font-size:12px;">El historial ya sabe qué cuenta usar para cada una — falta generar la propuesta (sigue quedando pendiente de contabilizar hasta que la apruebes).</p>
+          ${panel.con_sugerencia.length ? `<button class="btn" onclick="ejecutarBoton(this,'Generando propuestas…',generarPropuestasBloque)">Generar las ${panel.con_sugerencia.length} propuestas</button>` : ''}
+          <div style="max-height:220px; overflow-y:auto; margin-top:6px;">
+            ${panel.con_sugerencia.map(f=>filaFactura(f, `<span class="pill ok" style="font-size:11px;">${f.cuenta_sugerida}</span>`)).join('') || '<p class="muted">Ninguna por ahora.</p>'}
+          </div>
+        </div>
+        <div style="flex:1; min-width:260px;">
+          <h3 style="margin:0 0 4px;">⚠️ Necesitan tu criterio (${panel.necesita_revision.length})</h3>
+          <p class="muted" style="font-size:12px;">Sin sugerencia confiable (proveedor nuevo, nómina, o falta el NIT) — ábrelas en la lista de abajo para clasificarlas a mano.</p>
+          <div style="max-height:220px; overflow-y:auto; margin-top:6px;">
+            ${panel.necesita_revision.map(f=>filaFactura(f, `<span class="muted" style="font-size:11px;">${f.motivo||''}</span>`)).join('') || '<p class="muted">Ninguna por ahora.</p>'}
+          </div>
+        </div>
+      </div>
+    `;
+  }catch(e){ el.innerHTML = `<p class="muted">No se pudo cargar el panel: ${e.message}</p>`; }
+}
+
+async function contabilizarBloque(bloque){
+  const pf=filtrosFacturas[moduloFacturasActivo]||{}; const pp=new URLSearchParams({modulo:moduloFacturasActivo}); if(pf.anio)pp.set('anio',pf.anio);if(pf.mes)pp.set('mes',pf.mes); const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?${pp.toString()}`);
+  const ids = panel[bloque].map(f=>f.id);
+  if(ids.length === 0) return;
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/contabilizar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids}),
+    });
+    toast(`${body.aplicadas} factura(s) contabilizada(s)`);
+    cargarPanelClasificacion();
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function generarPropuestasBloque(){
+  const pf=filtrosFacturas[moduloFacturasActivo]||{}; const pp=new URLSearchParams({modulo:moduloFacturasActivo}); if(pf.anio)pp.set('anio',pf.anio);if(pf.mes)pp.set('mes',pf.mes); const panel = await req(`/empresas/${empresaActivaId}/documentos/panel-clasificacion?${pp.toString()}`);
+  const ids = panel.con_sugerencia.map(f=>f.id);
+  if(ids.length === 0) return;
+  if(!confirm(`Se generará la propuesta de partida para ${ids.length} factura(s) usando la sugerencia del historial de cada una. Quedan pendientes de tu aprobación (Contabilizar), no se contabilizan solas. ¿Continuar?`)) return;
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/partida/generar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids, usar_sugerencia: true}),
+    });
+    toast(`${body.aplicadas} propuesta(s) generada(s) — revísalas y contabilízalas cuando estés de acuerdo`);
+    cargarPanelClasificacion();
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarFacturas(){
+  if(!empresaActivaId){ document.getElementById('listaFacturas').innerHTML = '<p class="muted">Selecciona una empresa primero.</p>'; return; }
+  const estado = document.getElementById('filtroEstado').value;
+  const naturaleza = document.getElementById('filtroNaturaleza').value;
+  const anio = document.getElementById('filtroAnio')?.value||'';
+  const mes = document.getElementById('filtroMes')?.value||'';
+  filtrosFacturas[moduloFacturasActivo] = {estado, naturaleza, anio, mes};
+  const params = new URLSearchParams();
+  if(estado) params.set('estado', estado);
+  if(naturaleza) params.set('naturaleza', naturaleza);
+  if(anio) params.set('anio', anio);
+  if(mes) params.set('mes', mes);
+  params.set('modulo', moduloFacturasActivo);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  try{
+    const facturas = await req(`/empresas/${empresaActivaId}/documentos${qs}`);
+    const el = document.getElementById('listaFacturas');
+    if(facturas.length===0){ el.innerHTML = '<p class="muted">No hay facturas con este filtro.</p>'; return; }
+    el.innerHTML = facturas.map(f => `
+      <details ontoggle="if(this.open)cargarPartidaGuardada('${f.id}')">
+        <summary>
+          <span class="col-check"><input type="checkbox" ${seleccionFacturasActual().has(f.id)?'checked':''} onchange="toggleFacturaSel('${f.id}', this.checked)"></span>
+          <span>
+            <strong>${f.tercero_nombre || '(sin nombre)'}</strong> · NIT ${f.tercero_nit||'—'} · Fact. ${prefijoFolioUI(f.prefijo,f.numero_factura)||'—'}
+            ${f.concepto_resumen ? `<br><span class="muted" style="font-size:12px;">${f.concepto_resumen}</span>` : ''}
+          </span>
+          <span>
+            <span class="pill ${estadoPill(f.estado)}">${f.estado}</span>
+            <span class="pill ${direccionPill(f.direccion_documento)}">${etiquetaNaturaleza(f.naturaleza_documento)} · ${f.direccion_documento==='emitida'?'Emitida (venta)':(f.direccion_documento==='recibida'?'Recibida (compra)':f.direccion_documento)}</span>
+            <span class="pill ${f.confianza_extraccion>=90?'ok':(f.confianza_extraccion>=60?'warn':'err')}">${f.confianza_extraccion}% confianza</span>
+            ${(f.alertas||[]).length ? `<span class="pill warn">${f.alertas.length} aviso(s)</span>` : ''}
+            <span class="mono">$${(f.total||0).toLocaleString('es-CO')}</span>
+          </span>
+        </summary>
+        <div class="detail-body">
+          <p><strong>Fuente:</strong> ${f.fuente_extraccion} · <strong>Relacionada con Excel:</strong> ${f.relacionada_con_excel?'Sí ('+f.metodo_relacion+')':'No'}
+          ${f.motivo_no_relacionada ? '<br><span class="muted">'+f.motivo_no_relacionada+'</span>' : ''}</p>
+          ${(f.alertas||[]).length ? `<div class="pill warn" style="display:block;margin-bottom:8px;"><strong>Revisión DIAN:</strong><br>${f.alertas.map(a=>'• '+a).join('<br>')}</div>` : ''}
+          ${f.naturaleza_documento === 'nomina' ? '<p class="pill warn">Documento de nómina electrónica — sin extracción automática de valor (esquema XML distinto). Indica el valor total abajo y regístrala manualmente.</p>' : ''}
+          <button class="btn danger" style="margin-bottom:8px;" onclick="ejecutarBoton(this,'Eliminando…',()=>eliminarFactura('${f.id}'))">Eliminar esta factura</button>
+          ${f.direccion_documento === 'emitida' ? '<p class="pill warn">Factura EMITIDA por la empresa (venta) — usa cuentas de ingreso/clientes, no de gasto.</p>' : ''}
+          ${f.es_posible_duplicado ? `<p class="pill err">Posible duplicado</p>
+            <button class="btn ghost" onclick="resolverDuplicado('${f.id}', true)">Confirmar duplicado</button>
+            <button class="btn ghost" onclick="resolverDuplicado('${f.id}', false)">No es duplicado</button>` : ''}
+
+          <div class="row" style="margin-top:10px;">
+            <div><button class="btn ghost" onclick="verSugerencia('${f.id}', '${f.tercero_nit||''}', '${f.direccion_documento||''}', '${f.naturaleza_documento||''}')">Ver sugerencia de cuenta</button></div>
+          </div>
+          <div id="sugerencia-${f.id}"></div>
+
+          ${f.naturaleza_documento === 'nomina' ? `
+          <div class="row">
+            <div><label>Valor total de la nómina</label><input id="valor-${f.id}" type="number" step="0.01" placeholder="${f.total || '0'}"></div>
+            <div><button class="btn ghost" onclick="guardarValorNomina('${f.id}')">Guardar valor</button></div>
+          </div>
+          <p class="muted" style="font-size:12px;">La nómina intenta primero el asiento automático. <span class="help-tip" title="Usa la ficha del empleado, afiliaciones y cuentas de nómina. Si faltan datos, permite corrección manual.">ⓘ</span></p>
+          ` : ''}
+
+          <div class="row">
+            <div><label>${(f.direccion_documento === 'emitida' && f.naturaleza_documento !== 'nomina') ? 'Corrección cuenta de ingreso' : 'Corrección cuenta de gasto'}${f.naturaleza_documento === 'nomina' ? ' (solo si no aplica el asiento automático)' : ''}</label><input id="cuenta-${f.id}" list="dl-cuentasEmpresa" placeholder="Buscar cuenta por código o nombre"></div>
+            <div><label>Centro de costo (opcional)</label><input id="cc-${f.id}" placeholder="CC01"></div>
+            <div><button class="btn" onclick="ejecutarBoton(this,'Generando partida…',()=>generarPartida('${f.id}', '${f.naturaleza_documento||''}'))">Generar / actualizar partida</button></div>
+            <div><button class="btn ghost" onclick="ejecutarBoton(this,'Aprobando…',()=>contabilizar('${f.id}'))">✓ Aprobar contabilización</button></div>
+          </div>
+          ${f.naturaleza_documento === 'nomina' ? '' : `
+          <details style="margin-top:4px;">
+            <summary class="muted" style="cursor:pointer; font-size:12px;">Corregir contrapartida</summary>
+            <div style="margin-top:6px;max-width:520px"><label>Cuenta contrapartida</label><input id="contra-${f.id}" list="dl-cuentasEmpresa" placeholder="Automática · o busca cuenta por código/nombre"></div>
+          </details>
+          `}
+          <div id="partida-${f.id}"></div>
+        </div>
+      </details>
+    `).join('');
+    actualizarContadorSeleccion();
+  }catch(e){
+    toast(e.message, true);
+    document.getElementById('listaFacturas').innerHTML =
+      `<p class="pill err">No se pudieron cargar las facturas: ${e.message}</p>
+       <button class="btn ghost" onclick="cargarFacturas()">Reintentar</button>`;
+  }
+}
+
+function estadoPill(estado){
+  if(['contabilizada','exportada','lista_para_contabilizar'].includes(estado)) return 'ok';
+  if(['pendiente_revision','pendiente_clasificacion','extraida'].includes(estado)) return 'warn';
+  return 'err';
+}
+function direccionPill(direccion){
+  return direccion === 'emitida' ? 'warn' : 'ok';
+}
+function etiquetaNaturaleza(naturaleza){
+  const etiquetas = {
+    factura: 'Factura', nota_credito: 'Nota crédito', nota_debito: 'Nota débito',
+    documento_equivalente: 'Doc. equivalente', nomina: 'Nómina',
+  };
+  return etiquetas[naturaleza] || naturaleza;
+}
+function toggleFacturaSel(id, checked){
+  const seleccion = seleccionFacturasActual();
+  if(checked) seleccion.add(id); else seleccion.delete(id);
+  document.getElementById('expFacturaIds').value = Array.from(seleccion).join(',');
+  actualizarContadorSeleccion();
+}
+
+function actualizarContadorSeleccion(){
+  const seleccion = seleccionFacturasActual();
+  const n = seleccion.size;
+  const el = document.getElementById('contadorSeleccion');
+  if(el) el.textContent = n===1 ? '1 seleccionada' : `${n} seleccionadas`;
+  const chkTodas = document.getElementById('seleccionarTodasChk');
+  if(chkTodas && n === 0) chkTodas.checked = false;
+}
+
+function toggleSeleccionarTodas(marcarTodas){
+  document.querySelectorAll('#listaFacturas .col-check input[type=checkbox]').forEach(chk=>{
+    chk.checked = marcarTodas;
+    chk.dispatchEvent(new Event('change'));
+  });
+}
+
+function renderPartidaGuardada(detalle){
+  const movs=detalle.movimientos||[];
+  if(!movs.length) return '<div class="accounting-box"><span class="muted">Aún no hay partida generada.</span></div>';
+  const money=v=>Number(v||0).toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return `<div class="accounting-box"><div class="accounting-head"><strong>Partida contable registrada</strong><span class="${Math.abs(detalle.diferencia_partida||0)<0.01?'balanced':'unbalanced'}">Débitos $${money(detalle.total_debito)} · Créditos $${money(detalle.total_credito)} · Diferencia $${money(detalle.diferencia_partida)}</span></div>
+    <div class="table-scroll"><table><thead><tr><th>Cuenta</th><th>Nombre</th><th>Tercero / NIT</th><th>Centro</th><th>Descripción</th><th>Débito</th><th>Crédito</th></tr></thead><tbody>
+    ${movs.map(m=>`<tr><td class="mono"><strong>${m.cuenta_codigo||'—'}</strong></td><td>${m.cuenta_nombre||'—'}</td><td>${m.tercero_nombre||''}<br><span class="mono muted">${m.tercero_nit||'—'}</span></td><td class="mono">${m.centro_costo||'—'}</td><td>${m.descripcion||'—'}</td><td class="mono">${m.tipo==='debito'?'$'+money(m.valor):''}</td><td class="mono">${m.tipo==='credito'?'$'+money(m.valor):''}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+
+async function cargarPartidaGuardada(facturaId){
+  const div=document.getElementById('partida-'+facturaId); if(!div) return;
+  div.innerHTML='<div class="accounting-box"><span class="muted">Cargando contabilización…</span></div>';
+  try{ const d=await req(`/empresas/${empresaActivaId}/documentos/${facturaId}`); div.innerHTML=renderPartidaGuardada(d); }
+  catch(e){ div.innerHTML=`<div class="accounting-box"><span class="muted">${e.message}</span></div>`; }
+}
+
+async function verSugerencia(facturaId, nit, direccion, naturaleza){
+  if(!nit){ toast('Esta factura no tiene NIT de tercero', true); return; }
+  try{
+    let descripcion = '';
+    try{
+      const detalle = await req(`/empresas/${empresaActivaId}/documentos/${facturaId}`);
+      if(detalle.conceptos && detalle.conceptos.length){
+        descripcion = detalle.conceptos.map(c=>c.descripcion).filter(Boolean).join('; ');
+      }
+    }catch(e){ /* si falla, se sigue sin concepto */ }
+
+    // La nómina siempre se trata como gasto (aunque la DIAN la marque
+    // emitida) — igual que en la generación de partida.
+    const direccionEfectiva = naturaleza === 'nomina' ? 'recibida' : direccion;
+
+    const qs = new URLSearchParams({nit});
+    if(descripcion) qs.set('descripcion', descripcion);
+    if(direccionEfectiva) qs.set('direccion', direccionEfectiva);
+    const sug = await req(`/empresas/${empresaActivaId}/historial/sugerencia?${qs.toString()}`);
+    const div = document.getElementById('sugerencia-'+facturaId);
+    if(sug.cuenta_sugerida){
+      div.innerHTML = `<p><strong>Sugerido: ${sug.cuenta_sugerida}</strong> — ${sug.motivo}</p>
+        <ul>${sug.opciones.map(o=>`<li>${o.cuenta_codigo} (${o.cuenta_nombre}): ${o.usos} usos — ${o.porcentaje}%</li>`).join('')}</ul>
+        <button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${sug.cuenta_sugerida}'">Usar esta cuenta</button>`;
+    } else if(sug.opciones && sug.opciones.length){
+      div.innerHTML = `<p class="muted">${sug.motivo}</p>
+        <ul>${sug.opciones.map(o=>`<li><button class="btn ghost" onclick="document.getElementById('cuenta-${facturaId}').value='${o.cuenta_codigo}'">${o.cuenta_codigo} — ${o.cuenta_nombre}</button></li>`).join('')}</ul>`;
+    } else {
+      div.innerHTML = `<p class="muted">${sug.motivo}</p>`;
+    }
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarCuentasEmpresaCache(){
+  if(!empresaActivaId) return [];
+  try{
+    cuentasEmpresaCache = await req(`/empresas/${empresaActivaId}/cuentas-operativas`);
+  }catch(e){ cuentasEmpresaCache=[]; }
+  let dl=document.getElementById('dl-cuentasEmpresa');
+  if(!dl){ dl=document.createElement('datalist');dl.id='dl-cuentasEmpresa';document.body.appendChild(dl); }
+  dl.innerHTML=cuentasEmpresaCache.map(c=>`<option value="${c.codigo}">${c.codigo} — ${c.nombre||''}</option>`).join('');
+  return cuentasEmpresaCache;
+}
+function leerCuentasControl(facturaId){
+  const out={};
+  document.querySelectorAll(`[data-control-factura="${facturaId}"]`).forEach(inp=>{
+    const rol=inp.dataset.controlRol, valor=inp.value.trim();
+    if(rol && valor) out[rol]=valor;
+  });
+  return out;
+}
+async function renderCuentasControlPendientes(facturaId, pendientes, errores){
+  const div=document.getElementById('partida-'+facturaId); if(!div) return;
+  if(!pendientes || !pendientes.length){
+    div.innerHTML=`<p class="pill err">Requiere revisión</p><ul>${(errores||[]).map(e=>'<li>'+e+'</li>').join('')}</ul>`;
+    return;
+  }
+  if(!cuentasEmpresaCache.length) await cargarCuentasEmpresaCache();
+  const opciones=cuentasEmpresaCache.map(c=>`<option value="${c.codigo}">${c.nombre||''}</option>`).join('');
+  const money=v=>Number(v||0).toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2});
+  div.innerHTML=`<div class="accounting-box"><div class="accounting-head"><strong>Cuentas pendientes</strong><span class="pill warn">${pendientes.length} por resolver</span></div>
+    <p class="module-intro">El historial no fue concluyente. Elige solo las cuentas faltantes; la corrección quedará aprendida para casos similares.</p>
+    <div class="table-scroll"><table><thead><tr><th>Concepto</th><th>Valor</th><th>D/C</th><th>Cuenta</th></tr></thead><tbody>
+    ${pendientes.map((x,i)=>{const dl=`dl-control-${facturaId}-${i}`; return `<tr><td><strong>${x.etiqueta}</strong></td><td class="mono">$${money(x.valor)}</td><td>${x.naturaleza==='debito'?'Débito':'Crédito'}</td><td><input data-control-factura="${facturaId}" data-control-rol="${x.rol}" list="${dl}" placeholder="Buscar o escribir cuenta"><datalist id="${dl}">${opciones}</datalist></td></tr>`}).join('')}
+    </tbody></table></div>
+    <div style="margin-top:10px"><button class="btn" onclick="generarPartida('${facturaId}','')">Reintentar partida</button></div>
+    ${(errores||[]).length?`<details style="margin-top:8px"><summary><strong>Detalle</strong></summary><div class="detail-body"><ul>${errores.map(e=>'<li>'+e+'</li>').join('')}</ul></div></details>`:''}
+  </div>`;
+}
+
+async function generarPartida(facturaId, naturaleza){
+  let cuenta = document.getElementById('cuenta-'+facturaId).value.trim();
+  const elContra=document.getElementById('contra-'+facturaId); const contra=elContra?elContra.value:'';
+  const centroCosto=document.getElementById('cc-'+facturaId).value.trim();
+  try{
+    // Si no hubo corrección manual, el historial decide primero.
+    let origen='manual';
+    if(!cuenta && naturaleza!=='nomina'){
+      const detalle=await req(`/empresas/${empresaActivaId}/documentos/${facturaId}`);
+      const nit=detalle.tercero_nit || detalle.nit_emisor || '';
+      const descripcion=(detalle.conceptos||[]).map(c=>c.descripcion).filter(Boolean).join('; ');
+      const direccionEfectiva=naturaleza==='nomina'?'recibida':(detalle.direccion_documento||'');
+      const qs=new URLSearchParams({nit}); if(descripcion)qs.set('descripcion',descripcion); if(direccionEfectiva)qs.set('direccion',direccionEfectiva);
+      const sug=await req(`/empresas/${empresaActivaId}/historial/sugerencia?${qs.toString()}`);
+      if(sug.cuenta_sugerida && ['historial','historial_nit_concepto'].includes(sug.fuente)){
+        cuenta=sug.cuenta_sugerida; document.getElementById('cuenta-'+facturaId).value=cuenta; origen='sugerencia_aceptada';
+      }
+    }
+    if(!cuenta && naturaleza!=='nomina'){toast('El historial no tiene una cuenta suficientemente confiable. Indica una corrección manual.',true);return;}
+    const r=await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/partida/generar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cuenta_gasto_codigo:cuenta||null,contrapartida:contra||null,origen_decision:origen,centro_costo_codigo:centroCosto||null,cuentas_control:leerCuentasControl(facturaId)})});
+    const div=document.getElementById('partida-'+facturaId);
+    if(r.balanceado){ div.innerHTML=`<p class="pill ok">✓ Partida balanceada</p>`; toast('Partida generada y balanceada'); await cargarPartidaGuardada(facturaId); cargarPanelClasificacion(); }
+    else{ await renderCuentasControlPendientes(facturaId,r.cuentas_pendientes||[],r.errores||[]); }
+  }catch(e){toast(e.message,true);}
+}
+async function contabilizar(facturaId){
+  try{
+    await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/contabilizar`, {method:'POST'});
+    toast('Factura contabilizada');
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function resolverDuplicado(facturaId, esDuplicado){
+  try{
+    await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/resolver-duplicado`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({es_duplicado: esDuplicado}),
+    });
+    toast('Resuelto');
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function guardarValorNomina(facturaId){
+  const valor = document.getElementById('valor-'+facturaId).value.trim();
+  if(!valor){ toast('Escribe el valor total de la nómina', true); return; }
+  try{
+    await req(`/empresas/${empresaActivaId}/documentos/${facturaId}/corregir`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({subtotal: parseFloat(valor), total: parseFloat(valor)}),
+    });
+    toast('Valor guardado — ya puedes generar la partida');
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function eliminarFactura(facturaId){
+  const aviso=authUser?.es_superadmin
+    ? '¿Eliminar/retirar esta factura? Si ya fue exportada, se conservará la trazabilidad del archivo generado.'
+    : '¿Eliminar esta factura? Si ya fue exportada necesitarás que lo haga el Administrador General.';
+  if(!confirm(aviso)) return;
+  let motivo=''; if(authUser?.es_superadmin) motivo=prompt('Motivo (opcional):','')||'';
+  try{
+    const qs=motivo?`?motivo=${encodeURIComponent(motivo)}`:'';
+    const r=await req(`/empresas/${empresaActivaId}/documentos/${facturaId}${qs}`, {method:'DELETE'});
+    toast(r.era_exportada?'Factura exportada retirada; trazabilidad conservada':'Factura eliminada');
+    seleccionFacturasActual().delete(facturaId);
+    cargarFacturas(); cargarListadoCargas(); cargarResumenPorTipo();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function eliminarSeleccionadas(){
+  const ids = Array.from(seleccionFacturasActual());
+  if(ids.length === 0){ toast('Marca al menos una factura (la casilla a la izquierda) para eliminar', true); return; }
+  if(!confirm(`¿Eliminar ${ids.length} factura(s) seleccionada(s)? Esta acción no se puede deshacer.`)) return;
+  try{
+    const r = await req(`/empresas/${empresaActivaId}/documentos/eliminar-multiples`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ids),
+    });
+    toast(`${r.eliminadas} factura(s) eliminada(s)`);
+    seleccionFacturasActual().clear();
+    document.getElementById('expFacturaIds').value = '';
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+function _mostrarResultadoMasivo(body, verbo){
+  const el = document.getElementById('resultadoMasivo');
+  const detalleOmitidas = (body.detalle || []).filter(d => d.estado !== 'aplicada' && d.estado !== 'aprobada');
+  el.innerHTML = `
+    <span class="pill ok">${verbo}: ${body.aplicadas ?? body.aprobadas}</span>
+    <span class="pill warn">Omitidas: ${body.omitidas}</span>
+    ${detalleOmitidas.length ? '<div class="muted" style="margin-top:4px;">' +
+      detalleOmitidas.slice(0, 15).map(d => `Factura ${d.factura_id.slice(0,8)}…: ${d.motivo || d.estado}`).join('<br>') +
+      (detalleOmitidas.length > 15 ? ` (+${detalleOmitidas.length-15} más)` : '') + '</div>' : ''}
+  `;
+}
+
+async function generarPartidaMasivoConCuenta(){
+  const ids = Array.from(seleccionFacturasActual());
+  if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
+  const cuenta = document.getElementById('masivoCuenta').value.trim();
+  if(!cuenta){ toast('Escribe la cuenta a aplicar a todas las seleccionadas', true); return; }
+  const contrapartida = document.getElementById('masivoContrapartida').value;
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/partida/generar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids, cuenta_gasto_codigo: cuenta, contrapartida: contrapartida || null}),
+    });
+    _mostrarResultadoMasivo(body, 'Partidas generadas');
+    toast(`${body.aplicadas} partida(s) generada(s)`);
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function generarPartidaMasivoConSugerencia(){
+  const ids = Array.from(seleccionFacturasActual());
+  if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
+  const contrapartida = document.getElementById('masivoContrapartida').value;
+  if(!confirm(`Se generará la partida de ${ids.length} factura(s) usando la cuenta que el historial sugiere para cada una (solo las que tengan una sugerencia confiable — las demás se omiten). ¿Continuar?`)) return;
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/partida/generar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids, usar_sugerencia: true, contrapartida: contrapartida || null}),
+    });
+    _mostrarResultadoMasivo(body, 'Partidas generadas');
+    toast(`${body.aplicadas} partida(s) generada(s) con sugerencia del historial`);
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function contabilizarMasivo(){
+  const ids = Array.from(seleccionFacturasActual());
+  if(ids.length === 0){ toast('Marca al menos una factura', true); return; }
+  try{
+    const body = await req(`/empresas/${empresaActivaId}/documentos/contabilizar-masivo`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({factura_ids: ids}),
+    });
+    _mostrarResultadoMasivo(body, 'Contabilizadas');
+    toast(`${body.aprobadas} factura(s) contabilizada(s)`);
+    cargarFacturas();
+  }catch(e){ toast(e.message, true); }
+}
+
+// ---------- plantillas / exportación ----------
+function parsearColumnas(texto){
+  return texto.split('\n').map(l=>l.trim()).filter(Boolean).map(linea=>{
+    // El ÚLTIMO "=" es el separador etiqueta/origen — algunas columnas
+    // reales de Siigo traen su propio "=" en el nombre (ej. "DATOS
+    // ESTABLEC. (L=LOCAL O=OFICINA)"), y cortar en el PRIMER "=" partía
+    // la etiqueta a la mitad y corrompía el origen de esa columna.
+    const idx = linea.lastIndexOf('=');
+    const label = (idx === -1 ? linea : linea.slice(0, idx)).trim();
+    const origenRaw = (idx === -1 ? '' : linea.slice(idx + 1)).trim();
+    if(origenRaw && origenRaw.startsWith('fijo:')){
+      return {label, source:'fijo', valor_fijo: origenRaw.slice(5)};
+    }
+    return {label, source: origenRaw, valor_fijo: ''};
+  });
+}
+
+async function detectarColumnasDesdeEjemplo(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const archivo = document.getElementById('plEjemploInput').files[0];
+  if(!archivo){ toast('Selecciona primero un archivo de ejemplo', true); return; }
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/plantillas/inferir-desde-ejemplo`, {
+      method:'POST', headers:authHeaders(), body: fd,
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const body = await jsonSeguro(resp);
+    document.getElementById('plDelim').value = body.delimitador === '\t' ? ';' : body.delimitador;
+    const texto = body.columnas.map(c => `${c.label}=${c.source}`).join('\n');
+    document.getElementById('plColumnas').value = texto;
+    toast(`${body.columnas.length} columnas detectadas — revísalas antes de crear la plantilla`);
+  }catch(e){ toast(e.message, true); }
+}
+
+async function crearPlantilla(){
+  if(!empresaActivaId){ toast('Selecciona una empresa primero', true); return; }
+  const nombre = document.getElementById('plNombre').value.trim();
+  if(!nombre){ toast('Ponle un nombre a la plantilla antes de crearla', true); return; }
+  try{
+    await req(`/empresas/${empresaActivaId}/plantillas`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      nombre,
+      sistema_contable: document.getElementById('plSistema').value,
+      delimitador: document.getElementById('plDelim').value,
+      extension: document.getElementById('plExt').value.trim() || 'txt',
+      columnas: parsearColumnas(document.getElementById('plColumnas').value),
+    })});
+    toast('Plantilla creada');
+    cargarPlantillas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function prepararModuloExportar(){
+  if(!empresaActivaId) return;
+  await cargarPlantillas(); await cargarExportaciones();
+}
+
+async function cargarPlantillas(){
+  if(!empresaActivaId) return;
+  const emp=empresas.find(e=>e.id===empresaActivaId);
+  const wo=document.getElementById('worldOfficePlantillasPanel'); const si=document.getElementById('siigoExportInfo'); const cw=document.getElementById('expConsecutivoWrap');
+  if(emp?.sistema_contable==='siigo_pyme'){
+    if(wo) wo.classList.add('hidden'); if(si) si.classList.remove('hidden'); if(cw) cw.classList.remove('hidden');
+    try{
+      const p=await req(`/empresas/${empresaActivaId}/plantillas/siigo-automatica`);
+      document.getElementById('expPlantilla').innerHTML=`<option value="${p.id}">${p.nombre}</option>`;
+      document.getElementById('expPlantillaWrap').classList.add('hidden');
+      await cargarFacturasContabilizadas();
+    }catch(e){ toast(e.message,true); }
+    return;
+  }
+  if(wo) wo.classList.remove('hidden'); if(si) si.classList.add('hidden'); if(cw) cw.classList.add('hidden'); document.getElementById('expPlantillaWrap').classList.remove('hidden');
+  const campoNombre=document.getElementById('plNombre'); if(campoNombre&&!campoNombre.value.trim()) campoNombre.value=emp?.nombre||'World Office';
+  try{
+    const plantillas=(await req(`/empresas/${empresaActivaId}/plantillas`)).filter(p=>p.sistema_contable==='world_office');
+    document.getElementById('tablaPlantillas').innerHTML=plantillas.map(p=>`<tr><td>${p.nombre}</td><td>World Office</td><td>${p.columnas.length}</td><td><button class="btn danger" onclick="ejecutarBoton(this,'Eliminando plantilla…',()=>eliminarPlantilla('${p.id}','${(p.nombre||'').replace(/'/g,"\\'")}'))">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="4" class="muted">Sin plantilla World Office.</td></tr>';
+    document.getElementById('expPlantilla').innerHTML=plantillas.map(p=>`<option value="${p.id}">${p.nombre}</option>`).join('');
+    await cargarFacturasContabilizadas();
+  }catch(e){toast(e.message,true);}
+}
+
+async function renombrarPlantilla(id, nombreActual){
+  const nuevo = prompt('Nuevo nombre para la plantilla:', nombreActual || '');
+  if(nuevo === null) return;
+  if(!nuevo.trim()){ toast('El nombre no puede quedar vacío', true); return; }
+  try{
+    await req(`/empresas/${empresaActivaId}/plantillas/${id}/renombrar?nombre=${encodeURIComponent(nuevo.trim())}`, {method:'PATCH'});
+    toast('Plantilla renombrada');
+    cargarPlantillas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function reprocesarPlantillaSiigo(id){
+  if(!confirm('Se creará una NUEVA versión de esta plantilla SIIGO conservando la histórica. ¿Continuar?')) return;
+  try{
+    const p = await req(`/empresas/${empresaActivaId}/plantillas/${id}/reprocesar-siigo`, {method:'POST'});
+    toast(`Nueva plantilla creada: ${p.nombre}`);
+    await cargarPlantillas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function eliminarPlantilla(id, nombre){
+  if(!confirm(`¿Eliminar la plantilla "${nombre}"?`)) return;
+  try{
+    await req(`/empresas/${empresaActivaId}/plantillas/${id}`, {method:'DELETE'});
+    toast('Plantilla eliminada');
+    cargarPlantillas();
+  }catch(e){ toast(e.message, true); }
+}
+
+let _idsContabilizadasParaExportar = [];
+
+async function cargarFacturasContabilizadas(){
+  if(!empresaActivaId) return;
+  const div = document.getElementById('resumenContabilizadasExportar');
+  const plantillaId = document.getElementById('expPlantilla')?.value;
+  if(!plantillaId){ _idsContabilizadasParaExportar=[]; div.innerHTML='<span class="muted">Selecciona una plantilla.</span>'; return; }
+  try{
+    const facturas = await req(`/empresas/${empresaActivaId}/exportaciones/pendientes/${plantillaId}`);
+    _idsContabilizadasParaExportar = facturas.map(f=>f.id);
+    div.innerHTML = facturas.length
+      ? `<span class="pill ok">${facturas.length} factura(s) pendiente(s) para ESTE destino</span>`
+      : '<span class="muted">No hay facturas pendientes para este destino.</span>';
+  }catch(e){ div.innerHTML = `<span class="muted">No se pudo consultar: ${e.message}</span>`; }
+}
+
+function _idsParaExportar(){ return _idsContabilizadasParaExportar; }
+
+async function validarExportacion(){
+  if(!empresaActivaId){toast('Selecciona una empresa',true);return;}
+  const plantillaId=document.getElementById('expPlantilla').value, ids=_idsParaExportar();
+  if(!plantillaId||!ids.length){toast('No hay documentos pendientes',true);return;}
+  try{
+    const r=await req(`/empresas/${empresaActivaId}/exportaciones/validar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids,consecutivo_inicial:Number(document.getElementById('expConsecutivoInicial')?.value||1),omitir_advertencias:!!document.getElementById('expOmitirAdvertencias')?.checked})});
+    const badge=document.getElementById('estadoExportacionBadge');
+    badge.className='pill '+(r.valido?'ok':(r.puede_generar_bajo_responsabilidad?'warn':'err'));
+    badge.textContent=r.valido?'Listo':(r.puede_generar_bajo_responsabilidad?'Con advertencias':'Bloqueado');
+    const bloq=(r.bloqueantes||[]), adv=(r.advertencias||[]);
+    document.getElementById('resultadoExportacion').innerHTML=
+      (bloq.length?'<p class="pill err">Errores que NO se pueden omitir</p><ul>'+bloq.map(e=>'<li>'+e+'</li>').join('')+'</ul>':'')+
+      (adv.length?'<p class="pill warn">Advertencias corregibles</p><ul>'+adv.map(e=>'<li>'+e+'</li>').join('')+'</ul>':'')+
+      (!bloq.length&&!adv.length?'<p class="pill ok">✓ Validación correcta</p>':'');
+  }catch(e){toast(e.message,true);}
+}
+
+async function previsualizarExportacion(){
+  if(!empresaActivaId){ toast('Selecciona una empresa', true); return; }
+  const plantillaId=document.getElementById('expPlantilla').value, ids=_idsParaExportar();
+  if(!plantillaId||!ids.length){toast('No hay documentos contabilizados pendientes para exportar',true);return;}
+  const div=document.getElementById('previsualizacionExportacion');
+  try{
+    const r=await req(`/empresas/${empresaActivaId}/exportaciones/previsualizar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plantilla_id:plantillaId,factura_ids:ids,consecutivo_inicial:Number(document.getElementById('expConsecutivoInicial')?.value||1),omitir_advertencias:!!document.getElementById('expOmitirAdvertencias')?.checked})});
+    if(!r.valido){
+      const clase=r.puede_generar_bajo_responsabilidad?'warn':'err';
+      const titulo=r.puede_generar_bajo_responsabilidad?'Solo hay advertencias corregibles — marca “Generar bajo mi responsabilidad”':'Hay errores que bloquean la exportación';
+      div.innerHTML=`<p class="pill ${clase}">${titulo}</p><ul>${(r.errores||[]).map(e=>'<li>'+e+'</li>').join('')}</ul>`;return;
+    }
+    const money=v=>'$'+Number(v||0).toLocaleString('es-CO',{maximumFractionDigits:2});
+    const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v}; set('expKpiDocs',r.total_documentos);set('expKpiMovs',r.total_filas);set('expKpiDeb',money(r.total_debito));set('expKpiCre',money(r.total_credito));set('expKpiDif',money(r.diferencia));
+    document.getElementById('estadoExportacionBadge').className='pill ok';document.getElementById('estadoExportacionBadge').textContent='Listo';
+    const cols=Math.min(r.encabezado.length,18);
+    div.innerHTML=`<div class="accounting-head"><strong>${r.formato_salida==='xlsx'?'Excel listo para SIIGO':'Vista previa'}</strong><span class="muted">${r.total_documentos} documentos · ${r.total_filas} movimientos${r.consecutivo_inicial_proyectado!=null?' · internos '+r.consecutivo_inicial_proyectado+'–'+r.consecutivo_final_proyectado:''}</span></div>
+      <div class="table-scroll"><table><thead><tr>${r.encabezado.slice(0,cols).map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${r.filas.slice(0,12).map(f=>`<tr>${f.slice(0,cols).map(c=>`<td class="mono">${c??''}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      ${r.encabezado.length>cols?`<p class="muted">Vista resumida de ${cols} columnas. El Excel final conserva las ${r.encabezado.length} columnas A:DS.</p>`:''}
+      ${(r.advertencias||[]).length?`<p class="pill warn">Se generará bajo tu responsabilidad con ${(r.advertencias||[]).length} advertencia(s) corregible(s).</p>`:''}`;
+  }catch(e){toast(e.message,true);}
+}
+
+async function generarExportacion(){
+  if(!empresaActivaId){ toast('Selecciona una empresa', true); return; }
+  const plantillaId = document.getElementById('expPlantilla').value;
+  const ids = _idsParaExportar();
+  if(!plantillaId || ids.length===0){ toast('Elige una plantilla y asegúrate de tener facturas contabilizadas (o escribe IDs manualmente)', true); return; }
+  try{
+    const resp = await fetch(api() + `/empresas/${empresaActivaId}/exportaciones/generar`, {
+      method:'POST', headers:authHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({plantilla_id: plantillaId, factura_ids: ids, consecutivo_inicial:Number(document.getElementById('expConsecutivoInicial')?.value||1), omitir_advertencias: !!document.getElementById('expOmitirAdvertencias')?.checked}),
+    });
+    if(!resp.ok){ throw new Error(await errorDeRespuesta(resp)); }
+    const blob = await resp.blob();
+    const nombre = (resp.headers.get('Content-Disposition')||'').split('filename=')[1]?.replace(/"/g,'') || 'movimientocontable.xlsx';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
+    toast('Archivo generado y descargado');
+    cargarExportaciones();
+    cargarFacturas();
+    document.getElementById('expFacturaIds').value = '';
+    cargarFacturasContabilizadas();
+  }catch(e){ toast(e.message, true); }
+}
+
+async function cargarExportaciones(){
+  if(!empresaActivaId) return;
+  try{
+    const exportaciones = await req(`/empresas/${empresaActivaId}/exportaciones`);
+    document.getElementById('tablaExportaciones').innerHTML = exportaciones.map(ex=>`
+      <tr><td>${new Date(ex.creado_en).toLocaleString('es-CO')}</td><td>${ex.sistema_contable}</td>
+      <td>${ex.cantidad_registros}</td><td><span class="pill ${ex.estado==='generada'?'ok':'err'}">${ex.estado}</span></td>
+      <td>${ex.archivo_nombre||'—'}</td>
+      <td><button class="btn danger" onclick="ejecutarBoton(this,'Eliminando…',()=>eliminarExportacion('${ex.id}'))">Eliminar</button></td></tr>
+    `).join('') || '<tr><td colspan="6" class="muted">Sin exportaciones todavía.</td></tr>';
+  }catch(e){ /* silencioso */ }
+}
+
+async function eliminarExportacion(id){
+  if(!confirm('¿Eliminar esta exportación del historial visible? La evidencia técnica y la auditoría se conservarán por seguridad.')) return;
+  try{
+    await req(`/empresas/${empresaActivaId}/exportaciones/${id}`, {method:'DELETE'});
+    toast('Exportación eliminada del historial; la trazabilidad técnica se conserva');
+    cargarExportaciones();
+  }catch(e){ toast(e.message, true); }
+}
+
+// ---------- usuarios ----------
+function renderEmpresasUsuario(seleccionadas){
+  const box=document.getElementById('usrEmpresasLista'); if(!box)return;
+  const sel=new Set(seleccionadas||[]);
+  box.innerHTML=empresas.map(e=>`<label><input type="checkbox" class="usrEmpresaChk" value="${e.id}" ${sel.has(e.id)?'checked':''}> ${e.nombre}</label>`).join('')||'<span class="muted">Primero crea una empresa.</span>';
+}
+function empresasUsuarioSeleccionadas(){return Array.from(document.querySelectorAll('.usrEmpresaChk:checked')).map(x=>x.value);}
+async function crearUsuarioGlobal(){
+  if(!authUser?.es_superadmin)return;
+  const payload={nombre:document.getElementById('usrNombre').value.trim(),email:document.getElementById('usrEmail').value.trim(),password:document.getElementById('usrPassword').value,empresa_ids:empresasUsuarioSeleccionadas()};
+  if(!payload.nombre||!payload.email||!payload.password){toast('Nombre, correo y contraseña son obligatorios',true);return;}
+  try{await req('/auth/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});toast('Usuario creado');document.getElementById('usrNombre').value='';document.getElementById('usrEmail').value='';document.getElementById('usrPassword').value='';renderEmpresasUsuario();cargarUsuariosGlobales();}catch(e){toast(e.message,true);}
+}
+async function cargarUsuariosGlobales(){
+  if(!authUser?.es_superadmin)return;
+  try{
+    const rows=await req('/auth/admin/usuarios'); const tb=document.getElementById('tablaUsuariosGlobal');
+    tb.innerHTML=rows.map(u=>{
+      const emps=(u.asignaciones||[]).map(a=>a.empresa_nombre).join(', ')|| (u.es_superadmin?'Todas':'Sin empresa');
+      return `<tr><td><strong>${u.nombre||'—'}</strong></td><td>${u.email}</td><td>${u.es_superadmin?'Administrador':'Contador'}</td><td>${emps}</td><td><span class="pill ${u.activo?'ok':'err'}">${u.activo?'Activo':'Inactivo'}</span></td><td style="white-space:nowrap">${u.es_superadmin?'—':`<button class="btn ghost" onclick="editarUsuarioGlobal('${u.id}')">Editar</button> <button class="btn ghost" onclick="alternarUsuarioGlobal('${u.id}',${u.activo?'false':'true'})">${u.activo?'Desactivar':'Activar'}</button> <button class="btn ghost" onclick="resetClaveUsuario('${u.id}')">Clave</button> <button class="btn danger" onclick="ejecutarBoton(this,'Eliminando usuario…',()=>eliminarUsuarioGlobal('${u.id}'))">Eliminar</button>`}</td></tr>`;
+    }).join('')||'<tr><td colspan="6" class="muted">Sin usuarios.</td></tr>';
+    window._usuariosGlobales=rows;
+  }catch(e){toast(e.message,true);}
+}
+async function editarUsuarioGlobal(id){
+  const u=(window._usuariosGlobales||[]).find(x=>x.id===id); if(!u)return;
+  const nombre=prompt('Nombre:',u.nombre||''); if(nombre===null)return;
+  const email=prompt('Correo:',u.email||''); if(email===null)return;
+  const actuales=new Set((u.asignaciones||[]).map(a=>a.empresa_id));
+  const lista=empresas.map((e,i)=>`${i+1}. ${e.nombre}${actuales.has(e.id)?' ✓':''}`).join('\n');
+  const elegidas=prompt(`Empresas autorizadas. Escribe números separados por coma.\n${lista}`, empresas.map((e,i)=>actuales.has(e.id)?i+1:null).filter(Boolean).join(','));
+  if(elegidas===null)return;
+  const indices=elegidas.split(',').map(x=>parseInt(x.trim())).filter(n=>n>=1&&n<=empresas.length);
+  const empresa_ids=[...new Set(indices.map(n=>empresas[n-1].id))];
+  try{await req(`/auth/admin/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre:nombre.trim(),email:email.trim(),empresa_ids})});toast('Usuario actualizado');cargarUsuariosGlobales();}catch(e){toast(e.message,true);}
+}
+async function alternarUsuarioGlobal(id,activo){try{await req(`/auth/admin/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo})});toast('Usuario actualizado');cargarUsuariosGlobales();}catch(e){toast(e.message,true);}}
+async function eliminarUsuarioGlobal(id){if(!confirm('¿Eliminar este usuario y sus accesos?'))return;try{await req(`/auth/admin/usuarios/${id}`,{method:'DELETE'});toast('Usuario eliminado');cargarUsuariosGlobales();}catch(e){toast(e.message,true);}}
+async function resetClaveUsuario(id){const clave=prompt('Nueva contraseña (mínimo 10 caracteres, letras y números):');if(!clave)return;try{await req(`/auth/admin/usuarios/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password_nueva:clave})});toast('Contraseña restablecida');}catch(e){toast(e.message,true);}}
+
+// ---------- auditoría ----------
+async function cargarAuditoria(){
+  if(!empresaActivaId){ document.getElementById('tablaAuditoria').innerHTML=''; return; }
+  try{
+    const eventos = await req(`/empresas/${empresaActivaId}/auditoria`);
+    document.getElementById('tablaAuditoria').innerHTML = eventos.map(ev=>`
+      <tr><td>${new Date(ev.creado_en).toLocaleString('es-CO')}</td><td>${ev.entidad}</td><td>${ev.accion}</td>
+      <td>${ev.usuario||'—'}</td><td class="mono" style="max-width:400px; overflow:hidden; text-overflow:ellipsis;">${(ev.detalle||'').slice(0,200)}</td></tr>
+    `).join('') || '<tr><td colspan="5" class="muted">Sin eventos todavía.</td></tr>';
+  }catch(e){ toast(e.message, true); }
+}
+
+// ---------- init ----------
+// La interfaz se sirve desde el mismo servidor que la API (mount /app en
+// FastAPI). Por eso el origen (protocolo+dominio+puerto) siempre coincide
+// con el de la API, tanto en local (http://127.0.0.1:8000) como ya
+// desplegado (https://tu-app.onrender.com) — así nunca queda apuntando
+// por error a 127.0.0.1 cuando se abre desde otro lugar.
+document.getElementById('apiBase').value = window.location.origin;
+(async function iniciarAplicacion(){
+  try{
+    const estadoResp=await fetch(api()+'/auth/estado'); const estado=await estadoResp.json();
+    if(estado.requiere_bootstrap){mostrarLogin(true);return;}
+    const meResp=await fetch(api()+'/auth/me',{headers:authHeaders()});
+    if(!meResp.ok){authToken='';mostrarLogin(false);return;}
+    authUser=await meResp.json(); await despuesDeAutenticar();
+  }catch(e){mostrarLogin(false);toast('No fue posible verificar la sesión: '+e.message,true);}
+})();
+</script>
+</body>
+</html>
